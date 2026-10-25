@@ -42,18 +42,24 @@ function initTheaterMode() {
     if (theaterTitle) theaterTitle.textContent = title || 'AuroMind Game';
     if (theaterIcon && icon) theaterIcon.src = icon;
     
+    // Enter True Game Mode: hides portal header & sidebar for 100% viewport height
+    document.body.classList.add('in-game-mode');
+
     // Load into iframe
     if (theaterIframe) theaterIframe.src = url;
 
     // Transition view
     if (catalogScroll) catalogScroll.style.display = 'none';
-    if (theaterView) theaterView.style.display = 'flex';
+    if (theaterView) theaterView.style.display = 'block';
 
     // Update browser history state without leaving page or exposing sub-url
     history.pushState({ inGame: true, gameId }, title, `#play-${gameId}`);
   }
 
   function closeTheater() {
+    // Exit True Game Mode
+    document.body.classList.remove('in-game-mode');
+
     // Unload iframe to stop audio and clean memory
     if (theaterIframe) theaterIframe.src = 'about:blank';
 
