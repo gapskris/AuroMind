@@ -1,19 +1,127 @@
 /**
  * AUROMIND PORTAL - INTERACTIVE CLIENT SCRIPT
- * Manages sidebar navigation, search, senior mode, audio, and modals across 16 games.
+ * Manages in-portal game theater, search, filters, senior mode, audio, and modals.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
+  initTheaterMode();
   initSidebarAndNavigation();
   initSearch();
   initSeniorMode();
   initAmbientAudio();
   initAuthModal();
-  initSmartLinks();
 });
 
 // ==========================================================================
-// 1. SIDEBAR NAVIGATION & CATEGORY FILTERING (16 TITLES)
+// 1. IN-PORTAL GAME THEATER VIEW (KEEPS USERS INSIDE AUROMIND)
+// ==========================================================================
+function initTheaterMode() {
+  const playButtons = document.querySelectorAll('.play-game-btn');
+  const catalogScroll = document.querySelector('.portal-content-scroll');
+  const theaterView = document.getElementById('game-theater-view');
+  const theaterIframe = document.getElementById('game-viewport-iframe');
+  const theaterTitle = document.getElementById('theater-game-title');
+  const theaterIcon = document.getElementById('theater-game-icon');
+  const backBtn = document.getElementById('theater-back-btn');
+  const reloadBtn = document.getElementById('theater-reload-btn');
+  const fullscreenBtn = document.getElementById('theater-fullscreen-btn');
+
+  const isLocal = window.location.hostname === 'localhost' || 
+                  window.location.hostname === '127.0.0.1' || 
+                  window.location.protocol === 'file:';
+
+  const gameUrls = {
+    'vak': isLocal ? '../vak-play/index.html' : 'https://gapskris.github.io/vak-play/',
+    'auromatch': isLocal ? '../auromatch-play/index.html' : 'https://gapskris.github.io/auromatch-play/'
+  };
+
+  function openGameInTheater(gameId, title, icon) {
+    const url = gameUrls[gameId];
+    if (!url) return;
+
+    if (theaterTitle) theaterTitle.textContent = title || 'AuroMind Game';
+    if (theaterIcon && icon) theaterIcon.src = icon;
+    
+    // Load into iframe
+    if (theaterIframe) theaterIframe.src = url;
+
+    // Transition view
+    if (catalogScroll) catalogScroll.style.display = 'none';
+    if (theaterView) theaterView.style.display = 'flex';
+
+    // Update browser history state without leaving page or exposing sub-url
+    history.pushState({ inGame: true, gameId }, title, `#play-${gameId}`);
+  }
+
+  function closeTheater() {
+    // Unload iframe to stop audio and clean memory
+    if (theaterIframe) theaterIframe.src = 'about:blank';
+
+    if (theaterView) theaterView.style.display = 'none';
+    if (catalogScroll) catalogScroll.style.display = 'flex';
+
+    if (window.location.hash.startsWith('#play-')) {
+      history.pushState({ inGame: false }, 'AuroMind', window.location.pathname);
+    }
+  }
+
+  // Play button click handlers
+  playButtons.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const gameId = btn.dataset.gameId;
+      const title = btn.dataset.title;
+      const icon = btn.dataset.icon;
+      openGameInTheater(gameId, title, icon);
+    });
+  });
+
+  // Back to Catalog handler
+  if (backBtn) {
+    backBtn.addEventListener('click', closeTheater);
+  }
+
+  // Reload handler
+  if (reloadBtn) {
+    reloadBtn.addEventListener('click', () => {
+      if (theaterIframe && theaterIframe.src !== 'about:blank') {
+        const currentSrc = theaterIframe.src;
+        theaterIframe.src = 'about:blank';
+        setTimeout(() => { theaterIframe.src = currentSrc; }, 100);
+      }
+    });
+  }
+
+  // Fullscreen toggle handler
+  if (fullscreenBtn) {
+    fullscreenBtn.addEventListener('click', () => {
+      const container = document.querySelector('.theater-iframe-container');
+      if (!container) return;
+
+      if (!document.fullscreenElement) {
+        if (container.requestFullscreen) {
+          container.requestFullscreen();
+        } else if (container.webkitRequestFullscreen) {
+          container.webkitRequestFullscreen();
+        }
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        }
+      }
+    });
+  }
+
+  // Listen to browser Back button
+  window.addEventListener('popstate', (e) => {
+    if (!e.state || !e.state.inGame) {
+      closeTheater();
+    }
+  });
+}
+
+// ==========================================================================
+// 2. SIDEBAR NAVIGATION & CATEGORY FILTERING (16 TITLES)
 // ==========================================================================
 function initSidebarAndNavigation() {
   const sidebar = document.getElementById('portal-sidebar');
@@ -21,13 +129,11 @@ function initSidebarAndNavigation() {
   const navItems = document.querySelectorAll('.sidebar-nav-item[data-category]');
   const cards = document.querySelectorAll('.game-card');
 
-  // Mobile menu toggle
   if (menuToggle && sidebar) {
     menuToggle.addEventListener('click', () => {
       sidebar.classList.toggle('open');
     });
 
-    // Close on clicking outside on mobile
     document.addEventListener('click', (e) => {
       if (window.innerWidth < 680 && 
           sidebar.classList.contains('open') && 
@@ -38,7 +144,6 @@ function initSidebarAndNavigation() {
     });
   }
 
-  // Sidebar category filtering
   navItems.forEach(item => {
     item.addEventListener('click', () => {
       navItems.forEach(i => i.classList.remove('active'));
@@ -55,7 +160,6 @@ function initSidebarAndNavigation() {
         }
       });
 
-      // Also hide sections if all child cards are hidden
       document.querySelectorAll('.section-block').forEach(section => {
         const visibleCards = section.querySelectorAll('.game-card[style*="display: flex"]');
         const hiddenCards = section.querySelectorAll('.game-card[style*="display: none"]');
@@ -74,7 +178,7 @@ function initSidebarAndNavigation() {
 }
 
 // ==========================================================================
-// 2. LIVE SEARCH (ALL 16 GAMES)
+// 3. LIVE SEARCH (ALL 16 GAMES)
 // ==========================================================================
 function initSearch() {
   const searchInput = document.getElementById('search-input');
@@ -105,7 +209,7 @@ function initSearch() {
 }
 
 // ==========================================================================
-// 3. SENIOR ACCESSIBILITY MODE TOGGLE
+// 4. SENIOR ACCESSIBILITY MODE TOGGLE
 // ==========================================================================
 function initSeniorMode() {
   const seniorBtn = document.getElementById('senior-mode-btn');
@@ -129,7 +233,7 @@ function initSeniorMode() {
 }
 
 // ==========================================================================
-// 4. AMBIENT 432 Hz AUDIO (WEB AUDIO API)
+// 5. AMBIENT 432 Hz AUDIO (WEB AUDIO API)
 // ==========================================================================
 function initAmbientAudio() {
   const audioBtn = document.getElementById('ambient-audio-btn');
@@ -178,7 +282,7 @@ function initAmbientAudio() {
 }
 
 // ==========================================================================
-// 5. AUTH & ACCOUNT MODAL (ROADMAP TEASER)
+// 6. AUTH & ACCOUNT MODAL (ROADMAP TEASER)
 // ==========================================================================
 function initAuthModal() {
   const authBtn = document.getElementById('auth-btn');
@@ -198,24 +302,4 @@ function initAuthModal() {
   modal.addEventListener('click', (e) => {
     if (e.target === modal) closeModal();
   });
-}
-
-// ==========================================================================
-// 6. SMART ENVIRONMENT LINKS
-// ==========================================================================
-function initSmartLinks() {
-  const isLocal = window.location.hostname === 'localhost' || 
-                  window.location.hostname === '127.0.0.1' || 
-                  window.location.protocol === 'file:';
-
-  const vakLink = document.getElementById('link-vak');
-  const auromatchLink = document.getElementById('link-auromatch');
-
-  if (isLocal) {
-    if (vakLink) vakLink.href = '../vak-play/index.html';
-    if (auromatchLink) auromatchLink.href = '../auromatch-play/index.html';
-  } else {
-    if (vakLink) vakLink.href = 'https://gapskris.github.io/vak-play/';
-    if (auromatchLink) auromatchLink.href = 'https://gapskris.github.io/auromatch-play/';
-  }
 }

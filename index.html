@@ -222,13 +222,12 @@
                   Master 350 contemplative word puzzles to cultivate clarity, mindful speech habits, and inner silence.
                 </p>
 
-                <a id="link-vak" 
-                   href="https://gapskris.github.io/vak-play/" 
-                   target="_blank" 
-                   rel="noopener noreferrer" 
-                   class="btn-open">
-                  <span>Open Game ↗</span>
-                </a>
+                <button class="btn-open play-game-btn" 
+                        data-game-id="vak" 
+                        data-title="Vak — The Control of Speech" 
+                        data-icon="assets/icons/vak-logo.svg">
+                  <span>Play Game ▶</span>
+                </button>
               </div>
             </article>
 
@@ -262,13 +261,12 @@
                   A tranquil 3-tray botanical matching sanctuary featuring large-print accessibility tiles and soothing soundscapes.
                 </p>
 
-                <a id="link-auromatch" 
-                   href="https://gapskris.github.io/auromatch-play/" 
-                   target="_blank" 
-                   rel="noopener noreferrer" 
-                   class="btn-open">
-                  <span>Open Game ↗</span>
-                </a>
+                <button class="btn-open play-game-btn" 
+                        data-game-id="auromatch" 
+                        data-title="AuroMatch — Triple Garden" 
+                        data-icon="assets/icons/auromatch-logo.svg">
+                  <span>Play Game ▶</span>
+                </button>
               </div>
             </article>
 
@@ -784,9 +782,34 @@
 
       </div>
 
-    </div>
+      <!-- IN-PORTAL GAME THEATER VIEW (KEEPS PLAYERS INSIDE AUROMIND) -->
+      <div id="game-theater-view" class="game-theater-view">
+        <div class="theater-header">
+          <button id="theater-back-btn" class="btn-theater-back">
+            <span>⬅</span>
+            <span>Back to Catalog</span>
+          </button>
+          
+          <div class="theater-game-info">
+            <img id="theater-game-icon" src="assets/icons/auromind-logo.svg" alt="Game Icon" class="theater-icon">
+            <span id="theater-game-title" class="theater-title">Game Title</span>
+          </div>
 
-  </div>
+          <div class="theater-actions">
+            <button id="theater-reload-btn" class="btn-theater-action" title="Reload Game">🔄</button>
+            <button id="theater-fullscreen-btn" class="btn-theater-action" title="Toggle Fullscreen">⛶</button>
+          </div>
+        </div>
+
+        <div class="theater-iframe-container">
+          <iframe id="game-viewport-iframe" 
+                  class="theater-iframe" 
+                  src="about:blank" 
+                  allow="autoplay; fullscreen; screen-wake-lock; clipboard-write" 
+                  allowfullscreen="true">
+          </iframe>
+        </div>
+      </div>
 
   <!-- AUTH MODAL -->
   <div id="auth-modal" class="modal-overlay">
