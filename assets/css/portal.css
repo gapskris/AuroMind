@@ -697,7 +697,7 @@ html, body {
 }
 
 /* ==========================================================================
-   IN-PORTAL GAME THEATER VIEW (SOLUTION 1: TRUE FULLSCREEN WITH FLOATING PILL)
+   IN-PORTAL GAME THEATER VIEW (SOLUTION A: CONSOLE-STYLE SIDE EDGE TAB)
    ========================================================================== */
 body.in-game-mode {
   overflow: hidden !important;
@@ -733,76 +733,104 @@ body.in-game-mode .portal-main-area {
   z-index: 1000;
 }
 
-/* FLOATING GLASS PILL CONTROLS (Overlays without pushing down game by a single pixel) */
-.theater-floating-controls {
+/* SIDE EDGE CONTROLLER (0% Top Overlap & 0% Bottom Truncation) */
+.game-edge-controller {
+  position: fixed;
+  left: 0;
+  top: 35%;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  transform: translateX(-100%); /* content hidden by default */
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.game-edge-controller.open {
+  transform: translateX(0);
+}
+
+.edge-tab-trigger {
   position: absolute;
-  top: max(env(safe-area-inset-top, 0px), 10px);
-  left: 10px;
-  right: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  pointer-events: none;
-  z-index: 50;
-}
-
-.btn-floating-pill {
-  pointer-events: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  background: rgba(9, 14, 27, 0.82);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  color: #ffffff;
-  padding: 0.42rem 0.95rem;
-  border-radius: var(--radius-full);
-  font-size: 0.82rem;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
-  transition: all var(--transition-fast);
-}
-
-.btn-floating-pill:hover {
-  background: var(--accent-gold);
-  color: #070a13;
-  border-color: var(--accent-gold);
-  transform: translateY(-1px);
-}
-
-.theater-floating-actions {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-}
-
-.btn-floating-action {
-  pointer-events: auto;
-  background: rgba(9, 14, 27, 0.82);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  color: #ffffff;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-full);
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 48px;
+  background: rgba(9, 14, 27, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  border-left: none;
+  border-radius: 0 10px 10px 0;
+  color: var(--accent-gold-light);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  font-size: 0.92rem;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+  box-shadow: 3px 2px 14px rgba(0, 0, 0, 0.65);
   transition: all var(--transition-fast);
 }
 
-.btn-floating-action:hover {
+.edge-tab-trigger:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--accent-gold);
+  width: 30px;
+}
+
+.edge-tab-icon {
+  font-size: 0.72rem;
+  transition: transform 0.25s ease;
+}
+
+.game-edge-controller.open .edge-tab-icon {
+  transform: rotate(180deg);
+}
+
+.edge-drawer-content {
+  background: rgba(9, 14, 27, 0.94);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-left: none;
+  border-radius: 0 14px 14px 0;
+  padding: 0.75rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.85);
+}
+
+.btn-edge-action {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: #ffffff;
+  padding: 0.5rem 0.95rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-fast);
+}
+
+.btn-edge-action:hover {
+  background: var(--bg-card-hover);
   color: var(--accent-gold-light);
   border-color: var(--accent-gold);
-  background: rgba(22, 32, 56, 0.9);
-  transform: translateY(-1px);
+}
+
+.btn-edge-exit {
+  background: linear-gradient(135deg, var(--accent-gold), var(--accent-gold-dark));
+  color: #070a13;
+  border: none;
+}
+
+.btn-edge-exit:hover {
+  filter: brightness(1.15);
+  color: #070a13;
 }
 
 /* THEATER IFRAME CONTAINER: TRUE 100% VIEWPORT */

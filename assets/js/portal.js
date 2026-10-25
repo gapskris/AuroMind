@@ -25,6 +25,21 @@ function initTheaterMode() {
   const backBtn = document.getElementById('theater-back-btn');
   const reloadBtn = document.getElementById('theater-reload-btn');
   const fullscreenBtn = document.getElementById('theater-fullscreen-btn');
+  const edgeController = document.getElementById('game-edge-controller');
+  const edgeTrigger = document.getElementById('edge-tab-trigger');
+
+  if (edgeTrigger && edgeController) {
+    edgeTrigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      edgeController.classList.toggle('open');
+    });
+
+    document.addEventListener('click', (e) => {
+      if (edgeController.classList.contains('open') && !edgeController.contains(e.target)) {
+        edgeController.classList.remove('open');
+      }
+    });
+  }
 
   const isLocal = window.location.hostname === 'localhost' || 
                   window.location.hostname === '127.0.0.1' || 
@@ -59,6 +74,7 @@ function initTheaterMode() {
   function closeTheater() {
     // Exit True Game Mode
     document.body.classList.remove('in-game-mode');
+    if (edgeController) edgeController.classList.remove('open');
 
     // Unload iframe to stop audio and clean memory
     if (theaterIframe) theaterIframe.src = 'about:blank';

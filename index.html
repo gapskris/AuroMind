@@ -782,17 +782,28 @@
 
       </div>
 
-      <!-- IN-PORTAL GAME THEATER VIEW (TRUE FULLSCREEN WITH FLOATING GLASS PILL) -->
+      <!-- IN-PORTAL GAME THEATER VIEW (SOLUTION A: CONSOLE EDGE DRAWER) -->
       <div id="game-theater-view" class="game-theater-view">
-        <div class="theater-floating-controls">
-          <button id="theater-back-btn" class="btn-floating-pill" title="Back to Game Catalog">
-            <span>⬅</span>
-            <span>Back to Catalog</span>
+        
+        <!-- SIDE EDGE CONTROLLER (ZERO OVERLAP WITH TOP BUTTONS) -->
+        <div id="game-edge-controller" class="game-edge-controller">
+          <button id="edge-tab-trigger" class="edge-tab-trigger" aria-label="Toggle AuroMind menu" title="AuroMind Menu">
+            <span class="edge-tab-icon">◀</span>
           </button>
-          
-          <div class="theater-floating-actions">
-            <button id="theater-reload-btn" class="btn-floating-action" title="Reload Game">🔄</button>
-            <button id="theater-fullscreen-btn" class="btn-floating-action" title="Toggle Fullscreen">⛶</button>
+
+          <div class="edge-drawer-content">
+            <button id="theater-back-btn" class="btn-edge-action btn-edge-exit" title="Back to Game Catalog">
+              <span>⬅</span>
+              <span>Exit to Catalog</span>
+            </button>
+            <button id="theater-reload-btn" class="btn-edge-action" title="Restart Current Game">
+              <span>🔄</span>
+              <span>Restart</span>
+            </button>
+            <button id="theater-fullscreen-btn" class="btn-edge-action" title="Toggle Fullscreen">
+              <span>⛶</span>
+              <span>Fullscreen</span>
+            </button>
           </div>
         </div>
 
