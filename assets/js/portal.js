@@ -1,76 +1,119 @@
 /**
  * AUROMIND PORTAL - INTERACTIVE CLIENT SCRIPT
- * Manages search, category filtering, ambient audio, and modal interactions.
+ * Manages sidebar navigation, search, senior mode, audio, and modals.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
-  initSearchAndFilter();
+  initSidebarAndNavigation();
+  initSearch();
+  initSeniorMode();
   initAmbientAudio();
   initAuthModal();
   initSmartLinks();
 });
 
 // ==========================================================================
-// 1. SEARCH & CATEGORY FILTERING
+// 1. SIDEBAR NAVIGATION & CATEGORY FILTERING
 // ==========================================================================
-function initSearchAndFilter() {
-  const searchInput = document.getElementById('search-input');
-  const filterChips = document.querySelectorAll('.filter-chip');
+function initSidebarAndNavigation() {
+  const sidebar = document.getElementById('portal-sidebar');
+  const menuToggle = document.getElementById('menu-toggle-btn');
+  const navItems = document.querySelectorAll('.sidebar-nav-item[data-category]');
   const cards = document.querySelectorAll('.game-card');
-  const countDisplay = document.getElementById('visible-count');
 
-  let activeCategory = 'all';
-  let searchQuery = '';
+  // Mobile menu toggle
+  if (menuToggle && sidebar) {
+    menuToggle.addEventListener('click', () => {
+      sidebar.classList.toggle('open');
+    });
 
-  function applyFilters() {
-    let visibleCount = 0;
-
-    cards.forEach(card => {
-      const title = (card.dataset.title || '').toLowerCase();
-      const genre = (card.dataset.genre || '').toLowerCase();
-      const usp = (card.dataset.usp || '').toLowerCase();
-      const category = (card.dataset.category || '').toLowerCase();
-
-      const matchesCategory = (activeCategory === 'all' || category.includes(activeCategory));
-      const matchesSearch = !searchQuery || 
-        title.includes(searchQuery) || 
-        genre.includes(searchQuery) || 
-        usp.includes(searchQuery);
-
-      if (matchesCategory && matchesSearch) {
-        card.style.display = 'flex';
-        visibleCount++;
-      } else {
-        card.style.display = 'none';
+    // Close on clicking outside on mobile
+    document.addEventListener('click', (e) => {
+      if (window.innerWidth < 680 && 
+          sidebar.classList.contains('open') && 
+          !sidebar.contains(e.target) && 
+          e.target !== menuToggle) {
+        sidebar.classList.remove('open');
       }
     });
-
-    if (countDisplay) {
-      countDisplay.textContent = `${visibleCount} Game${visibleCount === 1 ? '' : 's'}`;
-    }
   }
 
-  // Search input handler
-  if (searchInput) {
-    searchInput.addEventListener('input', (e) => {
-      searchQuery = e.target.value.trim().toLowerCase();
-      applyFilters();
-    });
-  }
+  // Sidebar category filtering
+  navItems.forEach(item => {
+    item.addEventListener('click', () => {
+      navItems.forEach(i => i.classList.remove('active'));
+      item.classList.add('active');
 
-  // Category chip handler
-  filterChips.forEach(chip => {
-    chip.addEventListener('click', () => {
-      filterChips.forEach(c => c.classList.remove('active'));
-      chip.classList.add('active');
-      activeCategory = chip.dataset.filter || 'all';
-      applyFilters();
+      const filterCategory = item.dataset.category;
+
+      cards.forEach(card => {
+        const cardCategory = (card.dataset.category || '').toLowerCase();
+        if (filterCategory === 'all' || cardCategory.includes(filterCategory)) {
+          card.style.display = 'flex';
+        } else {
+          card.style.display = 'none';
+        }
+      });
+
+      if (window.innerWidth < 680 && sidebar) {
+        sidebar.classList.remove('open');
+      }
     });
   });
 }
 
 // ==========================================================================
-// 2. AMBIENT 432 Hz SOUNDSCAPE (WEB AUDIO API - ZERO ASSETS NEEDED)
+// 2. LIVE SEARCH
+// ==========================================================================
+function initSearch() {
+  const searchInput = document.getElementById('search-input');
+  const cards = document.querySelectorAll('.game-card');
+
+  if (!searchInput) return;
+
+  searchInput.addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+
+    cards.forEach(card => {
+      const title = (card.dataset.title || '').toLowerCase();
+      const genre = (card.dataset.genre || '').toLowerCase();
+      const usp = (card.dataset.usp || '').toLowerCase();
+
+      if (!q || title.includes(q) || genre.includes(q) || usp.includes(q)) {
+        card.style.display = 'flex';
+      } else {
+        card.style.display = 'none';
+      }
+    });
+  });
+}
+
+// ==========================================================================
+// 3. SENIOR ACCESSIBILITY MODE TOGGLE
+// ==========================================================================
+function initSeniorMode() {
+  const seniorBtn = document.getElementById('senior-mode-btn');
+  const sidebarSeniorBtn = document.getElementById('sidebar-senior-btn');
+
+  function toggleSeniorMode() {
+    document.body.classList.toggle('senior-mode');
+    const isActive = document.body.classList.contains('senior-mode');
+    
+    if (seniorBtn) {
+      seniorBtn.classList.toggle('active', isActive);
+      seniorBtn.querySelector('span:last-child').textContent = isActive ? 'Senior: ON' : 'Senior View';
+    }
+    if (sidebarSeniorBtn) {
+      sidebarSeniorBtn.classList.toggle('active', isActive);
+    }
+  }
+
+  if (seniorBtn) seniorBtn.addEventListener('click', toggleSeniorMode);
+  if (sidebarSeniorBtn) sidebarSeniorBtn.addEventListener('click', toggleSeniorMode);
+}
+
+// ==========================================================================
+// 4. AMBIENT 432 Hz AUDIO (WEB AUDIO API)
 // ==========================================================================
 function initAmbientAudio() {
   const audioBtn = document.getElementById('ambient-audio-btn');
@@ -88,43 +131,38 @@ function initAmbientAudio() {
     }
 
     if (isPlaying) {
-      // Fade out
-      gainNode.gain.linearRampToValueAtTime(0.001, audioCtx.currentTime + 0.6);
+      gainNode.gain.linearRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
       setTimeout(() => {
         if (oscillator) {
           oscillator.stop();
           oscillator.disconnect();
           oscillator = null;
         }
-      }, 600);
+      }, 500);
       isPlaying = false;
-      audioBtn.style.color = '';
-      audioBtn.title = 'Play Ambient 432 Hz Soundscape';
+      audioBtn.classList.remove('active');
     } else {
-      // 432 Hz Meditative Drone
       oscillator = audioCtx.createOscillator();
       gainNode = audioCtx.createGain();
 
       oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(432, audioCtx.currentTime); // 432 Hz natural resonance
+      oscillator.frequency.setValueAtTime(432, audioCtx.currentTime);
 
-      // Soft volume
       gainNode.gain.setValueAtTime(0.001, audioCtx.currentTime);
-      gainNode.gain.linearRampToValueAtTime(0.04, audioCtx.currentTime + 1.2);
+      gainNode.gain.linearRampToValueAtTime(0.035, audioCtx.currentTime + 1);
 
       oscillator.connect(gainNode);
       gainNode.connect(audioCtx.destination);
 
       oscillator.start();
       isPlaying = true;
-      audioBtn.style.color = 'var(--accent-gold)';
-      audioBtn.title = 'Ambient 432 Hz Playing (Click to Mute)';
+      audioBtn.classList.add('active');
     }
   });
 }
 
 // ==========================================================================
-// 3. AUTH & PURCHASE MODAL (ROADMAP TEASER)
+// 5. AUTH & ACCOUNT MODAL (ROADMAP TEASER)
 // ==========================================================================
 function initAuthModal() {
   const authBtn = document.getElementById('auth-btn');
@@ -147,10 +185,9 @@ function initAuthModal() {
 }
 
 // ==========================================================================
-// 4. SMART LINKS (LOCAL VS GITHUB PAGES)
+// 6. SMART ENVIRONMENT LINKS
 // ==========================================================================
 function initSmartLinks() {
-  // If running locally in a file system or local server, we adjust links
   const isLocal = window.location.hostname === 'localhost' || 
                   window.location.hostname === '127.0.0.1' || 
                   window.location.protocol === 'file:';
@@ -162,7 +199,6 @@ function initSmartLinks() {
     if (vakLink) vakLink.href = '../vak-play/index.html';
     if (auromatchLink) auromatchLink.href = '../auromatch-play/index.html';
   } else {
-    // When live on GitHub Pages
     if (vakLink) vakLink.href = 'https://gapskris.github.io/vak-play/';
     if (auromatchLink) auromatchLink.href = 'https://gapskris.github.io/auromatch-play/';
   }

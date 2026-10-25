@@ -16,338 +16,466 @@
 </head>
 <body>
 
-  <!-- ========================================================================
-       TOP HEADER & NAVIGATION
-       ======================================================================== -->
-  <header class="portal-header">
-    <div class="header-container">
+  <div class="app-layout">
+
+    <!-- ======================================================================
+         1. STICKY LEFT SIDEBAR (CrazyGames Style)
+         ====================================================================== -->
+    <aside id="portal-sidebar" class="portal-sidebar">
       
-      <!-- Brand Identity -->
-      <a href="./index.html" class="brand">
-        <img src="assets/icons/auromind-logo.svg" alt="AuroMind Lotus" class="brand-icon">
-        <div class="brand-title-group">
+      <!-- Brand Logo in Sidebar -->
+      <a href="./index.html" class="sidebar-header">
+        <img src="assets/icons/auromind-logo.svg" alt="AuroMind" class="sidebar-logo">
+        <div class="sidebar-brand-text">
           <h1>AuroMind</h1>
           <p>Sanctuary of Play</p>
         </div>
       </a>
 
-      <!-- Real-Time Search Bar -->
-      <div class="search-wrapper">
-        <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
-        <input 
-          type="search" 
-          id="search-input" 
-          class="search-input" 
-          placeholder="Search games, virtues, or mechanics..." 
-          autocomplete="off">
+      <!-- Navigation Links -->
+      <div class="sidebar-scroll">
+        <div class="sidebar-label">Navigation</div>
+        
+        <a class="sidebar-nav-item active" data-category="all">
+          <span class="sidebar-icon">🏠</span>
+          <span>Home</span>
+        </a>
+        
+        <a class="sidebar-nav-item" data-category="daily">
+          <span class="sidebar-icon">🌿</span>
+          <span>Daily Ritual</span>
+        </a>
+
+        <a class="sidebar-nav-item" data-category="words">
+          <span class="sidebar-icon">📖</span>
+          <span>Words (Vak)</span>
+        </a>
+
+        <a class="sidebar-nav-item" data-category="tiles">
+          <span class="sidebar-icon">🀄</span>
+          <span>Tiles (AuroMatch)</span>
+        </a>
+
+        <a class="sidebar-nav-item" data-category="blocks">
+          <span class="sidebar-icon">🧩</span>
+          <span>Blocks (AuroBlocks)</span>
+        </a>
+
+        <a class="sidebar-nav-item" data-category="logic">
+          <span class="sidebar-icon">💡</span>
+          <span>Logic & Parables</span>
+        </a>
+
+        <a class="sidebar-nav-item" data-category="zen">
+          <span class="sidebar-icon">🌸</span>
+          <span>Zen Garden</span>
+        </a>
+
+        <a class="sidebar-nav-item" data-category="offline">
+          <span class="sidebar-icon">📶</span>
+          <span>Offline Ready</span>
+        </a>
+
+        <div class="sidebar-divider"></div>
+
+        <div class="sidebar-label">Platform</div>
+
+        <a id="sidebar-senior-btn" class="sidebar-nav-item">
+          <span class="sidebar-icon">👴</span>
+          <span>Senior Mode</span>
+        </a>
+
+        <a id="sidebar-settings-btn" class="sidebar-nav-item">
+          <span class="sidebar-icon">⚙️</span>
+          <span>Settings</span>
+        </a>
+
+        <a id="sidebar-about-btn" class="sidebar-nav-item">
+          <span class="sidebar-icon">ℹ️</span>
+          <span>About AuroMind</span>
+        </a>
       </div>
 
-      <!-- Header Actions: Ambient Audio & Sign-In Modal -->
-      <div class="header-actions">
-        <button id="ambient-audio-btn" class="btn-icon" title="Toggle 432 Hz Ambient Soundscape">
-          <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+    </aside>
+
+    <!-- ======================================================================
+         2. RIGHT MAIN VIEWPORT
+         ====================================================================== -->
+    <div class="portal-main-area">
+
+      <!-- TOP HEADER BAR -->
+      <header class="portal-header">
+        
+        <div class="header-left">
+          <button id="menu-toggle-btn" class="menu-toggle-btn" aria-label="Toggle navigation">☰</button>
+        </div>
+
+        <!-- Centered Live Search -->
+        <div class="header-search">
+          <svg class="search-icon-svg" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
-        </button>
+          <input 
+            type="search" 
+            id="search-input" 
+            class="search-input" 
+            placeholder="Search games, mechanics, or moods..." 
+            autocomplete="off">
+        </div>
 
-        <button id="auth-btn" class="btn-auth">
-          <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-          </svg>
-          <span>Account</span>
-        </button>
+        <!-- Header Actions: Ambient, Senior Mode, Account -->
+        <div class="header-actions">
+          <button id="ambient-audio-btn" class="btn-pill-action" title="Toggle 432 Hz Ambient Audio">
+            <span>🎧</span>
+            <span>Ambient 432Hz</span>
+          </button>
+
+          <button id="senior-mode-btn" class="btn-pill-action" title="Toggle Senior & Accessibility View">
+            <span>👴</span>
+            <span>Senior View</span>
+          </button>
+
+          <button id="auth-btn" class="btn-account">
+            <span>👤</span>
+            <span>Account</span>
+          </button>
+        </div>
+
+      </header>
+
+      <!-- DASHBOARD SCROLL CONTENT -->
+      <div class="portal-content-scroll">
+
+        <!-- HERO BANNER: "Continue Your Journey / Game of the Day" -->
+        <section class="hero-banner-container">
+          <div class="hero-banner">
+            <div class="hero-content">
+              <div class="hero-badge-tag">
+                <span>🌟 Sanctuary Showcase</span>
+              </div>
+              <h2 class="hero-title">Continue Your Journey: Mindful Flow & Cognitive Harmony</h2>
+              <p class="hero-desc">
+                Welcome back to your peaceful gaming space. Explore 350 wisdom anagrams in <strong>Vak</strong> or immerse yourself in the soothing botanical tile layouts of <strong>AuroMatch</strong>.
+              </p>
+              <div class="hero-stats-row">
+                <div class="stat-item">
+                  <span class="stat-num">350+</span>
+                  <span class="stat-label">Levels Live</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-num">0</span>
+                  <span class="stat-label">Ad Interruptions</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-num">100%</span>
+                  <span class="stat-label">Untimed Peace</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ROW 1: "CONTINUE PLAYING / LIVE SANCTUARIES" (2 LARGE SHOWCASE CARDS - EVEN!) -->
+        <section class="section-block">
+          <div class="section-head">
+            <h3 class="section-title">
+              <span>Continue Playing</span>
+            </h3>
+            <span class="section-badge-count">2 Active Games</span>
+          </div>
+
+          <div class="grid-two-column">
+
+            <!-- GAME 1: VAK - THE CONTROL OF SPEECH -->
+            <article class="game-card" 
+                     data-title="Vak The Control of Speech" 
+                     data-genre="Word & Anagram Crossword" 
+                     data-category="words daily zen live"
+                     data-usp="350 contemplative word puzzles cultivating mindful speech, truth, and inner silence. 100% untimed cognitive joy.">
+              
+              <div class="card-banner-box">
+                <img src="assets/thumbnails/vak.png" alt="Vak Banner" class="card-banner-img" loading="lazy">
+                <div class="banner-gradient-shade"></div>
+                
+                <div class="card-badges">
+                  <span class="pill-badge badge-live-dot">Live</span>
+                  <span class="pill-badge badge-feature">350 Levels</span>
+                </div>
+
+                <div class="card-icon-overlay">
+                  <img src="assets/icons/vak-logo.svg" alt="Vak Emblem" class="game-icon-img">
+                </div>
+              </div>
+
+              <div class="card-content">
+                <h4 class="game-card-title">Vak — The Control of Speech</h4>
+                <span class="game-genre-tag">Word & Anagram Crossword</span>
+                
+                <!-- USP Subtitle -->
+                <p class="game-usp">
+                  Master 350 contemplative word puzzles to cultivate clarity, mindful speech habits, and inner silence. Zero countdown timers.
+                </p>
+
+                <a id="link-vak" 
+                   href="https://gapskris.github.io/vak-play/" 
+                   target="_blank" 
+                   rel="noopener noreferrer" 
+                   class="btn-open">
+                  <span>Open Game</span>
+                  <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </a>
+              </div>
+            </article>
+
+            <!-- GAME 2: AUROMATCH - TRIPLE GARDEN -->
+            <article class="game-card" 
+                     data-title="AuroMatch Triple Garden of Significances" 
+                     data-genre="Zen Tile Matching & Solitaire" 
+                     data-category="tiles zen daily live"
+                     data-usp="Tranquil 3-tray botanical matching sanctuary with high-contrast accessibility tiles, soothing soundscapes, and sacred garden themes.">
+              
+              <div class="card-banner-box">
+                <img src="assets/thumbnails/auromatch.jpg" alt="AuroMatch Banner" class="card-banner-img" loading="lazy">
+                <div class="banner-gradient-shade"></div>
+                
+                <div class="card-badges">
+                  <span class="pill-badge badge-live-dot">Live</span>
+                  <span class="pill-badge badge-feature">Senior Vita Mode</span>
+                </div>
+
+                <div class="card-icon-overlay">
+                  <img src="assets/icons/auromatch-logo.svg" alt="AuroMatch Emblem" class="game-icon-img">
+                </div>
+              </div>
+
+              <div class="card-content">
+                <h4 class="game-card-title">AuroMatch — Triple Garden</h4>
+                <span class="game-genre-tag">Zen Tile Matching & Solitaire</span>
+                
+                <!-- USP Subtitle -->
+                <p class="game-usp">
+                  A tranquil 3-tray botanical matching sanctuary featuring large-print accessibility tiles, soothing soundscapes, and sacred garden themes.
+                </p>
+
+                <a id="link-auromatch" 
+                   href="https://gapskris.github.io/auromatch-play/" 
+                   target="_blank" 
+                   rel="noopener noreferrer" 
+                   class="btn-open">
+                  <span>Open Game</span>
+                  <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </a>
+              </div>
+            </article>
+
+          </div>
+        </section>
+
+        <!-- ROW 2: "POPULAR SANCTUARY EXPERIENCES" (4 BALANCED CARDS - EVEN!) -->
+        <section class="section-block">
+          <div class="section-head">
+            <h3 class="section-title">
+              <span>Popular Sanctuary Experiences (Coming Soon)</span>
+            </h3>
+            <span class="section-badge-count">4 in Development</span>
+          </div>
+
+          <div class="grid-four-column">
+
+            <!-- CARD 1: AUROBLOCKS -->
+            <article class="game-card" 
+                     data-title="AuroBlocks Harmonic Clears" 
+                     data-genre="Spatial Block Puzzle" 
+                     data-category="blocks logic"
+                     data-usp="Harmonize polyomino blocks on an 8x8 grid. Zero-timer spatial decluttering with 432 Hz chime resonance.">
+              
+              <div class="card-banner-box">
+                <img src="assets/thumbnails/auroblocks.jpg" alt="AuroBlocks Banner" class="card-banner-img" loading="lazy">
+                <div class="banner-gradient-shade"></div>
+                
+                <div class="card-badges">
+                  <span class="pill-badge badge-upcoming-tag">In Dev</span>
+                  <span class="pill-badge badge-feature">8x8 Grid</span>
+                </div>
+
+                <div class="card-icon-overlay">
+                  <img src="assets/icons/auroblocks-logo.svg" alt="AuroBlocks Emblem" class="game-icon-img">
+                </div>
+              </div>
+
+              <div class="card-content">
+                <h4 class="game-card-title">AuroBlocks</h4>
+                <span class="game-genre-tag">8x8 Block Grid</span>
+                
+                <p class="game-usp">
+                  Spatial polyomino line clears infused with 432 Hz resonance chimes and sacred geometry.
+                </p>
+
+                <button class="btn-open btn-disabled" disabled>
+                  <span>Coming Soon</span>
+                </button>
+              </div>
+            </article>
+
+            <!-- CARD 2: LOGIC QUEST / PARABLES -->
+            <article class="game-card" 
+                     data-title="The Witness Mind Parables" 
+                     data-genre="Wisdom Logic & Discernment" 
+                     data-category="logic"
+                     data-usp="Interactive lateral thinking vignettes cultivating emotional intelligence, non-judgmental discernment, and the witness state.">
+              
+              <div class="card-banner-box">
+                <img src="assets/thumbnails/logic_riddles.jpg" alt="The Witness Mind Banner" class="card-banner-img" loading="lazy">
+                <div class="banner-gradient-shade"></div>
+                
+                <div class="card-badges">
+                  <span class="pill-badge badge-upcoming-tag">In Dev</span>
+                  <span class="pill-badge badge-feature">Parable Quest</span>
+                </div>
+
+                <div class="card-icon-overlay">
+                  <img src="assets/icons/logic-logo.svg" alt="Logic Emblem" class="game-icon-img">
+                </div>
+              </div>
+
+              <div class="card-content">
+                <h4 class="game-card-title">The Witness Mind</h4>
+                <span class="game-genre-tag">Wisdom Parables</span>
+                
+                <p class="game-usp">
+                  Interactive lateral thinking vignettes cultivating emotional intelligence and the silent observer state (Sakshi).
+                </p>
+
+                <button class="btn-open btn-disabled" disabled>
+                  <span>Coming Soon</span>
+                </button>
+              </div>
+            </article>
+
+            <!-- CARD 3: SANCTUARY MERGE -->
+            <article class="game-card" 
+                     data-title="Sanctuary Gardens Ecological Merge" 
+                     data-genre="Botanical Merge Sanctuary" 
+                     data-category="zen"
+                     data-usp="Restore an overgrown botanical wildlife garden through meditative item merging without energy paywalls.">
+              
+              <div class="card-banner-box">
+                <img src="assets/thumbnails/sanctuary_merge.jpg" alt="Sanctuary Merge Banner" class="card-banner-img" loading="lazy">
+                <div class="banner-gradient-shade"></div>
+                
+                <div class="card-badges">
+                  <span class="pill-badge badge-upcoming-tag">In Dev</span>
+                  <span class="pill-badge badge-feature">Botany Zen</span>
+                </div>
+
+                <div class="card-icon-overlay">
+                  <img src="assets/icons/merge-logo.svg" alt="Merge Emblem" class="game-icon-img">
+                </div>
+              </div>
+
+              <div class="card-content">
+                <h4 class="game-card-title">Sanctuary Gardens</h4>
+                <span class="game-genre-tag">Botanical Merge</span>
+                
+                <p class="game-usp">
+                  Restore an ancient ecological sanctuary by merging medicinal herbs, trees, and water fountains. Zero energy limits.
+                </p>
+
+                <button class="btn-open btn-disabled" disabled>
+                  <span>Coming Soon</span>
+                </button>
+              </div>
+            </article>
+
+            <!-- CARD 4: MAHJONG ZEN -->
+            <article class="game-card" 
+                     data-title="Mahjong Zen Pair Match" 
+                     data-genre="Classic Mahjong Solitaire" 
+                     data-category="tiles zen"
+                     data-usp="Traditional pair-matching Mahjong solitaire optimized with ultra-large fonts, tactile chimes, and zero time limits.">
+              
+              <div class="card-banner-box">
+                <img src="assets/thumbnails/mahjong_zen.jpg" alt="Mahjong Zen Banner" class="card-banner-img" loading="lazy">
+                <div class="banner-gradient-shade"></div>
+                
+                <div class="card-badges">
+                  <span class="pill-badge badge-upcoming-tag">In Dev</span>
+                  <span class="pill-badge badge-feature">Pair Match</span>
+                </div>
+
+                <div class="card-icon-overlay">
+                  <img src="assets/icons/mahjong-logo.svg" alt="Mahjong Emblem" class="game-icon-img">
+                </div>
+              </div>
+
+              <div class="card-content">
+                <h4 class="game-card-title">Mahjong Zen</h4>
+                <span class="game-genre-tag">Pair Match Solitaire</span>
+                
+                <p class="game-usp">
+                  Classic Mahjong solitaire designed with ultra-large high-contrast tiles, tactile chimes, and relaxing zen pacing.
+                </p>
+
+                <button class="btn-open btn-disabled" disabled>
+                  <span>Coming Soon</span>
+                </button>
+              </div>
+            </article>
+
+          </div>
+        </section>
+
+        <!-- ROW 3: PHILOSOPHICAL PILLARS -->
+        <section class="philosophy-grid">
+          <div class="philosophy-box">
+            <h4>🌿 Zero-Anxiety Play</h4>
+            <p>No countdown timers, no punitive game-overs, and zero predatory ads or microtransactions.</p>
+          </div>
+          <div class="philosophy-box">
+            <h4>👴 Senior & Kid Accessible</h4>
+            <p>High-contrast visual design, large tap targets, and rich vocabulary for active lifelong minds.</p>
+          </div>
+          <div class="philosophy-box">
+            <h4>🕊️ Implicit Spiritual Touch</h4>
+            <p>Non-sectarian wisdom embedded in natural order, conscious speech, and quiet contemplation.</p>
+          </div>
+        </section>
+
       </div>
 
     </div>
-  </header>
 
-  <!-- ========================================================================
-       HERO / WELCOME BANNER
-       ======================================================================== -->
-  <section class="portal-hero">
-    <div class="hero-card">
-      <div class="hero-pill">
-        <span>✨ The Conscious Casual Arcade</span>
-      </div>
-      <h2 class="hero-title">Playful Focus, Inner Silence & Cognitive Harmony</h2>
-      <p class="hero-subtitle">
-        Carefully designed casual games for children and seniors. Zero stress, zero intrusive ads, 100% pure untimed flow.
-      </p>
-    </div>
-  </section>
-
-  <!-- ========================================================================
-       CATEGORY FILTER BAR
-       ======================================================================== -->
-  <nav class="category-bar">
-    <button class="filter-chip active" data-filter="all">All Experiences</button>
-    <button class="filter-chip" data-filter="word">Word & Lexicon</button>
-    <button class="filter-chip" data-filter="tile">Tile & Zen</button>
-    <button class="filter-chip" data-filter="logic">Spatial & Logic</button>
-    <button class="filter-chip" data-filter="live">Live Now</button>
-    <button class="filter-chip" data-filter="upcoming">Coming Soon</button>
-  </nav>
-
-  <!-- ========================================================================
-       MAIN GAMES SECTION (BALANCED EVEN-NUMBER GRID)
-       - Desktop: 4 Columns
-       - Tablet: 2 Columns
-       - Mobile: 1 Column
-       ======================================================================== -->
-  <main class="games-section">
-    <div class="section-header">
-      <h3 class="section-title">
-        <span>Curated Sanctuaries</span>
-      </h3>
-      <span id="visible-count" class="section-counter">4 Games</span>
-    </div>
-
-    <div class="games-grid">
-
-      <!-- CARD 1: VAK - THE CONTROL OF SPEECH (LIVE) -->
-      <article class="game-card" 
-               data-title="Vak The Control of Speech" 
-               data-genre="Word & Anagram Crossword" 
-               data-usp="350 contemplative words of truth, light, and inner stillness. Zero timers, zero ads — pure mindful speech mastery."
-               data-category="word live">
-        
-        <div class="card-banner-wrapper">
-          <img src="assets/thumbnails/vak.png" alt="Vak Gameplay Banner" class="card-banner" loading="lazy">
-          <div class="banner-overlay"></div>
-          
-          <div class="badge-container">
-            <span class="badge badge-live">● Live</span>
-            <span class="badge badge-senior">350 Levels</span>
-          </div>
-
-          <div class="card-icon-anchor">
-            <img src="assets/icons/vak-logo.svg" alt="Vak Logo" class="game-app-icon">
-          </div>
-        </div>
-
-        <div class="card-body">
-          <h4 class="game-title">Vak — The Control of Speech</h4>
-          <span class="game-genre">Word & Anagram Crossword</span>
-          
-          <!-- USP Subtitle -->
-          <p class="game-usp">
-            Master 350 contemplative word puzzles to cultivate clarity, mindful speech, and inner silence. 100% untimed cognitive enrichment.
-          </p>
-
-          <div class="card-actions">
-            <a id="link-vak" 
-               href="https://gapskris.github.io/vak-play/" 
-               target="_blank" 
-               rel="noopener noreferrer" 
-               class="btn-open">
-              <span>Open Game</span>
-              <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-            </a>
-          </div>
-        </div>
-      </article>
-
-      <!-- CARD 2: AUROMATCH - TRIPLE GARDEN (LIVE) -->
-      <article class="game-card" 
-               data-title="AuroMatch Triple Garden of Significances" 
-               data-genre="Zen Tile Solitaire & Mahjong" 
-               data-usp="Tranquil 3-tray botanical matching sanctuary featuring high-contrast accessibility, sacred geometries, and calming chimes."
-               data-category="tile live">
-        
-        <div class="card-banner-wrapper">
-          <img src="assets/thumbnails/auromatch.jpg" alt="AuroMatch Banner" class="card-banner" loading="lazy">
-          <div class="banner-overlay"></div>
-          
-          <div class="badge-container">
-            <span class="badge badge-live">● Live</span>
-            <span class="badge badge-senior">Senior Vita Mode</span>
-          </div>
-
-          <div class="card-icon-anchor">
-            <img src="assets/icons/auromatch-logo.svg" alt="AuroMatch Logo" class="game-app-icon">
-          </div>
-        </div>
-
-        <div class="card-body">
-          <h4 class="game-title">AuroMatch — Triple Garden</h4>
-          <span class="game-genre">Zen Tile Matching & Solitaire</span>
-          
-          <!-- USP Subtitle -->
-          <p class="game-usp">
-            A tranquil 3-tray botanical matching sanctuary with high-contrast accessibility tiles, soothing soundscapes, and sacred garden themes.
-          </p>
-
-          <div class="card-actions">
-            <a id="link-auromatch" 
-               href="https://gapskris.github.io/auromatch-play/" 
-               target="_blank" 
-               rel="noopener noreferrer" 
-               class="btn-open">
-              <span>Open Game</span>
-              <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-            </a>
-          </div>
-        </div>
-      </article>
-
-      <!-- CARD 3: AUROBLOCKS - SACRED GEOMETRY (UPCOMING) -->
-      <article class="game-card" 
-               data-title="AuroBlocks Harmonic Clears" 
-               data-genre="Spatial Block Puzzle" 
-               data-usp="Harmonize polyomino blocks on an 8x8 grid. Zero-timer spatial decluttering with 432 Hz resonance chimes."
-               data-category="logic upcoming">
-        
-        <div class="card-banner-wrapper">
-          <img src="assets/thumbnails/auroblocks.jpg" alt="AuroBlocks Banner" class="card-banner" loading="lazy">
-          <div class="banner-overlay"></div>
-          
-          <div class="badge-container">
-            <span class="badge badge-upcoming">In Dev</span>
-            <span class="badge badge-senior">432 Hz Chimes</span>
-          </div>
-
-          <div class="card-icon-anchor">
-            <img src="assets/icons/auroblocks-logo.svg" alt="AuroBlocks Logo" class="game-app-icon">
-          </div>
-        </div>
-
-        <div class="card-body">
-          <h4 class="game-title">AuroBlocks — Harmonic Clears</h4>
-          <span class="game-genre">Spatial Block Puzzle</span>
-          
-          <!-- USP Subtitle -->
-          <p class="game-usp">
-            Harmonize polyomino blocks on an 8x8 grid. Zero-timer spatial decluttering with 432 Hz resonance chimes and sacred geometry.
-          </p>
-
-          <div class="card-actions">
-            <button class="btn-open btn-disabled" disabled>
-              <span>Coming Soon</span>
-              <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      </article>
-
-      <!-- CARD 4: THE WITNESS MIND - PARABLES (UPCOMING) -->
-      <article class="game-card" 
-               data-title="The Witness Mind Parables" 
-               data-genre="Wisdom Logic & Discernment" 
-               data-usp="Interactive lateral thinking vignettes cultivating emotional intelligence, non-judgmental discernment, and the witness state."
-               data-category="logic upcoming">
-        
-        <div class="card-banner-wrapper">
-          <img src="assets/thumbnails/logic_riddles.jpg" alt="The Witness Mind Banner" class="card-banner" loading="lazy">
-          <div class="banner-overlay"></div>
-          
-          <div class="badge-container">
-            <span class="badge badge-upcoming">In Dev</span>
-            <span class="badge badge-senior">Parable Quest</span>
-          </div>
-
-          <div class="card-icon-anchor">
-            <img src="assets/icons/logic-logo.svg" alt="The Witness Mind Logo" class="game-app-icon">
-          </div>
-        </div>
-
-        <div class="card-body">
-          <h4 class="game-title">The Witness Mind — Parables</h4>
-          <span class="game-genre">Wisdom Logic & Discernment</span>
-          
-          <!-- USP Subtitle -->
-          <p class="game-usp">
-            Interactive lateral thinking vignettes cultivating emotional intelligence, non-judgmental discernment, and the witness state (Sakshi).
-          </p>
-
-          <div class="card-actions">
-            <button class="btn-open btn-disabled" disabled>
-              <span>Coming Soon</span>
-              <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      </article>
-
-    </div>
-  </main>
-
-  <!-- ========================================================================
-       PORTAL FOOTER & PHILOSOPHY PILLARS
-       ======================================================================== -->
-  <footer class="portal-footer">
-    <div class="footer-container">
-      <div class="footer-top">
-        <div class="brand">
-          <img src="assets/icons/auromind-logo.svg" alt="AuroMind Lotus" class="brand-icon" style="width: 32px; height: 32px;">
-          <div class="brand-title-group">
-            <h1 style="font-size: 1.1rem;">AuroMind</h1>
-            <p>Conscious Casual Play</p>
-          </div>
-        </div>
-        <p style="font-size: 0.85rem; color: var(--text-dim);">
-          Crafted for intergenerational cognitive wellness • Zero dark patterns
-        </p>
-      </div>
-
-      <div class="footer-pillars">
-        <div class="pillar">
-          <h4>🌿 Zero-Anxiety Play</h4>
-          <p>No countdown timers, no punitive game-overs, and zero predatory microtransactions.</p>
-        </div>
-        <div class="pillar">
-          <h4>👴 Senior & Kid Accessible</h4>
-          <p>High-contrast visual design, large tap targets, and rich vocabulary for active lifelong minds.</p>
-        </div>
-        <div class="pillar">
-          <h4>🕊️ Implicit Spiritual Touch</h4>
-          <p>Non-sectarian wisdom embedded in natural order, conscious speech, and quiet contemplation.</p>
-        </div>
-      </div>
-
-      <div class="footer-bottom">
-        <p>© 2026 AuroMind Gaming Studio. Hosted openly via GitHub Pages.</p>
-      </div>
-    </div>
-  </footer>
+  </div>
 
   <!-- ========================================================================
        AUTH & ACCESS MODAL (ROADMAP TEASER)
        ======================================================================== -->
-  <div id="auth-modal" class="modal-backdrop">
-    <div class="modal-dialog">
-      <button id="modal-close-btn" class="modal-close" aria-label="Close modal">&times;</button>
-      <img src="assets/icons/auromind-logo.svg" alt="AuroMind" class="modal-icon">
-      <h3 class="modal-title">AuroMind Account System</h3>
-      <p class="modal-desc">
+  <div id="auth-modal" class="modal-overlay">
+    <div class="modal-box">
+      <button id="modal-close-btn" class="modal-close-btn" aria-label="Close modal">&times;</button>
+      <img src="assets/icons/auromind-logo.svg" alt="AuroMind" style="width: 56px; height: 56px; margin: 0 auto 1rem;">
+      <h3 style="font-size: 1.35rem; color: #ffffff; margin-bottom: 0.5rem;">AuroMind Account System</h3>
+      <p style="font-size: 0.88rem; color: var(--text-secondary); line-height: 1.5; margin-bottom: 1.5rem;">
         Cloud synchronization and purchase entitlements are arriving in the next release!
       </p>
 
-      <div class="modal-badge-list">
-        <div class="modal-badge-item">
-          <span>☁️</span>
-          <span>Cross-Device Cloud Progress Sync</span>
+      <div style="display: flex; flex-direction: column; gap: 0.6rem; text-align: left;">
+        <div style="background: var(--bg-surface); padding: 0.6rem 0.8rem; border-radius: 8px; font-size: 0.84rem;">
+          ☁️ Cross-Device Cloud Progress Sync
         </div>
-        <div class="modal-badge-item">
-          <span>💳</span>
-          <span>Universal Game Pass & Lifetime Unlocks</span>
+        <div style="background: var(--bg-surface); padding: 0.6rem 0.8rem; border-radius: 8px; font-size: 0.84rem;">
+          💳 Universal Game Pass & Lifetime Unlocks
         </div>
-        <div class="modal-badge-item">
-          <span>🌸</span>
-          <span>Shared Sanctuary Garden Progression</span>
+        <div style="background: var(--bg-surface); padding: 0.6rem 0.8rem; border-radius: 8px; font-size: 0.84rem;">
+          🌸 Shared Sanctuary Garden Progression
         </div>
       </div>
 
-      <button id="modal-confirm-btn" class="modal-btn-confirm">Got It</button>
+      <button id="modal-confirm-btn" class="modal-confirm-btn">Got It</button>
     </div>
   </div>
 
