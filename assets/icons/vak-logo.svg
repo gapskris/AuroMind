@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Outer Glow & Deep Space Field -->
+    <radialGradient id="spaceGradient" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#1e1338"/>
+      <stop offset="55%" stop-color="#0c081d"/>
+      <stop offset="100%" stop-color="#05030a"/>
+    </radialGradient>
+
+    <!-- Metallic Auric Gold Gradients -->
+    <linearGradient id="goldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fffbeb"/>
+      <stop offset="25%" stop-color="#fde047"/>
+      <stop offset="60%" stop-color="#eab308"/>
+      <stop offset="85%" stop-color="#ca8a04"/>
+      <stop offset="100%" stop-color="#854d0e"/>
+    </linearGradient>
+
+    <linearGradient id="goldInnerGlow" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="50%" stop-color="#fef08a"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+
+    <!-- Sacred 12 Petal Radiance Gradient (Pink to Gold) -->
+    <linearGradient id="petalPinkGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbcfe8"/>
+      <stop offset="45%" stop-color="#f472b6"/>
+      <stop offset="80%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+
+    <!-- Subtle Drop Shadow Filters for 3D Elevation -->
+    <filter id="divineGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+
+    <filter id="goldenDrop" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000000" flood-opacity="0.85"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="12" flood-color="#fbbf24" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <!-- 1. Circular Maskable Base / Background (Squircle & Circle Friendly for iOS & Android) -->
+  <circle cx="256" cy="256" r="246" fill="url(#spaceGradient)"/>
+
+  <!-- 2. Sacred Concentric Rings (Double Rim of Speech & Silence) -->
+  <circle cx="256" cy="256" r="236" fill="none" stroke="url(#goldGradient)" stroke-width="3" opacity="0.7"/>
+  <circle cx="256" cy="256" r="226" fill="none" stroke="url(#goldGradient)" stroke-width="1.5" stroke-dasharray="6 4" opacity="0.45"/>
+
+  <!-- 3. Explicit Radial 12 Sacred Lotus Petals (The Mother's 12 Soul Qualities) -->
+  <!-- Centered at (256, 256) radiating at exact 30-degree intervals (360 / 12) -->
+  <g filter="url(#goldenDrop)" transform="translate(256, 256)">
+    <!-- Petal 1: 0° (North) -->
+    <path d="M0,0 C-22,-75 0,-165 0,-165 C0,-165 22,-75 0,0 Z" fill="url(#petalPinkGold)" opacity="0.9" transform="rotate(0)"/>
+    <!-- Petal 2: 30° -->
+    <path d="M0,0 C-22,-75 0,-165 0,-165 C0,-165 22,-75 0,0 Z" fill="url(#petalPinkGold)" opacity="0.9" transform="rotate(30)"/>
+    <!-- Petal 3: 60° -->
+    <path d="M0,0 C-22,-75 0,-165 0,-165 C0,-165 22,-75 0,0 Z" fill="url(#petalPinkGold)" opacity="0.9" transform="rotate(60)"/>
+    <!-- Petal 4: 90° (East) -->
+    <path d="M0,0 C-22,-75 0,-165 0,-165 C0,-165 22,-75 0,0 Z" fill="url(#petalPinkGold)" opacity="0.9" transform="rotate(90)"/>
+    <!-- Petal 5: 120° -->
+    <path d="M0,0 C-22,-75 0,-165 0,-165 C0,-165 22,-75 0,0 Z" fill="url(#petalPinkGold)" opacity="0.9" transform="rotate(120)"/>
+    <!-- Petal 6: 150° -->
+    <path d="M0,0 C-22,-75 0,-165 0,-165 C0,-165 22,-75 0,0 Z" fill="url(#petalPinkGold)" opacity="0.9" transform="rotate(150)"/>
+    <!-- Petal 7: 180° (South) -->
+    <path d="M0,0 C-22,-75 0,-165 0,-165 C0,-165 22,-75 0,0 Z" fill="url(#petalPinkGold)" opacity="0.9" transform="rotate(180)"/>
+    <!-- Petal 8: 210° -->
+    <path d="M0,0 C-22,-75 0,-165 0,-165 C0,-165 22,-75 0,0 Z" fill="url(#petalPinkGold)" opacity="0.9" transform="rotate(210)"/>
+    <!-- Petal 9: 240° -->
+    <path d="M0,0 C-22,-75 0,-165 0,-165 C0,-165 22,-75 0,0 Z" fill="url(#petalPinkGold)" opacity="0.9" transform="rotate(240)"/>
+    <!-- Petal 10: 270° (West) -->
+    <path d="M0,0 C-22,-75 0,-165 0,-165 C0,-165 22,-75 0,0 Z" fill="url(#petalPinkGold)" opacity="0.9" transform="rotate(270)"/>
+    <!-- Petal 11: 300° -->
+    <path d="M0,0 C-22,-75 0,-165 0,-165 C0,-165 22,-75 0,0 Z" fill="url(#petalPinkGold)" opacity="0.9" transform="rotate(300)"/>
+    <!-- Petal 12: 330° -->
+    <path d="M0,0 C-22,-75 0,-165 0,-165 C0,-165 22,-75 0,0 Z" fill="url(#petalPinkGold)" opacity="0.9" transform="rotate(330)"/>
+
+    <!-- Inner Golden Seed / Core Chakra Ring -->
+    <circle cx="0" cy="0" r="48" fill="url(#goldInnerGlow)" stroke="#fff" stroke-width="2" filter="url(#divineGlow)"/>
+  </g>
+
+  <!-- 4. Central Majestic Glyph: 'V' for VAK (The Divine Word / Speech Mastery) -->
+  <g filter="url(#goldenDrop)">
+    <!-- Wings of Aspiration 'V' Letterform -->
+    <path d="M140,140 
+             L182,140 
+             L256,326 
+             L330,140 
+             L372,140 
+             L280,366 
+             C273,382 265,390 256,390 
+             C247,390 239,382 232,366 
+             Z" 
+          fill="url(#goldGradient)"/>
+
+    <!-- Left Seraph Detail -->
+    <path d="M126,140 L194,140 L194,152 L160,152 L126,140 Z" fill="url(#goldGradient)"/>
+    <!-- Right Seraph Detail -->
+    <path d="M386,140 L318,140 L318,152 L352,152 L386,140 Z" fill="url(#goldGradient)"/>
+
+    <!-- Inner Core Golden Inlay Reflecting Sacred Light -->
+    <path d="M164,162 
+             L182,162 
+             L256,338 
+             L330,162 
+             L348,162 
+             L265,360 
+             C260,368 252,368 247,360 
+             Z" 
+          fill="#ffffff" opacity="0.45"/>
+  </g>
+
+  <!-- 5. Central Sun of Truth (Bindu / Consciousness Star) -->
+  <circle cx="256" cy="188" r="18" fill="url(#goldGradient)" filter="url(#divineGlow)"/>
+  <circle cx="256" cy="188" r="8" fill="#ffffff"/>
+  
+  <!-- Subtle Rays of the Bindu Star -->
+  <g stroke="#ffffff" stroke-width="2.5" opacity="0.95">
+    <line x1="256" y1="160" x2="256" y2="216"/>
+    <line x1="228" y1="188" x2="284" y2="188"/>
+  </g>
+
+  <!-- 6. Bottom Arc Inscription: "VAK" in Classical Cinzel Lettering -->
+  <text x="256" y="448" 
+        font-family="'Cinzel', serif" 
+        font-size="28" 
+        font-weight="800" 
+        letter-spacing="10" 
+        fill="url(#goldGradient)" 
+        text-anchor="middle" 
+        filter="url(#goldenDrop)">
+    VAK
+  </text>
+</svg>
