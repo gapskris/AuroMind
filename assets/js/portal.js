@@ -1,6 +1,6 @@
 /**
  * AUROMIND PORTAL - INTERACTIVE CLIENT SCRIPT
- * Manages sidebar navigation, search, senior mode, audio, and modals.
+ * Manages sidebar navigation, search, senior mode, audio, and modals across 16 games.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ==========================================================================
-// 1. SIDEBAR NAVIGATION & CATEGORY FILTERING
+// 1. SIDEBAR NAVIGATION & CATEGORY FILTERING (16 TITLES)
 // ==========================================================================
 function initSidebarAndNavigation() {
   const sidebar = document.getElementById('portal-sidebar');
@@ -55,6 +55,17 @@ function initSidebarAndNavigation() {
         }
       });
 
+      // Also hide sections if all child cards are hidden
+      document.querySelectorAll('.section-block').forEach(section => {
+        const visibleCards = section.querySelectorAll('.game-card[style*="display: flex"]');
+        const hiddenCards = section.querySelectorAll('.game-card[style*="display: none"]');
+        if (filterCategory !== 'all' && visibleCards.length === 0 && hiddenCards.length > 0) {
+          section.style.display = 'none';
+        } else {
+          section.style.display = 'flex';
+        }
+      });
+
       if (window.innerWidth < 680 && sidebar) {
         sidebar.classList.remove('open');
       }
@@ -63,7 +74,7 @@ function initSidebarAndNavigation() {
 }
 
 // ==========================================================================
-// 2. LIVE SEARCH
+// 2. LIVE SEARCH (ALL 16 GAMES)
 // ==========================================================================
 function initSearch() {
   const searchInput = document.getElementById('search-input');
@@ -84,6 +95,11 @@ function initSearch() {
       } else {
         card.style.display = 'none';
       }
+    });
+
+    document.querySelectorAll('.section-block').forEach(section => {
+      const visibleCards = section.querySelectorAll('.game-card:not([style*="display: none"])');
+      section.style.display = visibleCards.length > 0 ? 'flex' : 'none';
     });
   });
 }
