@@ -345,12 +345,16 @@ html, body {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 1.2rem 1.5rem 2rem;
+  padding: 1.2rem 1.6rem 2.2rem;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
   scrollbar-width: thin;
   scrollbar-color: var(--bg-surface) transparent;
+  max-width: 1400px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
 }
 
 .portal-content-scroll::-webkit-scrollbar {
@@ -493,13 +497,13 @@ html, body {
 
 .games-uniform-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1.2rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.25rem;
   width: 100%;
 }
 
 /* ==========================================================================
-   COMPACT GAME CARD
+   GAME CARD (Pic 1 Proportions & Sizing)
    ========================================================================== */
 .game-card {
   background: var(--bg-card);
@@ -511,6 +515,7 @@ html, body {
   box-shadow: var(--shadow-subtle);
   transition: all var(--transition-smooth);
   position: relative;
+  width: 100%;
 }
 
 .game-card:hover {
@@ -521,8 +526,9 @@ html, body {
 
 .card-banner-box {
   width: 100%;
-  aspect-ratio: 16 / 9;
-  max-height: 155px;
+  aspect-ratio: 4 / 3;
+  min-height: 165px;
+  max-height: 225px;
   position: relative;
   background: #000000;
   overflow: hidden;
@@ -532,6 +538,7 @@ html, body {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center top;
   transition: transform 0.35s ease;
 }
 
@@ -901,9 +908,9 @@ body.in-game-mode .portal-main-area {
 /* ==========================================================================
    RESPONSIVE QUERIES
    ========================================================================== */
-@media (max-width: 1200px) {
+@media (max-width: 1280px) {
   .games-uniform-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -924,6 +931,12 @@ body.in-game-mode .portal-main-area {
   }
   .footer-trust-strip {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 880px) {
+  .games-uniform-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -950,13 +963,20 @@ body.in-game-mode .portal-main-area {
   .portal-content-scroll {
     padding: 0.85rem 0.85rem 1.75rem;
   }
-  .games-uniform-grid {
-    grid-template-columns: 1fr;
-  }
   .hero-banner {
     padding: 1rem;
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+@media (max-width: 580px) {
+  .games-uniform-grid {
+    grid-template-columns: 1fr;
+  }
+  .game-card {
+    max-width: 380px;
+    margin: 0 auto;
   }
 }
 
