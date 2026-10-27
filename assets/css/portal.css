@@ -228,7 +228,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 1.25rem;
+  padding: 0 2rem;
   gap: 1.25rem;
   z-index: 30;
   flex-shrink: 0;
@@ -360,15 +360,15 @@ html, body {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 1.2rem 1.6rem 2.2rem;
+  padding: 1.25rem 2rem 2.5rem;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
   scrollbar-width: thin;
   scrollbar-color: var(--bg-surface) transparent;
-  max-width: 1400px;
   width: 100%;
-  margin: 0 auto;
+  max-width: 100%;
+  margin: 0;
   box-sizing: border-box;
 }
 
@@ -511,30 +511,12 @@ html, body {
   box-shadow: 0 1px 4px rgba(2, 132, 199, 0.06);
 }
 
-.games-uniform-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1.25rem;
-  width: 100%;
-}
-
+.games-uniform-grid,
 .live-sanctuaries-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 1.25rem;
   width: 100%;
-}
-
-.live-sanctuaries-grid .card-banner-box {
-  aspect-ratio: 16 / 9;
-  min-height: 180px;
-  max-height: 250px;
-}
-
-@media (max-width: 679px) {
-  .live-sanctuaries-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* ==========================================================================
@@ -563,7 +545,7 @@ html, body {
   width: 100%;
   aspect-ratio: 4 / 3;
   min-height: 165px;
-  max-height: 220px;
+  max-height: 200px;
   position: relative;
   background: #E2E8F0;
   overflow: hidden;
@@ -949,12 +931,6 @@ body.in-game-mode .portal-main-area {
 /* ==========================================================================
    RESPONSIVE QUERIES
    ========================================================================== */
-@media (max-width: 1280px) {
-  .games-uniform-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 960px) {
   :root {
     --sidebar-width: var(--sidebar-collapsed-width);
@@ -972,12 +948,6 @@ body.in-game-mode .portal-main-area {
   }
   .footer-trust-strip {
     grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 880px) {
-  .games-uniform-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
