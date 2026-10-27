@@ -518,6 +518,22 @@ html, body {
   width: 100%;
 }
 
+.live-sanctuaries-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+  max-width: 860px;
+  width: 100%;
+}
+
+@media (max-width: 679px) {
+  .live-sanctuaries-grid {
+    grid-template-columns: 1fr;
+    max-width: 380px;
+    margin: 0 auto;
+  }
+}
+
 /* ==========================================================================
    GAME CARD (Aspiration Sky & Azure Theme)
    ========================================================================== */
@@ -571,8 +587,8 @@ html, body {
 
 .card-badges {
   position: absolute;
-  top: 0.65rem;
-  right: 0.65rem;
+  top: 0.75rem;
+  right: 0.75rem;
   display: flex;
   gap: 0.35rem;
   z-index: 5;
@@ -674,12 +690,11 @@ html, body {
   color: var(--text-secondary);
   line-height: 1.48;
   margin-bottom: 1rem;
-  flex: 1;
+  min-height: 3.65rem;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  min-height: 3.5rem;
 }
 
 .btn-open {
