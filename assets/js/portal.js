@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initAuthModal();
   initSettingsModal();
   initAboutModal();
+  initSanctuaryGuide();
 });
 
 // ==========================================================================
@@ -467,5 +468,96 @@ function initAboutModal() {
 
   modal.addEventListener('click', (e) => {
     if (e.target === modal) closeModal();
+  });
+}
+
+
+// ==========================================================================
+// 9. SANCTUARY WELCOME GUIDE (COLLAPSIBLE & DOCKABLE)
+// ==========================================================================
+function initSanctuaryGuide() {
+  const guideBanner = document.getElementById('sanctuary-guide-banner');
+  const sidebarGuideBtn = document.getElementById('sidebar-guide-btn');
+  const exploreBtn = document.getElementById('guide-explore-btn');
+  const dismissBtn = document.getElementById('guide-dismiss-btn');
+  const closeBtn = document.getElementById('guide-close-btn');
+  const sidebar = document.getElementById('portal-sidebar');
+
+  if (!guideBanner || !sidebarGuideBtn) return;
+
+  const STORAGE_KEY = 'auromind_guide_dismissed';
+
+  // Check initial state from localStorage
+  const isPermanentlyDismissed = localStorage.getItem(STORAGE_KEY) === 'permanent';
+  if (isPermanentlyDismissed) {
+    guideBanner.classList.add('collapsed');
+    sidebarGuideBtn.classList.remove('active');
+  } else {
+    guideBanner.classList.remove('collapsed');
+    sidebarGuideBtn.classList.add('active');
+  }
+
+  const collapseGuide = (persistPermanent = false) => {
+    guideBanner.classList.add('collapsed');
+    sidebarGuideBtn.classList.remove('active');
+
+    if (persistPermanent) {
+      try {
+        localStorage.setItem(STORAGE_KEY, 'permanent');
+      } catch (err) {}
+    }
+
+    // Trigger visual dock pulse on the sidebar button to show where it docked
+    sidebarGuideBtn.classList.add('dock-pulse');
+    setTimeout(() => {
+      sidebarGuideBtn.classList.remove('dock-pulse');
+    }, 2200);
+  };
+
+  const expandGuide = () => {
+    guideBanner.classList.remove('collapsed');
+    sidebarGuideBtn.classList.add('active');
+
+    if (window.innerWidth < 680 && sidebar) {
+      sidebar.classList.remove('open');
+    }
+
+    // Smooth scroll into view
+    guideBanner.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  if (exploreBtn) {
+    exploreBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      collapseGuide(false);
+      // Scroll down to the live sanctuaries shelf
+      const liveSection = document.querySelector('.section-block');
+      if (liveSection) {
+        liveSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+  }
+
+  if (dismissBtn) {
+    dismissBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      collapseGuide(true);
+    });
+  }
+
+  if (closeBtn) {
+    closeBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      collapseGuide(false);
+    });
+  }
+
+  sidebarGuideBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (guideBanner.classList.contains('collapsed')) {
+      expandGuide();
+    } else {
+      guideBanner.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   });
 }

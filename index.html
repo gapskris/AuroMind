@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://gapskris.github.io; img-src 'self' data: https:; connect-src 'self';">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>AuroMind — Sanctuary of Mindful Play & Intergenerational Games</title>
   
   <!-- Preconnect & Fonts -->
@@ -12,7 +14,7 @@
   
   <!-- Icons & Stylesheet -->
   <link rel="icon" type="image/svg+xml" href="assets/icons/auromind-logo.svg">
-  <link rel="stylesheet" href="assets/css/portal.css?v=2.5">
+  <link rel="stylesheet" href="assets/css/portal.css?v=2.6">
 </head>
 <body>
 
@@ -90,6 +92,11 @@
           <span>Settings</span>
         </a>
 
+        <a id="sidebar-guide-btn" class="sidebar-nav-item active">
+          <span class="sidebar-icon">🌿</span>
+          <span>Sanctuary Guide</span>
+          <span class="sidebar-dock-badge">Guide</span>
+        </a>
         <a id="sidebar-about-btn" class="sidebar-nav-item">
           <span class="sidebar-icon">ℹ️</span>
           <span>About AuroMind</span>
@@ -179,6 +186,70 @@
           </div>
         </section>
 
+        <!-- SANCTUARY WELCOME GUIDE BANNER (COLLAPSIBLE & DOCKABLE) -->
+        <aside id="sanctuary-guide-banner" class="sanctuary-guide-banner" aria-label="Sanctuary Welcome Guide">
+          <div class="guide-card">
+            <button id="guide-close-btn" class="guide-close-btn" aria-label="Dismiss guide">&times;</button>
+            
+            <div class="guide-header-row">
+              <div class="guide-pill">
+                <span class="guide-sparkle">✨</span>
+                <span>Welcome to AuroMind</span>
+              </div>
+            </div>
+
+            <div class="guide-body">
+              <h3 class="guide-title">A Sanctuary of Conscious Casual Play</h3>
+              <p class="guide-lead">
+                Unlike conventional gaming portals designed with ticking clocks, stressful ads, and pay-to-win hooks, AuroMind is an intergenerational haven crafted for peace, clarity, and cognitive well-being.
+              </p>
+
+              <div class="guide-pillars-grid">
+                <div class="guide-pillar-item">
+                  <div class="pillar-icon">🕊️</div>
+                  <div class="pillar-text">
+                    <h4>100% Untimed Flow</h4>
+                    <p>No countdown clocks or sudden game-overs. Reflect, play, and solve at your natural rhythm.</p>
+                  </div>
+                </div>
+
+                <div class="guide-pillar-item">
+                  <div class="pillar-icon">🛡️</div>
+                  <div class="pillar-text">
+                    <h4>Zero Exploitation</h4>
+                    <p>No pop-up video ads, pay-to-win barriers, or predatory loot loops. Pure uninterrupted play.</p>
+                  </div>
+                </div>
+
+                <div class="guide-pillar-item">
+                  <div class="pillar-icon">🎵</div>
+                  <div class="pillar-text">
+                    <h4>Restful Soundscapes</h4>
+                    <p>Gentle acoustic background audio crafted to reduce mental fatigue and induce calm concentration.</p>
+                  </div>
+                </div>
+
+                <div class="guide-pillar-item">
+                  <div class="pillar-icon">👓</div>
+                  <div class="pillar-text">
+                    <h4>Intergenerational Vita</h4>
+                    <p>High-contrast, large-print typography and generous tap targets designed for players of all ages.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="guide-actions-row">
+                <button id="guide-explore-btn" class="btn-guide-explore">
+                  <span>Explore Games ▶</span>
+                </button>
+                <button id="guide-dismiss-btn" class="btn-guide-dismiss">
+                  <span>Do Not Show Again</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </aside>
+
         <!-- ==================================================================
              SECTION 1: LIVE EXPERIENCES (2 GAMES - REAL IN-GAME SCREENSHOTS)
              ================================================================== -->
@@ -200,7 +271,7 @@
                      data-usp="350 contemplative word puzzles cultivating mindful speech, truth, and inner silence. 100% untimed cognitive joy.">
               
               <div class="card-banner-box">
-                <img src="assets/thumbnails/vak.png?v=2.5" alt="Vak Real Gameplay" class="card-banner-img" loading="lazy">
+                <img src="assets/thumbnails/vak.png?v=2.6" alt="Vak Real Gameplay" class="card-banner-img" loading="lazy">
                 <div class="banner-gradient-shade"></div>
                 
                 <div class="card-badges">
@@ -239,7 +310,7 @@
                      data-usp="Tranquil 3-tray botanical matching sanctuary with high-contrast accessibility tiles, soothing soundscapes, and sacred garden themes.">
               
               <div class="card-banner-box">
-                <img src="assets/thumbnails/auromatch.png?v=2.5" alt="AuroMatch Real Gameplay" class="card-banner-img" loading="lazy">
+                <img src="assets/thumbnails/auromatch.png?v=2.6" alt="AuroMatch Real Gameplay" class="card-banner-img" loading="lazy">
                 <div class="banner-gradient-shade"></div>
                 
                 <div class="card-badges">
@@ -278,7 +349,7 @@
                      data-usp="Sudoku clearances and 8x8 polyomino spatial decluttering arriving next in live sanctuary play.">
               
               <div class="card-banner-box">
-                <img src="assets/thumbnails/auroblocks.jpg?v=2.5" alt="Block Puzzle Banner" class="card-banner-img" loading="lazy">
+                <img src="assets/thumbnails/auroblocks.jpg?v=2.6" alt="Block Puzzle Banner" class="card-banner-img" loading="lazy">
                 <div class="banner-gradient-shade"></div>
                 
                 <div class="card-badges">
@@ -314,7 +385,7 @@
                      data-usp="Tactile gemstone matching on sacred brass altars with zero timer stress arriving next.">
               
               <div class="card-banner-box">
-                <img src="assets/thumbnails/match3_puzzle.jpg?v=2.5" alt="Match 3 Banner" class="card-banner-img" loading="lazy">
+                <img src="assets/thumbnails/match3_puzzle.jpg?v=2.6" alt="Match 3 Banner" class="card-banner-img" loading="lazy">
                 <div class="banner-gradient-shade"></div>
                 
                 <div class="card-badges">
@@ -366,7 +437,7 @@
                      data-usp="Block Blast and Blockudoku unification. 8x8 spatial decluttering with 432 Hz resonance chimes and sacred geometry.">
               
               <div class="card-banner-box">
-                <img src="assets/thumbnails/auroblocks.jpg?v=2.5" alt="Block Puzzle Banner" class="card-banner-img" loading="lazy">
+                <img src="assets/thumbnails/auroblocks.jpg?v=2.6" alt="Block Puzzle Banner" class="card-banner-img" loading="lazy">
                 <div class="banner-gradient-shade"></div>
                 
                 <div class="card-badges">
@@ -402,7 +473,7 @@
                      data-usp="Brain Test and Who Is unification. 40 interactive wisdom vignettes training the silent observer state (Sakshi).">
               
               <div class="card-banner-box">
-                <img src="assets/thumbnails/logic_riddles.png?v=2.5" alt="Logic Riddle Banner" class="card-banner-img" loading="lazy">
+                <img src="assets/thumbnails/logic_riddles.png?v=2.6" alt="Logic Riddle Banner" class="card-banner-img" loading="lazy">
                 <div class="banner-gradient-shade"></div>
                 
                 <div class="card-badges">
@@ -438,7 +509,7 @@
                      data-usp="Royal Match and Match Factory adaptation without move-limit stress. Tactile gemstone matching on sacred brass altars.">
               
               <div class="card-banner-box">
-                <img src="assets/thumbnails/match3_puzzle.jpg?v=2.5" alt="Match 3 Banner" class="card-banner-img" loading="lazy">
+                <img src="assets/thumbnails/match3_puzzle.jpg?v=2.6" alt="Match 3 Banner" class="card-banner-img" loading="lazy">
                 <div class="banner-gradient-shade"></div>
                 
                 <div class="card-badges">
@@ -474,7 +545,7 @@
                      data-usp="Travel Town and Merge Gardens adaptation. Meditative wildlife sanctuary restoration with zero energy paywalls.">
               
               <div class="card-banner-box">
-                <img src="assets/thumbnails/sanctuary_merge.jpg?v=2.5" alt="Merge Games Banner" class="card-banner-img" loading="lazy">
+                <img src="assets/thumbnails/sanctuary_merge.jpg?v=2.6" alt="Merge Games Banner" class="card-banner-img" loading="lazy">
                 <div class="banner-gradient-shade"></div>
                 
                 <div class="card-badges">
@@ -526,7 +597,7 @@
                      data-usp="SPH 2D Fluid Dynamics teaching Samata (Equanimity). Hasty touches produce turbulence; calm stillness settles the pool.">
               
               <div class="card-banner-box">
-                <img src="assets/thumbnails/01_stillwater.png?v=2.5" alt="Stillwater Banner" class="card-banner-img" loading="lazy">
+                <img src="assets/thumbnails/01_stillwater.png?v=2.6" alt="Stillwater Banner" class="card-banner-img" loading="lazy">
                 <div class="banner-gradient-shade"></div>
                 <div class="card-badges">
                   <span class="pill-badge badge-upcoming-tag">Suite #01</span>
@@ -557,7 +628,7 @@
                      data-usp="Procedural Botany and L-Systems teaching Tapasya (Unhurried soul growth). Cultivate delicate ancient flora.">
               
               <div class="card-banner-box">
-                <img src="assets/thumbnails/02_living_terrarium.png?v=2.5" alt="Living Terrarium Banner" class="card-banner-img" loading="lazy">
+                <img src="assets/thumbnails/02_living_terrarium.png?v=2.6" alt="Living Terrarium Banner" class="card-banner-img" loading="lazy">
                 <div class="banner-gradient-shade"></div>
                 <div class="card-badges">
                   <span class="pill-badge badge-upcoming-tag">Suite #02</span>
@@ -588,7 +659,7 @@
                      data-usp="Eulerian one-stroke drawing teaching Ritam (Cosmic Order). Trace continuous sacred mandalas without backtracking.">
               
               <div class="card-banner-box">
-                <img src="assets/thumbnails/03_pattern_and_petal.jpg?v=2.5" alt="Pattern and Petal Banner" class="card-banner-img" loading="lazy">
+                <img src="assets/thumbnails/03_pattern_and_petal.jpg?v=2.6" alt="Pattern and Petal Banner" class="card-banner-img" loading="lazy">
                 <div class="banner-gradient-shade"></div>
                 <div class="card-badges">
                   <span class="pill-badge badge-upcoming-tag">Suite #03</span>
@@ -619,7 +690,7 @@
                      data-usp="Spatial bioacoustics and micro-observation teaching Sakshi (The Detached Witness Consciousness).">
               
               <div class="card-banner-box">
-                <img src="assets/thumbnails/04_the_quiet_eye.png?v=2.5" alt="The Quiet Eye Banner" class="card-banner-img" loading="lazy">
+                <img src="assets/thumbnails/04_the_quiet_eye.png?v=2.6" alt="The Quiet Eye Banner" class="card-banner-img" loading="lazy">
                 <div class="banner-gradient-shade"></div>
                 <div class="card-badges">
                   <span class="pill-badge badge-upcoming-tag">Suite #04</span>
@@ -650,7 +721,7 @@
                      data-usp="Cymatics and acoustic resonator tuning teaching Nada (Creative sound). Transmute dissonance into pure harmony.">
               
               <div class="card-banner-box">
-                <img src="assets/thumbnails/05_chords_of_calm.png?v=2.5" alt="Chords of Calm Banner" class="card-banner-img" loading="lazy">
+                <img src="assets/thumbnails/05_chords_of_calm.png?v=2.6" alt="Chords of Calm Banner" class="card-banner-img" loading="lazy">
                 <div class="banner-gradient-shade"></div>
                 <div class="card-badges">
                   <span class="pill-badge badge-upcoming-tag">Suite #05</span>
@@ -681,7 +752,7 @@
                      data-usp="Raymarching optics, prisms, and shadows teaching The Sun of Truth. Guide rays of light to illuminate inertia.">
               
               <div class="card-banner-box">
-                <img src="assets/thumbnails/06_lux.jpg?v=2.5" alt="Lux Banner" class="card-banner-img" loading="lazy">
+                <img src="assets/thumbnails/06_lux.jpg?v=2.6" alt="Lux Banner" class="card-banner-img" loading="lazy">
                 <div class="banner-gradient-shade"></div>
                 <div class="card-badges">
                   <span class="pill-badge badge-upcoming-tag">Suite #06</span>
@@ -712,7 +783,7 @@
                      data-usp="CIELAB perceptual color sorting teaching Aesthetic Culture. Refine subtle visual discernment and gradient harmony.">
               
               <div class="card-banner-box">
-                <img src="assets/thumbnails/07_hue_and_harmony.png?v=2.5" alt="Hue and Harmony Banner" class="card-banner-img" loading="lazy">
+                <img src="assets/thumbnails/07_hue_and_harmony.png?v=2.6" alt="Hue and Harmony Banner" class="card-banner-img" loading="lazy">
                 <div class="banner-gradient-shade"></div>
                 <div class="card-badges">
                   <span class="pill-badge badge-upcoming-tag">Suite #07</span>
@@ -743,7 +814,7 @@
                      data-usp="Manning's open-channel hydrology teaching Universal Oneness. Guide fresh water into generous circulation vs hoarding.">
               
               <div class="card-banner-box">
-                <img src="assets/thumbnails/08_living_tributary.png?v=2.5" alt="Living Tributary Banner" class="card-banner-img" loading="lazy">
+                <img src="assets/thumbnails/08_living_tributary.png?v=2.6" alt="Living Tributary Banner" class="card-banner-img" loading="lazy">
                 <div class="banner-gradient-shade"></div>
                 <div class="card-badges">
                   <span class="pill-badge badge-upcoming-tag">Suite #08</span>
@@ -774,7 +845,7 @@
                      data-usp="Aerodynamic lift and thermal gliding teaching Samarpana (Effortless Surrender to Higher Law). Ride gentle currents.">
               
               <div class="card-banner-box">
-                <img src="assets/thumbnails/09_windborn.png?v=2.5" alt="Windborn Banner" class="card-banner-img" loading="lazy">
+                <img src="assets/thumbnails/09_windborn.png?v=2.6" alt="Windborn Banner" class="card-banner-img" loading="lazy">
                 <div class="banner-gradient-shade"></div>
                 <div class="card-badges">
                   <span class="pill-badge badge-upcoming-tag">Suite #09</span>
@@ -805,7 +876,7 @@
                      data-usp="3D rigid origami tessellation and constellations teaching Psychic Gratitude (The Magnet of Grace).">
               
               <div class="card-banner-box">
-                <img src="assets/thumbnails/10_starlight_origami.png?v=2.5" alt="Starlight Origami Banner" class="card-banner-img" loading="lazy">
+                <img src="assets/thumbnails/10_starlight_origami.png?v=2.6" alt="Starlight Origami Banner" class="card-banner-img" loading="lazy">
                 <div class="banner-gradient-shade"></div>
                 <div class="card-badges">
                   <span class="pill-badge badge-upcoming-tag">Suite #10</span>
@@ -883,7 +954,8 @@
           <iframe id="game-viewport-iframe" 
                   class="theater-iframe" 
                   src="about:blank" 
-                  allow="autoplay; fullscreen; screen-wake-lock; clipboard-write" 
+                  allow="autoplay; fullscreen; screen-wake-lock; clipboard-write"
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock" 
                   allowfullscreen="true">
           </iframe>
         </div>

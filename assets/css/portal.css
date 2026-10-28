@@ -1230,3 +1230,270 @@ html.reduced-motion *::after {
   animation-iteration-count: 1 !important;
   transition-duration: 0.001s !important;
 }
+
+/* ==========================================================================
+   9. SANCTUARY WELCOME GUIDE BANNER (COLLAPSIBLE & DOCKABLE)
+   ========================================================================== */
+.sanctuary-guide-banner {
+  flex-shrink: 0;
+  width: 100%;
+  margin-bottom: 2rem;
+  max-height: 800px;
+  opacity: 1;
+  transform: translateY(0);
+  transition: max-height 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.35s ease,
+              transform 0.35s ease,
+              margin-bottom 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+.sanctuary-guide-banner.collapsed {
+  max-height: 0 !important;
+  opacity: 0 !important;
+  transform: translateY(-14px) !important;
+  margin-bottom: 0 !important;
+  pointer-events: none;
+  flex-shrink: 1 !important;
+}
+
+.guide-card {
+  position: relative;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(240, 246, 255, 0.95) 100%);
+  border: 1.5px solid rgba(2, 132, 199, 0.22);
+  border-radius: var(--radius-lg);
+  padding: 1.45rem 1.65rem;
+  box-shadow: 0 8px 24px rgba(2, 132, 199, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.guide-close-btn {
+  position: absolute;
+  top: 1rem;
+  right: 1.15rem;
+  background: transparent;
+  border: none;
+  font-size: 1.4rem;
+  color: var(--text-dim);
+  cursor: pointer;
+  line-height: 1;
+  padding: 0.2rem 0.4rem;
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+}
+
+.guide-close-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface);
+}
+
+.guide-header-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.guide-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.75rem;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: var(--radius-full);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #B45309;
+}
+
+.guide-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.45rem;
+  letter-spacing: -0.01em;
+}
+
+.guide-lead {
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  max-width: 900px;
+  margin-bottom: 1.25rem;
+}
+
+.guide-pillars-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 1.35rem;
+}
+
+.guide-pillar-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  background: #FFFFFF;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.9rem 1rem;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.guide-pillar-item:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-active);
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.1);
+}
+
+.guide-pillar-item .pillar-icon {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.guide-pillar-item h4 {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.guide-pillar-item p {
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.guide-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding-top: 0.25rem;
+}
+
+.btn-guide-explore {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--accent-primary);
+  color: #FFFFFF;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 0.65rem 1.35rem;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.28);
+  transition: all 0.2s ease;
+}
+
+.btn-guide-explore:hover {
+  background: var(--accent-gold-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(2, 132, 199, 0.38);
+}
+
+.btn-guide-dismiss {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.65rem 1.15rem;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-guide-dismiss:hover {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-color: rgba(2, 132, 199, 0.3);
+}
+
+/* SIDEBAR DOCK BADGE & PULSE */
+.sidebar-dock-badge {
+  margin-left: auto;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--radius-full);
+  background: rgba(2, 132, 199, 0.12);
+  color: var(--accent-primary);
+  border: 1px solid rgba(2, 132, 199, 0.25);
+  transition: all 0.2s ease;
+}
+
+.sidebar-nav-item.active .sidebar-dock-badge {
+  background: var(--accent-primary);
+  color: #FFFFFF;
+  border-color: var(--accent-primary);
+}
+
+.sidebar-nav-item.dock-pulse {
+  animation: dockPulseAnim 1s ease-in-out 2;
+}
+
+@keyframes dockPulseAnim {
+  0% { transform: scale(1); background: transparent; }
+  50% { transform: scale(1.05); background: rgba(2, 132, 199, 0.18); box-shadow: 0 0 14px rgba(2, 132, 199, 0.35); }
+  100% { transform: scale(1); background: transparent; }
+}
+
+/* SENIOR MODE ENHANCEMENTS */
+body.senior-mode .guide-title {
+  font-size: 1.55rem;
+}
+body.senior-mode .guide-lead {
+  font-size: 1.05rem;
+}
+body.senior-mode .guide-pillar-item h4 {
+  font-size: 1rem;
+}
+body.senior-mode .guide-pillar-item p {
+  font-size: 0.88rem;
+}
+body.senior-mode .btn-guide-explore,
+body.senior-mode .btn-guide-dismiss {
+  min-height: 48px;
+  padding: 0.75rem 1.5rem;
+  font-size: 0.95rem;
+}
+
+/* RESPONSIVE LAYOUT BREAKPOINTS */
+@media (max-width: 1024px) {
+  .guide-pillars-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 680px) {
+  .sanctuary-guide-banner {
+    margin-bottom: 1.5rem;
+  }
+  .guide-card {
+    padding: 1.25rem 1rem;
+  }
+  .guide-pillars-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  .guide-actions-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .btn-guide-explore,
+  .btn-guide-dismiss {
+    justify-content: center;
+    width: 100%;
+  }
+}
