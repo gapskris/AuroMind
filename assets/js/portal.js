@@ -10,6 +10,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initSeniorMode();
   initAmbientAudio();
   initAuthModal();
+  initSettingsModal();
+  initAboutModal();
 });
 
 // ==========================================================================
@@ -265,6 +267,14 @@ function initAmbientAudio() {
   let oscillator = null;
   let gainNode = null;
   let isPlaying = false;
+  let currentVolume = 0.035;
+
+  window.setAmbientVolume = (volRatio) => {
+    currentVolume = volRatio * 0.07;
+    if (gainNode && audioCtx && isPlaying) {
+      gainNode.gain.setValueAtTime(Math.max(0.001, currentVolume), audioCtx.currentTime);
+    }
+  };
 
   audioBtn.addEventListener('click', () => {
     if (!audioCtx) {
@@ -291,7 +301,7 @@ function initAmbientAudio() {
       oscillator.frequency.setValueAtTime(432, audioCtx.currentTime);
 
       gainNode.gain.setValueAtTime(0.001, audioCtx.currentTime);
-      gainNode.gain.linearRampToValueAtTime(0.035, audioCtx.currentTime + 1);
+      gainNode.gain.linearRampToValueAtTime(currentVolume, audioCtx.currentTime + 1);
 
       oscillator.connect(gainNode);
       gainNode.connect(audioCtx.destination);
@@ -318,6 +328,140 @@ function initAuthModal() {
   const closeModal = () => modal.classList.remove('open');
 
   authBtn.addEventListener('click', openModal);
+  if (closeBtn) closeBtn.addEventListener('click', closeModal);
+  if (confirmBtn) confirmBtn.addEventListener('click', closeModal);
+
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeModal();
+  });
+}
+
+// ==========================================================================
+// 7. SETTINGS MODAL & CONTROLS
+// ==========================================================================
+function initSettingsModal() {
+  const settingsBtn = document.getElementById('sidebar-settings-btn');
+  const modal = document.getElementById('settings-modal');
+  const closeBtn = document.getElementById('settings-close-btn');
+  const confirmBtn = document.getElementById('settings-confirm-btn');
+  const sidebar = document.getElementById('portal-sidebar');
+
+  const volumeSlider = document.getElementById('settings-volume-slider');
+  const seniorToggle = document.getElementById('settings-senior-toggle');
+  const motionToggle = document.getElementById('settings-motion-toggle');
+  const resetBtn = document.getElementById('settings-reset-btn');
+
+  if (!settingsBtn || !modal) return;
+
+  const openModal = () => {
+    // Sync current Senior Mode state
+    if (seniorToggle) {
+      seniorToggle.checked = document.body.classList.contains('senior-mode');
+    }
+    // Sync reduced motion
+    if (motionToggle) {
+      motionToggle.checked = document.documentElement.classList.contains('reduced-motion');
+    }
+    modal.classList.add('open');
+    if (window.innerWidth < 680 && sidebar) {
+      sidebar.classList.remove('open');
+    }
+  };
+
+  const closeModal = () => modal.classList.remove('open');
+
+  settingsBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    openModal();
+  });
+
+  if (closeBtn) closeBtn.addEventListener('click', closeModal);
+  if (confirmBtn) confirmBtn.addEventListener('click', closeModal);
+
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeModal();
+  });
+
+  // Senior Mode Toggle inside Settings
+  if (seniorToggle) {
+    seniorToggle.addEventListener('change', () => {
+      const seniorBtn = document.getElementById('senior-mode-btn');
+      const sidebarSeniorBtn = document.getElementById('sidebar-senior-btn');
+      document.body.classList.toggle('senior-mode', seniorToggle.checked);
+      if (seniorBtn) {
+        seniorBtn.classList.toggle('active', seniorToggle.checked);
+        seniorBtn.querySelector('span:last-child').textContent = seniorToggle.checked ? 'Senior: ON' : 'Senior View';
+      }
+      if (sidebarSeniorBtn) {
+        sidebarSeniorBtn.classList.toggle('active', seniorToggle.checked);
+      }
+    });
+  }
+
+  // Reduced Motion Toggle
+  if (motionToggle) {
+    motionToggle.addEventListener('change', () => {
+      document.documentElement.classList.toggle('reduced-motion', motionToggle.checked);
+      try {
+        localStorage.setItem('auromind_reduced_motion', motionToggle.checked ? 'true' : 'false');
+      } catch (err) {}
+    });
+  }
+
+  // Volume slider
+  if (volumeSlider) {
+    volumeSlider.addEventListener('input', (e) => {
+      const vol = parseFloat(e.target.value) / 100;
+      if (window.setAmbientVolume) {
+        window.setAmbientVolume(vol);
+      }
+    });
+  }
+
+  // Reset Cache / Local Storage
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      if (confirm('Clear local AuroMind cache and preferences?')) {
+        try {
+          localStorage.clear();
+        } catch (err) {}
+        resetBtn.textContent = 'Cache Cleared ✓';
+        resetBtn.style.color = '#059669';
+        setTimeout(() => {
+          resetBtn.textContent = 'Clear Cache';
+          resetBtn.style.color = '#DC2626';
+        }, 2000);
+      }
+    });
+  }
+}
+
+// ==========================================================================
+// 8. ABOUT AUROMIND MODAL
+// ==========================================================================
+function initAboutModal() {
+  const aboutBtn = document.getElementById('sidebar-about-btn');
+  const modal = document.getElementById('about-modal');
+  const closeBtn = document.getElementById('about-close-btn');
+  const confirmBtn = document.getElementById('about-confirm-btn');
+  const sidebar = document.getElementById('portal-sidebar');
+
+  if (!aboutBtn || !modal) return;
+
+  const openModal = () => {
+    modal.classList.add('open');
+    if (window.innerWidth < 680 && sidebar) {
+      sidebar.classList.remove('open');
+    }
+  };
+
+  const closeModal = () => modal.classList.remove('open');
+
+  aboutBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    openModal();
+  });
+
   if (closeBtn) closeBtn.addEventListener('click', closeModal);
   if (confirmBtn) confirmBtn.addEventListener('click', closeModal);
 
