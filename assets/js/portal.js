@@ -424,7 +424,14 @@ function initSettingsModal() {
     resetBtn.addEventListener('click', () => {
       if (confirm('Clear local AuroMind cache and preferences?')) {
         try {
-          localStorage.clear();
+          // Explicitly remove known AuroMind keys
+          localStorage.removeItem('auromind_reduced_motion');
+          localStorage.removeItem('auromind_guide_seen');
+
+          // Defensively remove any current or future AuroMind-owned keys
+          Object.keys(localStorage)
+            .filter(key => key.startsWith('auromind_'))
+            .forEach(key => localStorage.removeItem(key));
         } catch (err) {}
         resetBtn.textContent = 'Cache Cleared ✓';
         resetBtn.style.color = '#059669';
@@ -473,32 +480,30 @@ function initAboutModal() {
 
 
 // ==========================================================================
-// 9. SANCTUARY WELCOME GUIDE (COLLAPSIBLE & DOCKABLE)
+// 9. SANCTUARY WELCOME GUIDE MODAL (POP-UP & ON-DEMAND)
 // ==========================================================================
 function initSanctuaryGuide() {
-  const guideBanner = document.getElementById('sanctuary-guide-banner');
+  const guideModal = document.getElementById('guide-modal');
   const sidebarGuideBtn = document.getElementById('sidebar-guide-btn');
   const exploreBtn = document.getElementById('guide-explore-btn');
   const dismissBtn = document.getElementById('guide-dismiss-btn');
   const closeBtn = document.getElementById('guide-close-btn');
   const sidebar = document.getElementById('portal-sidebar');
 
-  if (!guideBanner || !sidebarGuideBtn) return;
+  if (!guideModal || !sidebarGuideBtn) return;
 
-  const STORAGE_KEY = 'auromind_guide_dismissed';
+  const STORAGE_KEY = 'auromind_guide_seen';
 
-  // Check initial state from localStorage
-  const isPermanentlyDismissed = localStorage.getItem(STORAGE_KEY) === 'permanent';
-  if (isPermanentlyDismissed) {
-    guideBanner.classList.add('collapsed');
-    sidebarGuideBtn.classList.remove('active');
-  } else {
-    guideBanner.classList.remove('collapsed');
+  const openModal = () => {
+    guideModal.classList.add('open');
     sidebarGuideBtn.classList.add('active');
-  }
+    if (window.innerWidth < 680 && sidebar) {
+      sidebar.classList.remove('open');
+    }
+  };
 
-  const collapseGuide = (persistPermanent = false) => {
-    guideBanner.classList.add('collapsed');
+  const closeModal = (persistPermanent = false) => {
+    guideModal.classList.remove('open');
     sidebarGuideBtn.classList.remove('active');
 
     if (persistPermanent) {
@@ -506,58 +511,45 @@ function initSanctuaryGuide() {
         localStorage.setItem(STORAGE_KEY, 'permanent');
       } catch (err) {}
     }
+  };
 
-    // Trigger visual dock pulse on the sidebar button to show where it docked
-    sidebarGuideBtn.classList.add('dock-pulse');
+  // Check if first-time visitor: Auto pop-up after a soft 400ms delay
+  const hasSeen = localStorage.getItem(STORAGE_KEY) === 'permanent';
+  if (!hasSeen) {
     setTimeout(() => {
-      sidebarGuideBtn.classList.remove('dock-pulse');
-    }, 2200);
-  };
-
-  const expandGuide = () => {
-    guideBanner.classList.remove('collapsed');
-    sidebarGuideBtn.classList.add('active');
-
-    if (window.innerWidth < 680 && sidebar) {
-      sidebar.classList.remove('open');
-    }
-
-    // Smooth scroll into view
-    guideBanner.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
+      openModal();
+    }, 400);
+  }
 
   if (exploreBtn) {
     exploreBtn.addEventListener('click', (e) => {
       e.preventDefault();
-      collapseGuide(false);
-      // Scroll down to the live sanctuaries shelf
-      const liveSection = document.querySelector('.section-block');
-      if (liveSection) {
-        liveSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
+      closeModal(false);
     });
   }
 
   if (dismissBtn) {
     dismissBtn.addEventListener('click', (e) => {
       e.preventDefault();
-      collapseGuide(true);
+      closeModal(true);
     });
   }
 
   if (closeBtn) {
     closeBtn.addEventListener('click', (e) => {
       e.preventDefault();
-      collapseGuide(false);
+      closeModal(false);
     });
   }
 
+  guideModal.addEventListener('click', (e) => {
+    if (e.target === guideModal) {
+      closeModal(false);
+    }
+  });
+
   sidebarGuideBtn.addEventListener('click', (e) => {
     e.preventDefault();
-    if (guideBanner.classList.contains('collapsed')) {
-      expandGuide();
-    } else {
-      guideBanner.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    openModal();
   });
 }

@@ -186,70 +186,6 @@
           </div>
         </section>
 
-        <!-- SANCTUARY WELCOME GUIDE BANNER (COLLAPSIBLE & DOCKABLE) -->
-        <aside id="sanctuary-guide-banner" class="sanctuary-guide-banner" aria-label="Sanctuary Welcome Guide">
-          <div class="guide-card">
-            <button id="guide-close-btn" class="guide-close-btn" aria-label="Dismiss guide">&times;</button>
-            
-            <div class="guide-header-row">
-              <div class="guide-pill">
-                <span class="guide-sparkle">✨</span>
-                <span>Welcome to AuroMind</span>
-              </div>
-            </div>
-
-            <div class="guide-body">
-              <h3 class="guide-title">A Sanctuary of Conscious Casual Play</h3>
-              <p class="guide-lead">
-                Unlike conventional gaming portals designed with ticking clocks, stressful ads, and pay-to-win hooks, AuroMind is an intergenerational haven crafted for peace, clarity, and cognitive well-being.
-              </p>
-
-              <div class="guide-pillars-grid">
-                <div class="guide-pillar-item">
-                  <div class="pillar-icon">🕊️</div>
-                  <div class="pillar-text">
-                    <h4>100% Untimed Flow</h4>
-                    <p>No countdown clocks or sudden game-overs. Reflect, play, and solve at your natural rhythm.</p>
-                  </div>
-                </div>
-
-                <div class="guide-pillar-item">
-                  <div class="pillar-icon">🛡️</div>
-                  <div class="pillar-text">
-                    <h4>Zero Exploitation</h4>
-                    <p>No pop-up video ads, pay-to-win barriers, or predatory loot loops. Pure uninterrupted play.</p>
-                  </div>
-                </div>
-
-                <div class="guide-pillar-item">
-                  <div class="pillar-icon">🎵</div>
-                  <div class="pillar-text">
-                    <h4>Restful Soundscapes</h4>
-                    <p>Gentle acoustic background audio crafted to reduce mental fatigue and induce calm concentration.</p>
-                  </div>
-                </div>
-
-                <div class="guide-pillar-item">
-                  <div class="pillar-icon">👓</div>
-                  <div class="pillar-text">
-                    <h4>Intergenerational Vita</h4>
-                    <p>High-contrast, large-print typography and generous tap targets designed for players of all ages.</p>
-                  </div>
-                </div>
-              </div>
-
-              <div class="guide-actions-row">
-                <button id="guide-explore-btn" class="btn-guide-explore">
-                  <span>Explore Games ▶</span>
-                </button>
-                <button id="guide-dismiss-btn" class="btn-guide-dismiss">
-                  <span>Do Not Show Again</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </aside>
-
         <!-- ==================================================================
              SECTION 1: LIVE EXPERIENCES (2 GAMES - REAL IN-GAME SCREENSHOTS)
              ================================================================== -->
@@ -1093,6 +1029,69 @@
       </div>
 
       <button id="about-confirm-btn" class="modal-confirm-btn">Enter Sanctuary 🌸</button>
+    </div>
+  </div>
+
+  <!-- SANCTUARY WELCOME GUIDE MODAL (POP-UP & ON-DEMAND) -->
+  <div id="guide-modal" class="modal-overlay">
+    <div class="modal-box modal-box-guide">
+      <button id="guide-close-btn" class="modal-close-btn" aria-label="Close modal">&times;</button>
+      
+      <div class="guide-modal-header">
+        <img src="assets/icons/auromind-logo.svg" alt="AuroMind" style="width: 44px; height: 44px; margin: 0 auto 0.45rem; filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.45));">
+        <div>
+          <div class="guide-pill">
+            <span>✨ Welcome to AuroMind</span>
+          </div>
+        </div>
+        <h3 class="guide-modal-title">A Sanctuary of Conscious Casual Play</h3>
+        <p class="guide-modal-lead">
+          Unlike conventional gaming portals designed with ticking clocks, stressful ads, and pay-to-win hooks, AuroMind is an intergenerational haven crafted for peace, clarity, and cognitive well-being.
+        </p>
+      </div>
+
+      <div class="guide-pillars-modal-grid">
+        <div class="guide-pillar-modal-item">
+          <div class="pillar-icon">🕊️</div>
+          <div class="pillar-text">
+            <h4>100% Untimed Flow</h4>
+            <p>No countdown clocks or sudden game-overs. Reflect, play, and solve at your natural rhythm.</p>
+          </div>
+        </div>
+
+        <div class="guide-pillar-modal-item">
+          <div class="pillar-icon">🛡️</div>
+          <div class="pillar-text">
+            <h4>Zero Exploitation</h4>
+            <p>No pop-up video ads, pay-to-win barriers, or predatory loot loops. Pure uninterrupted play.</p>
+          </div>
+        </div>
+
+        <div class="guide-pillar-modal-item">
+          <div class="pillar-icon">🎵</div>
+          <div class="pillar-text">
+            <h4>Restful Soundscapes</h4>
+            <p>Gentle acoustic background audio crafted to reduce mental fatigue and induce calm concentration.</p>
+          </div>
+        </div>
+
+        <div class="guide-pillar-modal-item">
+          <div class="pillar-icon">👓</div>
+          <div class="pillar-text">
+            <h4>Intergenerational Vita</h4>
+            <p>High-contrast, large-print typography and generous tap targets designed for players of all ages.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="guide-modal-actions">
+        <button id="guide-explore-btn" class="modal-confirm-btn" style="margin-top: 0; width: auto; padding: 0.65rem 1.5rem;">
+          Enter Sanctuary 🌸
+        </button>
+        <button id="guide-dismiss-btn" class="btn-guide-dismiss-modal">
+          Do Not Show Again
+        </button>
+      </div>
     </div>
   </div>
 
