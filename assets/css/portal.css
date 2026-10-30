@@ -1431,3 +1431,62 @@ body.senior-mode .guide-pillar-modal-item p {
     width: 100%;
   }
 }
+
+
+/* =========================================================================
+   AUROMIND TABLET FULL-PORTRAIT & LANDSCAPE SUITE
+   ========================================================================= */
+
+/* 1. Tablet Portrait (600px - 1023px) Header Breathing Room & 2-Col Grid */
+@media (orientation: portrait) and (min-width: 600px) and (max-width: 1023px) {
+  .portal-header {
+    padding: 0.55rem 1.5rem !important;
+    gap: 1rem !important;
+  }
+  .header-search {
+    max-width: 320px !important;
+  }
+  .hero-banner {
+    padding: 1.15rem 1.5rem !important;
+  }
+  .games-uniform-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 1.15rem !important;
+  }
+}
+
+/* 2. Tablet Landscape: Compact Hero Ribbon (Games Above the Fold) */
+@media (orientation: landscape) and (max-height: 850px) {
+  .portal-header {
+    height: 48px !important;
+    padding: 0.25rem 1.5rem !important;
+  }
+  .header-search {
+    max-width: 280px !important;
+  }
+  .hero-banner {
+    padding: 0.65rem 1.25rem !important;
+    margin-bottom: 0.75rem !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+  }
+  .hero-title {
+    font-size: 1.15rem !important;
+    margin: 0 0 0.15rem 0 !important;
+  }
+  .hero-desc {
+    font-size: 0.8rem !important;
+    margin: 0 !important;
+    line-height: 1.35 !important;
+  }
+  .hero-stats-row {
+    margin-top: 0 !important;
+    gap: 0.6rem !important;
+  }
+  .games-uniform-grid {
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)) !important;
+    gap: 0.85rem !important;
+  }
+}
