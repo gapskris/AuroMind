@@ -765,7 +765,7 @@ body.in-game-mode .portal-main-area {
 .game-edge-controller {
   position: fixed;
   left: 0;
-  top: 35%;
+  top: clamp(140px, 35vh, 420px);
   z-index: 1200;
   display: flex;
   align-items: center;
@@ -949,6 +949,24 @@ body.in-game-mode .portal-main-area {
   .footer-trust-strip {
     grid-template-columns: 1fr;
   }
+  /* Tablet Header Pill Iconification (Prevents Wrapping & Squeeze) */
+  .btn-pill-action span:not(:first-child) {
+    display: none !important;
+  }
+  .btn-pill-action {
+    padding: 0.45rem 0.65rem !important;
+    min-width: 38px !important;
+    height: 38px !important;
+    border-radius: var(--radius-full) !important;
+    justify-content: center !important;
+  }
+  .header-search {
+    max-width: 260px !important;
+  }
+  .portal-header {
+    padding: 0 1.25rem !important;
+    gap: 0.75rem !important;
+  }
 }
 
 @media (max-width: 679px) {
@@ -1005,6 +1023,14 @@ body.in-game-mode .portal-main-area {
 }
 .modal-overlay.open {
   display: flex;
+}
+.modal-box,
+.modal-box-wide,
+.modal-box-guide {
+  max-height: min(88dvh, 88vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 .modal-box {
   background: var(--bg-card);
