@@ -616,16 +616,15 @@ function initFeedbackModal() {
     });
   });
 
-  // Handle Form Submit
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-
+  // Handle Form Submit via Hidden Iframe (Bypasses all CORS limitations)
+  form.addEventListener('submit', (e) => {
     const sentiment = sentimentInput ? sentimentInput.value : 'Deeply Peaceful 🌸';
     const topic = document.getElementById('feedback-topic-select')?.value || 'General Sanctuary Experience';
     const message = messageInput?.value.trim() || '';
     const contact = document.getElementById('feedback-user-contact')?.value.trim() || 'Anonymous Contemplator';
 
     if (!message) {
+      e.preventDefault();
       if (statusMsg) {
         statusMsg.style.display = 'block';
         statusMsg.className = 'feedback-status-msg error';
@@ -641,72 +640,24 @@ function initFeedbackModal() {
     submitBtn.innerHTML = '<span>Sending with care... 🕊️</span>';
     if (statusMsg) statusMsg.style.display = 'none';
 
-    // If Access Key is set, send to Web3Forms API
-    if (WEB3FORMS_ACCESS_KEY && WEB3FORMS_ACCESS_KEY !== 'YOUR_ACCESS_KEY_HERE') {
-      try {
-        const response = await fetch('https://api.web3forms.com/submit', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify({
-            access_key: WEB3FORMS_ACCESS_KEY,
-            subject: `💬 AuroMind Sanctuary Feedback: [${topic}]`,
-            from_name: 'AuroMind Player Feedback',
-            sentiment: sentiment,
-            topic: topic,
-            message: message,
-            user_contact: contact,
-            submitted_at: new Date().toISOString()
-          })
-        });
-
-        const result = await response.json();
-        if (response.status === 200 && result.success) {
-          showSuccessAndClose();
-        } else {
-          showFallback(sentiment, topic, message, contact, result.message || 'Error communicating with server.');
+    // The browser natively posts the form into the hidden iframe!
+    const frame = document.getElementById('feedback-submission-frame');
+    if (frame) {
+      frame.onload = () => {
+        if (statusMsg) {
+          statusMsg.style.display = 'block';
+          statusMsg.className = 'feedback-status-msg success';
+          statusMsg.textContent = 'Thank you! Your thoughts have been received with gratitude 🌸';
         }
-      } catch (err) {
-        showFallback(sentiment, topic, message, contact, 'Network error. Offline fallback activated.');
-      }
-    } else {
-      // Offline / Pre-Key Demonstration Mode:
-      // Logs feedback cleanly to console & localStorage and provides instant mailto fallback
-      try {
-        const localLog = JSON.parse(localStorage.getItem('auromind_feedback_submissions') || '[]');
-        localLog.push({ sentiment, topic, message, contact, date: new Date().toISOString() });
-        localStorage.setItem('auromind_feedback_submissions', JSON.stringify(localLog));
-      } catch (e) {}
-
-      showSuccessAndClose();
-    }
-
-    function showSuccessAndClose() {
-      if (statusMsg) {
-        statusMsg.style.display = 'block';
-        statusMsg.className = 'feedback-status-msg success';
-        statusMsg.textContent = 'Thank you! Your thoughts have been received with gratitude 🌸';
-      }
-      submitBtn.innerHTML = '<span>Sent with Gratitude 🌸</span>';
-      setTimeout(() => {
-        form.reset();
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = originalBtnText;
-        sentimentChips.forEach((c, idx) => c.classList.toggle('active', idx === 0));
-        closeModal();
-      }, 1800);
-    }
-
-    function showFallback(sentiment, topic, message, contact, errDetail) {
-      submitBtn.disabled = false;
-      submitBtn.innerHTML = originalBtnText;
-      if (statusMsg) {
-        statusMsg.style.display = 'block';
-        statusMsg.className = 'feedback-status-msg error';
-        statusMsg.innerHTML = `Could not send automatically. <a href="mailto:gapskris@gmail.com?subject=AuroMind%20Feedback:%20${encodeURIComponent(topic)}&body=${encodeURIComponent(message + '\n\nFrom: ' + contact + '\nFeeling: ' + sentiment)}" style="color: inherit; text-decoration: underline; font-weight: bold;">Click here to send via email</a>`;
-      }
+        submitBtn.innerHTML = '<span>Sent with Gratitude 🌸</span>';
+        setTimeout(() => {
+          form.reset();
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = originalBtnText;
+          sentimentChips.forEach((c, idx) => c.classList.toggle('active', idx === 0));
+          closeModal();
+        }, 1800);
+      };
     }
   });
 }
