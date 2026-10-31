@@ -575,7 +575,7 @@ function initFeedbackModal() {
 
   // Placeholder for user's Web3Forms Access Key
   // Once the user generates a key at web3forms.com, it can be dropped in here.
-  const WEB3FORMS_ACCESS_KEY = 'YOUR_ACCESS_KEY_HERE';
+  const WEB3FORMS_ACCESS_KEY = '076591f7-fef5-4ea4-8f9f-14d389883cf9';
 
   const openModal = () => {
     modal.classList.add('open');
