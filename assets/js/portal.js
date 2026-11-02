@@ -50,8 +50,8 @@ function initTheaterMode() {
                   window.location.protocol === 'file:';
 
   const gameUrls = {
-    'vak': isLocal ? '../vak-play/index.html' : 'https://gapskris.github.io/vak-play/',
-    'auromatch': isLocal ? '../auromatch-play/index.html' : 'https://gapskris.github.io/auromatch-play/'
+    'vak': isLocal ? '../vak-play/index.html' : 'https://gapskris.github.io/vak-play/?v=3.5',
+    'auromatch': isLocal ? '../auromatch-play/index.html' : 'https://gapskris.github.io/auromatch-play/?v=3.5'
   };
 
   function openGameInTheater(gameId, title, icon) {
