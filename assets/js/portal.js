@@ -679,10 +679,8 @@ function initFeedbackModal() {
       if (statusMsg) {
         statusMsg.style.display = 'block';
         statusMsg.className = 'feedback-status-msg error';
-        statusMsg.innerHTML = `Could not send automatically. <a href="mailto:gopal.krishna@aol.in?subject=AuroMind%20Feedback:%20${encodeURIComponent(topic)}&body=${encodeURIComponent(message + '
-
-From: ' + contact + '
-Feeling: ' + sentiment)}" style="color: inherit; text-decoration: underline; font-weight: bold;">Click here to send via email</a>`;
+        const mailBody = `${message}\n\nFrom: ${contact}\nFeeling: ${sentiment}`;
+        statusMsg.innerHTML = `Could not send automatically. <a href="mailto:gopal.krishna@aol.in?subject=AuroMind%20Feedback:%20${encodeURIComponent(topic)}&body=${encodeURIComponent(mailBody)}" style="color: inherit; text-decoration: underline; font-weight: bold;">Click here to send via email</a>`;
       }
     }
   });
