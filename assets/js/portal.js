@@ -138,6 +138,13 @@ function initTheaterMode() {
     });
   }
 
+  // Listen to HTML5 PostMessage from child game iframes (Vak, AuroMatch, etc.)
+  window.addEventListener('message', (event) => {
+    if (event.data && (event.data.type === 'AUROMIND_CLOSE_THEATER' || event.data.action === 'EXIT_GAME')) {
+      closeTheater();
+    }
+  });
+
   // Listen to browser Back button
   window.addEventListener('popstate', (e) => {
     if (!e.state || !e.state.inGame) {
