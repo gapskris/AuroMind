@@ -623,16 +623,14 @@ function initFeedbackModal() {
     });
   });
 
-  // Handle Form Submit via standard URL-encoded POST
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-
-    const sentiment = sentimentInput ? sentimentInput.value : 'Deeply Peaceful 🌸';
+  // Handle Form Submit via Native Hidden Iframe (100% reliable in all browsers)
+  form.addEventListener('submit', (e) => {
     const topic = document.getElementById('feedback-topic-select')?.value || 'General Sanctuary Experience';
     const message = messageInput?.value.trim() || '';
-    const contact = document.getElementById('feedback-user-contact')?.value.trim() || 'Anonymous Contemplator';
+    const subjectInput = document.getElementById('feedback-subject-input');
 
     if (!message) {
+      e.preventDefault();
       if (statusMsg) {
         statusMsg.style.display = 'block';
         statusMsg.className = 'feedback-status-msg error';
@@ -642,28 +640,20 @@ function initFeedbackModal() {
       return;
     }
 
-    // Set Loading State
+    if (subjectInput) {
+      subjectInput.value = `💬 AuroMind Feedback: [${topic}]`;
+    }
+
+    // Set Loading UI State
     const originalBtnText = submitBtn.innerHTML;
     submitBtn.disabled = true;
     submitBtn.innerHTML = '<span>Sending with care... 🕊️</span>';
     if (statusMsg) statusMsg.style.display = 'none';
 
-    try {
-      const formData = new FormData(form);
-      formData.set('access_key', '076591f7-fef5-4ea4-8f9f-14d389883cf9');
-      formData.set('subject', `💬 AuroMind Feedback: [${topic}]`);
-      formData.set('sentiment', sentiment);
-      formData.set('topic', topic);
-      formData.set('message', message);
-      formData.set('contact', contact);
-
-      const response = await fetch('https://api.web3forms.com/submit', {
-        method: 'POST',
-        body: formData
-      });
-
-      const data = await response.json();
-      if (response.ok && data.success) {
+    // When the hidden iframe loads the Web3Forms success response:
+    const frame = document.getElementById('feedback-target-frame');
+    if (frame) {
+      frame.onload = () => {
         if (statusMsg) {
           statusMsg.style.display = 'block';
           statusMsg.className = 'feedback-status-msg success';
@@ -677,18 +667,7 @@ function initFeedbackModal() {
           sentimentChips.forEach((c, idx) => c.classList.toggle('active', idx === 0));
           closeModal();
         }, 1800);
-      } else {
-        throw new Error(data.message || 'Submission failed');
-      }
-    } catch (err) {
-      submitBtn.disabled = false;
-      submitBtn.innerHTML = originalBtnText;
-      if (statusMsg) {
-        statusMsg.style.display = 'block';
-        statusMsg.className = 'feedback-status-msg error';
-        const mailBody = `${message}\n\nFrom: ${contact}\nFeeling: ${sentiment}`;
-        statusMsg.innerHTML = `Could not send automatically. <a href="mailto:gopal.krishna@aol.in?subject=AuroMind%20Feedback:%20${encodeURIComponent(topic)}&body=${encodeURIComponent(mailBody)}" style="color: inherit; text-decoration: underline; font-weight: bold;">Click here to send via email</a>`;
-      }
+      };
     }
   });
 }

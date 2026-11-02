@@ -1111,13 +1111,14 @@
         <p class="modal-desc-sub">Help nurture our sanctuary of conscious casual play</p>
       </div>
 
-      <iframe name="feedback-submission-frame" id="feedback-submission-frame" style="display:none; width:0; height:0; border:none;"></iframe>
+      <iframe name="feedback-target-frame" id="feedback-target-frame" style="display:none; width:0; height:0; border:0;"></iframe>
       <form id="feedback-form" 
             class="feedback-form" 
             action="https://api.web3forms.com/submit" 
             method="POST" 
-            target="feedback-submission-frame">
+            target="feedback-target-frame">
         <input type="hidden" name="access_key" value="076591f7-fef5-4ea4-8f9f-14d389883cf9">
+        <input type="hidden" id="feedback-subject-input" name="subject" value="💬 AuroMind Player Feedback">
         <!-- Web3Forms Honeypot Spam Prevention -->
         <input type="checkbox" name="botcheck" class="hidden" style="display: none;">
 
