@@ -50,8 +50,8 @@ function initTheaterMode() {
                   window.location.protocol === 'file:';
 
   const gameUrls = {
-    'vak': isLocal ? '../vak-play/index.html' : 'https://gapskris.github.io/vak-play/?v=3.5',
-    'auromatch': isLocal ? '../auromatch-play/index.html' : 'https://gapskris.github.io/auromatch-play/?v=3.6'
+    'vak': isLocal ? '../vak-play/index.html' : 'https://gapskris.github.io/vak-play/?v=4.0',
+    'auromatch': isLocal ? '../auromatch-play/index.html' : 'https://gapskris.github.io/auromatch-play/?v=4.0'
   };
 
   function openGameInTheater(gameId, title, icon) {
@@ -140,10 +140,29 @@ function initTheaterMode() {
 
   // Listen to HTML5 PostMessage from child game iframes (Vak, AuroMatch, etc.)
   window.addEventListener('message', (event) => {
+    // Validate origin: accept same-origin, github.io, or local dev origins
+    const origin = event.origin || '';
+    const isAllowed = origin === window.location.origin ||
+                      origin.endsWith('.github.io') ||
+                      origin.includes('localhost') ||
+                      origin.includes('127.0.0.1');
+    if (!isAllowed) return;
+
     if (event.data && (event.data.type === 'AUROMIND_CLOSE_THEATER' || event.data.action === 'EXIT_GAME')) {
       closeTheater();
     }
   });
+
+  // Auto-launch game if arrived via deep link or standalone redirect (e.g., #play-vak or #play-auromatch)
+  if (window.location.hash.startsWith('#play-')) {
+    const deepGameId = window.location.hash.replace('#play-', '').trim();
+    const deepBtn = document.querySelector(`.play-game-btn[data-game-id="${deepGameId}"]`);
+    if (deepBtn) {
+      setTimeout(() => {
+        deepBtn.click();
+      }, 80);
+    }
+  }
 
   // Listen to browser Back button
   window.addEventListener('popstate', (e) => {
