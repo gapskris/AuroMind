@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initAboutModal();
   initSanctuaryGuide();
   initFeedbackModal();
+  initPurchaseBridge();
 });
 
 // ==========================================================================
@@ -65,7 +66,21 @@ function initTheaterMode() {
     document.body.classList.add('in-game-mode');
 
     // Load into iframe
-    if (theaterIframe) theaterIframe.src = url;
+    if (theaterIframe) {
+      theaterIframe.src = url;
+      theaterIframe.onload = () => {
+        try {
+          const storedToken = localStorage.getItem('auromind_game_pass_' + gameId);
+          if (storedToken && theaterIframe.contentWindow) {
+            theaterIframe.contentWindow.postMessage({
+              type: 'AUROMIND_LICENSE_GRANTED',
+              gameId: gameId,
+              token: storedToken
+            }, '*');
+          }
+        } catch (e) {}
+      };
+    }
 
     // Transition view
     if (catalogScroll) catalogScroll.style.display = 'none';
@@ -150,6 +165,13 @@ function initTheaterMode() {
 
     if (event.data && (event.data.type === 'AUROMIND_CLOSE_THEATER' || event.data.action === 'EXIT_GAME')) {
       closeTheater();
+    }
+
+    // Handle commercial license purchase request from child game iframe (ENT-001)
+    if (event.data && event.data.type === 'AUROMIND_REQUEST_PURCHASE') {
+      if (typeof window.openPurchaseModal === 'function') {
+        window.openPurchaseModal(event.data.gameId, event.data.title);
+      }
     }
   });
 
@@ -689,4 +711,57 @@ function initFeedbackModal() {
       };
     }
   });
+}
+
+// ==========================================================================
+// 8. SANCTUARY PASS & PURCHASE BRIDGE (COMMERCIAL ENGINE ENT-001)
+// ==========================================================================
+function initPurchaseBridge() {
+  const modal = document.getElementById('purchase-modal');
+  const closeBtn = document.getElementById('purchase-modal-close-btn');
+  const confirmBtn = document.getElementById('btn-confirm-purchase');
+  const titleEl = document.getElementById('purchase-game-title');
+  const theaterIframe = document.getElementById('game-viewport-iframe');
+
+  let activePurchaseGameId = 'vak';
+
+  window.openPurchaseModal = function(gameId, title) {
+    activePurchaseGameId = gameId || 'vak';
+    if (titleEl) {
+      titleEl.textContent = title || (activePurchaseGameId === 'vak' ? 'VAK — The Control of Speech' : 'AuroMatch — Zen Tile Solitaire');
+    }
+    if (modal) modal.classList.add('open');
+  };
+
+  const closeModal = () => {
+    if (modal) modal.classList.remove('open');
+  };
+
+  if (closeBtn) closeBtn.addEventListener('click', closeModal);
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
+    });
+  }
+
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', () => {
+      const token = 'AUROMIND-SANCTUARY-PASS-' + activePurchaseGameId.toUpperCase() + '-' + Date.now();
+      try {
+        localStorage.setItem('auromind_game_pass_' + activePurchaseGameId, token);
+      } catch (e) {}
+
+      // Dispatch to game iframe
+      if (theaterIframe && theaterIframe.contentWindow) {
+        theaterIframe.contentWindow.postMessage({
+          type: 'AUROMIND_LICENSE_GRANTED',
+          gameId: activePurchaseGameId,
+          token: token
+        }, '*');
+      }
+
+      closeModal();
+      alert('✨ Sanctuary Pass successfully activated! All 400 levels and themes unlocked.');
+    });
+  }
 }
