@@ -738,23 +738,23 @@ body.in-game-mode .portal-sidebar {
 
 body.in-game-mode .app-layout {
   width: 100vw !important;
-  height: 100dvh !important;
   height: 100vh !important;
+  height: 100dvh !important;
   overflow: hidden !important;
 }
 
 body.in-game-mode .portal-main-area {
   width: 100vw !important;
-  height: 100dvh !important;
   height: 100vh !important;
+  height: 100dvh !important;
 }
 
 .game-theater-view {
   position: fixed;
   inset: 0;
   width: 100vw;
-  height: 100dvh;
   height: 100vh;
+  height: 100dvh;
   display: none; /* activated via JS */
   background: #000000;
   overflow: hidden;
@@ -868,6 +868,8 @@ body.in-game-mode .portal-main-area {
   position: absolute;
   inset: 0;
   background: #000000;
+  box-sizing: border-box;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .theater-iframe {
