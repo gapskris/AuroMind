@@ -51,8 +51,8 @@ function initTheaterMode() {
                   window.location.protocol === 'file:';
 
   const gameUrls = {
-    'vak': isLocal ? '../vak-play/index.html' : 'https://gapskris.github.io/vak-play/?v=4.0',
-    'auromatch': isLocal ? '../auromatch-play/index.html' : 'https://gapskris.github.io/auromatch-play/?v=4.0',
+    'vak': 'games/vak/index.html',
+    'auromatch': 'games/auromatch/index.html',
     'wordriddle': 'games/word-riddle/index.html'
   };
 

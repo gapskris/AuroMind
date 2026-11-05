@@ -1,0 +1,1124 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="imperial_gold">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>AuroMatch - Triple Garden of Significances</title>
+
+    <!-- AuroMind Portal Iframe Confinement Guard -->
+    <script>
+      (function() {
+        try {
+          var isProduction = window.location.hostname.indexOf('github.io') !== -1;
+          var isStandalone = window.self === window.top;
+          var hasBypass = window.location.search.indexOf('standalone=true') !== -1;
+          if (isProduction && isStandalone && !hasBypass) {
+            window.location.replace('https://gapskris.github.io/AuroMind/#play-auromatch');
+          }
+        } catch (e) {}
+      })();
+    </script>
+
+    <!-- Immediate Theme Initialization (Zero-FOUC Frame 0 Boot) -->
+    <script>
+      (function() {
+        try {
+          var saved = localStorage.getItem('auromatch_standard_theme');
+          var theme = (saved === 'royal_lapis') ? 'royal_lapis' : 'imperial_gold';
+          document.documentElement.setAttribute('data-theme', theme);
+          if (document.body) document.body.setAttribute('data-theme', theme);
+        } catch(e) {}
+      })();
+    </script>
+
+    <!-- Cross-Platform PWA & Mobile Meta (Android, iOS, iPadOS, Tablets, PC) -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="AuroMatch">
+    <meta name="application-name" content="AuroMatch">
+    <meta name="theme-color" content="#1e1302">
+    <meta name="msapplication-TileColor" content="#0d0701">
+
+    <!-- Multi-Platform App Icons (SVG, PNG, Apple Touch Icon, Manifest) -->
+    <link rel="icon" type="image/svg+xml" href="./Assets/icons/logo.svg">
+    <link rel="alternate icon" type="image/png" href="./Assets/icons/favicon.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="./Assets/icons/apple-touch-icon.png">
+    <link rel="manifest" href="./manifest.json">
+
+    <!-- CSS Design System -->
+    <link rel="stylesheet" href="./styles/main.css?v=3.9">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Outfit:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+</head>
+<body data-theme="imperial_gold">
+
+    <!-- Drifting Stardust Canvas background -->
+    <canvas id="stardust-canvas"></canvas>
+
+    <div class="app-container" id="app-wrapper">
+        
+        <!-- Welcome Screen -->
+                <!-- Stage 0: 3D Brand Splash Screen (1.6s / Tap-to-Skip) -->
+        <div class="screen-view landing-view active-screen" id="landing-screen" onclick="window.handleLandingTap()">
+            <div class="sanctuary-dot-grid"></div>
+            <div class="landing-content">
+                <div class="landing-emblem-wrap">
+                    <svg class="landing-emblem" viewBox="0 0 512 512" aria-label="AuroMatch Sun Emblem">
+                        <circle cx="256" cy="256" r="220" fill="url(#wel-core-glow)"/>
+                        <circle cx="256" cy="256" r="180" fill="none" stroke="rgba(251, 191, 36, 0.45)" stroke-width="2.5" stroke-dasharray="6 8"/>
+                        <g transform="translate(256, 256)">
+                            <path d="M0 -36 C-14 -64 -16 -104 0 -134 C16 -104 14 -64 0 -36 Z" fill="url(#wel-gold-petal)" stroke="#b45309" stroke-width="1.2"/>
+                            <path d="M0 -36 C-14 -64 -16 -104 0 -134 C16 -104 14 -64 0 -36 Z" transform="rotate(30)" fill="url(#wel-gold-petal)" stroke="#b45309" stroke-width="1.2"/>
+                            <path d="M0 -36 C-14 -64 -16 -104 0 -134 C16 -104 14 -64 0 -36 Z" transform="rotate(60)" fill="url(#wel-gold-petal)" stroke="#b45309" stroke-width="1.2"/>
+                            <path d="M0 -36 C-14 -64 -16 -104 0 -134 C16 -104 14 -64 0 -36 Z" transform="rotate(90)" fill="url(#wel-gold-petal)" stroke="#b45309" stroke-width="1.2"/>
+                            <path d="M0 -36 C-14 -64 -16 -104 0 -134 C16 -104 14 -64 0 -36 Z" transform="rotate(120)" fill="url(#wel-gold-petal)" stroke="#b45309" stroke-width="1.2"/>
+                            <path d="M0 -36 C-14 -64 -16 -104 0 -134 C16 -104 14 -64 0 -36 Z" transform="rotate(150)" fill="url(#wel-gold-petal)" stroke="#b45309" stroke-width="1.2"/>
+                            <path d="M0 -36 C-14 -64 -16 -104 0 -134 C16 -104 14 -64 0 -36 Z" transform="rotate(180)" fill="url(#wel-gold-petal)" stroke="#b45309" stroke-width="1.2"/>
+                            <path d="M0 -36 C-14 -64 -16 -104 0 -134 C16 -104 14 -64 0 -36 Z" transform="rotate(210)" fill="url(#wel-gold-petal)" stroke="#b45309" stroke-width="1.2"/>
+                            <path d="M0 -36 C-14 -64 -16 -104 0 -134 C16 -104 14 -64 0 -36 Z" transform="rotate(240)" fill="url(#wel-gold-petal)" stroke="#b45309" stroke-width="1.2"/>
+                            <path d="M0 -36 C-14 -64 -16 -104 0 -134 C16 -104 14 -64 0 -36 Z" transform="rotate(270)" fill="url(#wel-gold-petal)" stroke="#b45309" stroke-width="1.2"/>
+                            <path d="M0 -36 C-14 -64 -16 -104 0 -134 C16 -104 14 -64 0 -36 Z" transform="rotate(300)" fill="url(#wel-gold-petal)" stroke="#b45309" stroke-width="1.2"/>
+                            <path d="M0 -36 C-14 -64 -16 -104 0 -134 C16 -104 14 -64 0 -36 Z" transform="rotate(330)" fill="url(#wel-gold-petal)" stroke="#b45309" stroke-width="1.2"/>
+                            <circle cx="0" cy="0" r="32" fill="#2d1b04" stroke="#ffd700" stroke-width="3"/>
+                            <circle cx="0" cy="0" r="22" fill="#f59e0b"/>
+                            <circle cx="0" cy="0" r="10" fill="#ffffff"/>
+                        </g>
+                    </svg>
+                </div>
+                <div class="landing-brand-stack">
+                    <span class="landing-eyebrow">AUROMIND SERIES</span>
+                    <h1 class="landing-title-3d">AUROMATCH</h1>
+                    <p class="landing-tagline">ZEN TILE SOLITAIRE & SACRED GEOMETRY</p>
+                </div>
+                <button class="landing-enter-pill" id="landing-tap-prompt">TAP ANYWHERE TO ENTER</button>
+            </div>
+        </div>
+
+        <!-- Stage 1: Sanctuary Gateway Door Screen -->
+        <div class="screen-view gate-view" id="gate-screen">
+            <div class="sanctuary-dot-grid"></div>
+            
+            <header class="gate-header">
+                <span class="gate-header-pill">🪷 AUROMIND SANCTUARY</span>
+                <h2 class="gate-title" id="gate-title-text">WELCOME TO THE SACRED SANCTUARY</h2>
+                <blockquote class="gate-quote" id="gate-quote-text">
+                    “To know how to be quiet and wait is the secret of victory.”
+                    <cite>— THE MOTHER</cite>
+                </blockquote>
+            </header>
+
+            <!-- 3D Matrimandir Double Doors Centerpiece -->
+            <div class="sanctuary-door-stage" id="sanctuary-door-stage" onclick="window.handleDoorClick()">
+                <div class="sanctuary-double-doors" id="sanctuary-doors">
+                    <!-- Inner Revelation Chamber (Warm sunbeams & sacred inner sanctuary revelation) -->
+                    <div class="door-inner-revelation-portal" id="door-inner-revelation-portal">
+                        <div class="inner-portal-sunbeam"></div>
+                        <div class="inner-portal-content">
+                            <span class="inner-portal-symbol">🪷</span>
+                            <h2 class="inner-portal-title">ENTER IN PEACE</h2>
+                            <p class="inner-portal-quote">“All life is yoga.”</p>
+                            <span class="inner-portal-author">— Sri Aurobindo</span>
+                        </div>
+                    </div>
+
+                    <!-- Left Marble Door Leaf -->
+                    <div class="door-panel door-panel-left" id="door-left">
+                        <div class="door-filigree-panel"></div>
+                        <div class="door-inner-bevel">
+                            <div class="door-groove-line"></div>
+                        </div>
+                    </div>
+
+                    <!-- Right Marble Door Leaf -->
+                    <div class="door-panel door-panel-right" id="door-right">
+                        <div class="door-filigree-panel"></div>
+                        <div class="door-inner-bevel">
+                            <div class="door-groove-line"></div>
+                        </div>
+                    </div>
+                    <!-- Central Golden 12-Petaled Medallion Seal -->
+                    <div class="door-medallion" id="door-medallion">
+                        <svg viewBox="0 0 100 100" class="medallion-svg">
+                            <circle cx="50" cy="50" r="46" fill="#fef3c7" stroke="#b45309" stroke-width="2"/>
+                            <circle cx="50" cy="50" r="42" fill="url(#wel-gold-rim)"/>
+                            <circle cx="50" cy="50" r="34" fill="#2d1b04" stroke="#ffd700" stroke-width="1.5"/>
+                            <g transform="translate(50, 50) scale(0.28)">
+                                <circle cx="0" cy="0" r="70" fill="url(#wel-gold-petal)"/>
+                                <circle cx="0" cy="0" r="24" fill="#ffffff"/>
+                            </g>
+                        </svg>
+                    </div>
+                    <!-- Radiant light beam effect triggered on open -->
+                    <div class="door-light-beam" id="door-light-beam"></div>
+                </div>
+            </div>
+
+            <!-- Gate Action Buttons Area -->
+            <div class="gate-actions">
+                <!-- New User Container (Pic 2 Parity) -->
+                <div id="gate-actions-new-user" style="display: flex; flex-direction: column; width: 100%; align-items: center;">
+                    <button class="gate-cta-primary" id="gate-btn-enter" onclick="window.handleGatewayEnter()">
+                        ENTER THE SANCTUARY 🪷
+                    </button>
+                </div>
+
+                <!-- Returning User Container -->
+                <div id="gate-actions-returning-user" style="display: none; flex-direction: column; width: 100%; align-items: center; gap: 8px;">
+                    <button class="gate-cta-primary" id="gate-btn-resume" onclick="window.handleGatewayResume()">
+                        <span id="gate-resume-text">Resume: Level 1 (Sanctuary)</span>
+                        <span class="gate-sparks-badge" id="gate-resume-sparks">⚡ 100</span>
+                    </button>
+                    <button class="gate-cta-secondary" id="gate-btn-explore" onclick="window.handleGatewayExplore()">
+                        Explore Realms / Switch Theme 🪷
+                    </button>
+                    <div class="gate-switch-player" id="gate-switch-player">
+                        <button type="button" onclick="window.openNameModal()">
+                            <span>👤</span> <span id="gate-player-label">Seeker</span> · Switch Player
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stage 2: Dedicated Sacred Realm Selection Screen -->
+        <div class="screen-view realms-hub-view" id="realms-hub-screen">
+            <div class="sanctuary-dot-grid"></div>
+
+            <header class="realms-hub-header">
+                <button class="hub-nav-btn hub-exit-btn" id="rh-exit-btn" onclick="window.handleHubExitToGate()">🚪 Exit to Gate</button>
+                <div class="hub-title-stack">
+                    <span class="hub-eyebrow">AUROMIND SERIES</span>
+                    <h2 class="hub-title">SELECT YOUR SACRED REALM</h2>
+                </div>
+                <button class="hub-nav-btn hub-close-btn" id="rh-close-btn" onclick="window.handleHubClose()">✕ Close</button>
+            </header>
+
+            <div class="realms-hub-scroll-container">
+                <div class="realms-hub-card-list">
+                    <!-- Card 1: Pairs Campaign (Vita Mode) -->
+                    <div class="realm-hub-card" id="hub-card-pairs" onclick="window.selectHubMode('vita')">
+                        <div class="rh-card-icon-wrap" style="background: linear-gradient(135deg, #fef3c7, #fde68a); border-color: #f59e0b;">
+                            <span class="rh-card-icon">🪷</span>
+                        </div>
+                        <div class="rh-card-body">
+                            <div class="rh-card-header">
+                                <h3 class="rh-card-title">PAIRS CAMPAIGN</h3>
+                                <span class="rh-card-badge" id="hub-badge-pairs">1 / 400 Levels</span>
+                            </div>
+                            <p class="rh-card-desc">Zen Pair Matching & Concentration Progression across 400 Solvable Mahjong Formations</p>
+                            <div class="rh-card-footer">
+                                <div class="rh-progress-wrap">
+                                    <div class="rh-progress-bar"><div class="rh-progress-fill" id="hub-prog-pairs" style="width: 1%;"></div></div>
+                                    <span class="rh-progress-label" id="hub-prog-label-pairs">0% Completed</span>
+                                </div>
+                                <button class="rh-card-enter-btn">ENTER REALM ➔</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Card 2: Tile Club (Triad Match-3) -->
+                    <div class="realm-hub-card" id="hub-card-tileclub" onclick="window.selectHubMode('tile_club')">
+                        <div class="rh-card-icon-wrap" style="background: linear-gradient(135deg, #fce7f3, #fbcfe8); border-color: #ec4899;">
+                            <span class="rh-card-icon">📥</span>
+                        </div>
+                        <div class="rh-card-body">
+                            <div class="rh-card-header">
+                                <h3 class="rh-card-title">TILE CLUB</h3>
+                                <span class="rh-card-badge">Triad Match-3 Studio</span>
+                            </div>
+                            <p class="rh-card-desc">7-Slot Tactile Holding Tray & Dynamic 3D Triad Dissolution across All Sacred Formations</p>
+                            <div class="rh-card-footer">
+                                <div class="rh-progress-wrap">
+                                    <div class="rh-progress-bar"><div class="rh-progress-fill" style="width: 100%; background: linear-gradient(90deg, #ec4899, #f43f5e);"></div></div>
+                                    <span class="rh-progress-label">Active Studio</span>
+                                </div>
+                                <button class="rh-card-enter-btn" style="background: linear-gradient(135deg, #ec4899, #be185d);">ENTER REALM ➔</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Card 3: Botanical Art Campaign -->
+                    <div class="realm-hub-card" id="hub-card-botanical" onclick="window.selectHubMode('botanical')">
+                        <div class="rh-card-icon-wrap" style="background: linear-gradient(135deg, #dcfce7, #bbf7d0); border-color: #10b981;">
+                            <span class="rh-card-icon">🌸</span>
+                        </div>
+                        <div class="rh-card-body">
+                            <div class="rh-card-header">
+                                <h3 class="rh-card-title">BOTANICAL ART</h3>
+                                <span class="rh-card-badge" id="hub-badge-botanical">1 / 200 Levels</span>
+                            </div>
+                            <p class="rh-card-desc">200 Progressive Levels across 4 Sacred Chapters with 24 Master 3D Flora Artworks</p>
+                            <div class="rh-card-footer">
+                                <div class="rh-progress-wrap">
+                                    <div class="rh-progress-bar"><div class="rh-progress-fill" id="hub-prog-botanical" style="width: 1%; background: linear-gradient(90deg, #10b981, #059669);"></div></div>
+                                    <span class="rh-progress-label" id="hub-prog-label-botanical">Chapter 1</span>
+                                </div>
+                                <button class="rh-card-enter-btn" style="background: linear-gradient(135deg, #10b981, #047857);">ENTER REALM ➔</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Card 4: 20 Sacred Realms -->
+                    <div class="realm-hub-card" id="hub-card-realms" onclick="window.selectHubMode('realms')">
+                        <div class="rh-card-icon-wrap" style="background: linear-gradient(135deg, #e0f2fe, #bae6fd); border-color: #0284c7;">
+                            <span class="rh-card-icon">🗺️</span>
+                        </div>
+                        <div class="rh-card-body">
+                            <div class="rh-card-header">
+                                <h3 class="rh-card-title">20 SACRED REALMS</h3>
+                                <span class="rh-card-badge">1,000 Levels · 20 Themes</span>
+                            </div>
+                            <p class="rh-card-desc">Grand Odyssey through 20 Thematic Environments with 320 Dedicated 3D Motifs</p>
+                            <div class="rh-card-footer">
+                                <div class="rh-progress-wrap">
+                                    <div class="rh-progress-bar"><div class="rh-progress-fill" id="hub-prog-realms" style="width: 5%; background: linear-gradient(90deg, #0284c7, #0369a1);"></div></div>
+                                    <span class="rh-progress-label" id="hub-prog-label-realms">1/20 Unlocked</span>
+                                </div>
+                                <button class="rh-card-enter-btn" style="background: linear-gradient(135deg, #0284c7, #075985);">EXPLORE REALMS ➔</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Card 5: Sacred Themes Switcher (Imperial Gold / Royal Lapis) -->
+                    <div class="realm-hub-card rh-card-themes" id="hub-card-standard">
+                        <div class="rh-card-icon-wrap" style="background: linear-gradient(135deg, #fef3c7, #bae6fd); border-color: #ffd700;">
+                            <span class="rh-card-icon">🎴</span>
+                        </div>
+                        <div class="rh-card-body">
+                            <div class="rh-card-header">
+                                <h3 class="rh-card-title">SANCTUARY THEMES</h3>
+                                <span class="rh-card-badge">Standard Themes</span>
+                            </div>
+                            <p class="rh-card-desc">Choose between Imperial Gold and Royal Lapis 3D tactile art collections</p>
+                            <div class="rh-card-footer" style="gap: 10px;">
+                                <button class="rh-theme-pill" id="hub-btn-gold" onclick="window.setHubStandardTheme('imperial_gold')">👑 Imperial Gold</button>
+                                <button class="rh-theme-pill" id="hub-btn-lapis" onclick="window.setHubStandardTheme('royal_lapis')">💎 Royal Lapis</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="screen-view welcome-view" id="welcome-screen">
+            <!-- Top Utility Bar with Quick Settings Access -->
+            <div style="position: absolute; top: 16px; right: 16px; z-index: 10;">
+                <button class="hdr-btn" onclick="navTo('settings')" title="Sanctuary Settings" style="background: rgba(255,255,255,0.08); border: 1px solid var(--border-current); width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; color: #ffffff; cursor: pointer; transition: all 0.2s ease;">⚙</button>
+            </div>
+
+            <!-- Master Glowing App Emblem -->
+            <svg class="logo-glowing-lotus" viewBox="0 0 512 512" aria-label="AuroMatch Emblem" role="img">
+              <defs>
+                <linearGradient id="wel-bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#1e1302"/>
+                  <stop offset="45%" stop-color="#2d1b04"/>
+                  <stop offset="100%" stop-color="#452b08"/>
+                </linearGradient>
+                <linearGradient id="wel-gold-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#fde68a"/>
+                  <stop offset="30%" stop-color="#f59e0b"/>
+                  <stop offset="70%" stop-color="#d97706"/>
+                  <stop offset="100%" stop-color="#b45309"/>
+                </linearGradient>
+                <linearGradient id="wel-gold-petal" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stop-color="#fffbeb"/>
+                  <stop offset="35%" stop-color="#fde047"/>
+                  <stop offset="80%" stop-color="#f59e0b"/>
+                  <stop offset="100%" stop-color="#d97706"/>
+                </linearGradient>
+                <linearGradient id="wel-gold-triad" x1="0%" y1="100%" x2="0%" y2="0%">
+                  <stop offset="0%" stop-color="#d97706"/>
+                  <stop offset="50%" stop-color="#fbbf24"/>
+                  <stop offset="100%" stop-color="#ffffff"/>
+                </linearGradient>
+                <radialGradient id="wel-core-glow" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stop-color="#fde047" stop-opacity="0.8"/>
+                  <stop offset="40%" stop-color="#f59e0b" stop-opacity="0.35"/>
+                  <stop offset="75%" stop-color="#b45309" stop-opacity="0.12"/>
+                  <stop offset="100%" stop-color="#0d0701" stop-opacity="0"/>
+                </radialGradient>
+              </defs>
+              <rect x="16" y="16" width="480" height="480" rx="108" fill="url(#wel-bg-grad)" stroke="url(#wel-gold-rim)" stroke-width="7"/>
+              <rect x="28" y="28" width="456" height="456" rx="98" fill="none" stroke="rgba(251, 191, 36, 0.35)" stroke-width="1.8" stroke-dasharray="10 7"/>
+              <circle cx="256" cy="256" r="190" fill="url(#wel-core-glow)"/>
+              <circle cx="256" cy="256" r="168" fill="none" stroke="rgba(251, 191, 36, 0.25)" stroke-width="1.5"/>
+              <circle cx="256" cy="256" r="144" fill="none" stroke="rgba(251, 191, 36, 0.35)" stroke-width="1.2" stroke-dasharray="3 5"/>
+              <!-- 12 Cardinal Orbit Nodes -->
+              <g fill="#fde68a" opacity="0.85">
+                <circle cx="256" cy="88" r="3.5"/><circle cx="340" cy="110" r="3"/><circle cx="402" cy="172" r="3"/><circle cx="424" cy="256" r="3.5"/>
+                <circle cx="402" cy="340" r="3"/><circle cx="340" cy="402" r="3"/><circle cx="256" cy="424" r="3.5"/><circle cx="172" cy="402" r="3"/>
+                <circle cx="110" cy="340" r="3"/><circle cx="88" cy="256" r="3.5"/><circle cx="110" cy="172" r="3"/><circle cx="172" cy="110" r="3"/>
+              </g>
+              <!-- 12 Golden Lotus Petals -->
+              <g transform="translate(256, 256)">
+                <path d="M0 -38 C-14 -68 -16 -108 0 -138 C16 -108 14 -68 0 -38 Z" fill="url(#wel-gold-petal)" opacity="0.9" stroke="#b45309" stroke-width="1"/>
+                <path d="M0 -38 C-14 -68 -16 -108 0 -138 C16 -108 14 -68 0 -38 Z" transform="rotate(30)" fill="url(#wel-gold-petal)" opacity="0.9" stroke="#b45309" stroke-width="1"/>
+                <path d="M0 -38 C-14 -68 -16 -108 0 -138 C16 -108 14 -68 0 -38 Z" transform="rotate(60)" fill="url(#wel-gold-petal)" opacity="0.9" stroke="#b45309" stroke-width="1"/>
+                <path d="M0 -38 C-14 -68 -16 -108 0 -138 C16 -108 14 -68 0 -38 Z" transform="rotate(90)" fill="url(#wel-gold-petal)" opacity="0.9" stroke="#b45309" stroke-width="1"/>
+                <path d="M0 -38 C-14 -68 -16 -108 0 -138 C16 -108 14 -68 0 -38 Z" transform="rotate(120)" fill="url(#wel-gold-petal)" opacity="0.9" stroke="#b45309" stroke-width="1"/>
+                <path d="M0 -38 C-14 -68 -16 -108 0 -138 C16 -108 14 -68 0 -38 Z" transform="rotate(150)" fill="url(#wel-gold-petal)" opacity="0.9" stroke="#b45309" stroke-width="1"/>
+                <path d="M0 -38 C-14 -68 -16 -108 0 -138 C16 -108 14 -68 0 -38 Z" transform="rotate(180)" fill="url(#wel-gold-petal)" opacity="0.9" stroke="#b45309" stroke-width="1"/>
+                <path d="M0 -38 C-14 -68 -16 -108 0 -138 C16 -108 14 -68 0 -38 Z" transform="rotate(210)" fill="url(#wel-gold-petal)" opacity="0.9" stroke="#b45309" stroke-width="1"/>
+                <path d="M0 -38 C-14 -68 -16 -108 0 -138 C16 -108 14 -68 0 -38 Z" transform="rotate(240)" fill="url(#wel-gold-petal)" opacity="0.9" stroke="#b45309" stroke-width="1"/>
+                <path d="M0 -38 C-14 -68 -16 -108 0 -138 C16 -108 14 -68 0 -38 Z" transform="rotate(270)" fill="url(#wel-gold-petal)" opacity="0.9" stroke="#b45309" stroke-width="1"/>
+                <path d="M0 -38 C-14 -68 -16 -108 0 -138 C16 -108 14 -68 0 -38 Z" transform="rotate(300)" fill="url(#wel-gold-petal)" opacity="0.9" stroke="#b45309" stroke-width="1"/>
+                <path d="M0 -38 C-14 -68 -16 -108 0 -138 C16 -108 14 -68 0 -38 Z" transform="rotate(330)" fill="url(#wel-gold-petal)" opacity="0.9" stroke="#b45309" stroke-width="1"/>
+              </g>
+              <!-- Inner Triad Trinity Arcs -->
+              <g transform="translate(256, 256)">
+                <path d="M0 -22 C-26 -48 -28 -82 0 -105 C28 -82 26 -48 0 -22 Z" fill="url(#wel-gold-triad)" stroke="#ffd700" stroke-width="2"/>
+                <path d="M0 -22 C-26 -48 -28 -82 0 -105 C28 -82 26 -48 0 -22 Z" transform="rotate(120)" fill="url(#wel-gold-triad)" stroke="#ffd700" stroke-width="2"/>
+                <path d="M0 -22 C-26 -48 -28 -82 0 -105 C28 -82 26 -48 0 -22 Z" transform="rotate(240)" fill="url(#wel-gold-triad)" stroke="#ffd700" stroke-width="2"/>
+              </g>
+              <!-- Central Core & Morning Star Diamond Spark -->
+              <g transform="translate(256, 256)">
+                <circle cx="0" cy="0" r="32" fill="#2d1b04" stroke="url(#wel-gold-rim)" stroke-width="3"/>
+                <circle cx="0" cy="0" r="26" fill="url(#wel-core-glow)"/>
+                <polygon points="0,-42 9,-11 40,0 9,11 0,42 -9,11 -40,0 -9,-11" fill="#fffbeb" stroke="#f59e0b" stroke-width="1.5"/>
+                <polygon points="0,-22 5,-5 22,0 5,5 0,22 -5,5 -22,0 -5,-5" transform="rotate(45)" fill="#fde047" opacity="0.85"/>
+                <circle cx="0" cy="0" r="8" fill="#ffffff"/>
+                <circle cx="0" cy="0" r="4" fill="#fffef0"/>
+              </g>
+            </svg>
+            <div class="welcome-brand-stack">
+              <span class="brand-umbrella-eyebrow">AUROMIND SERIES</span>
+              <h1 class="app-headline" id="welcome-title">AuroMatch</h1>
+              <p class="app-subhead" id="welcome-sub"><span class="brand-tagline-text">• Zen Tile Solitaire & Concentration Quest</span></p>
+            </div>
+            
+            <!-- Returning User Profile Card (Dynamic) -->
+            <div id="welcome-profile-badge" style="display: none; align-items: center; gap: 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,215,0,0.3); padding: 6px 16px; border-radius: 24px; margin-bottom: 24px;">
+                <span id="welcome-badge-avatar" style="font-size: 20px;">🦉</span>
+                <span id="welcome-badge-name" style="font-size: 13px; font-weight: 700; color: #ffffff;">Gopal</span>
+                <span style="opacity: 0.5;">·</span>
+                <span id="welcome-badge-rank" style="font-size: 12px; color: #ffd700;">🌱 Aspirant</span>
+                <span style="opacity: 0.5;">·</span>
+                <span id="welcome-badge-sparks" style="font-size: 12px; color: #ffd700;">✨ 100</span>
+            </div>
+
+            <button class="cta-btn" id="btn-begin-journey" onclick="window.handleBeginJourneyClick()">Begin Journey ➔</button>
+
+            <!-- Touch-Friendly Switch Player Pill (Fitts's Law >= 44px touch container) -->
+            <div id="welcome-player-switch" style="display: none; margin-top: 14px;">
+                <button type="button" onclick="window.openNameModal()" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-current); color: #c5a880; font-size: 12px; font-weight: 600; padding: 8px 18px; border-radius: 20px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                    <span>👤</span> Not your name? Switch Player
+                </button>
+            </div>
+        </div>
+
+        <!-- Onboarding Path selector overlay -->
+        <div class="onboarding-overlay" id="onboarding-modal">
+            <h3 style="font-family: 'Playfair Display', serif; font-size: 22px; margin-bottom: 20px; color: #ffffff;">Choose Onboarding Path</h3>
+            <div class="onboarding-card" onclick="selectPath('traditional')">
+                <h4>Traditional (Sadhana)</h4>
+                <p>Features standard spiritual vocabulary and traditional Indian scriptural concepts.</p>
+            </div>
+            <div class="onboarding-card" onclick="selectPath('secular')">
+                <h4>Secular (Mindfulness)</h4>
+                <p>Replaces theological definitions with psychological equivalents while leaving quote bodies intact.</p>
+            </div>
+            <div class="onboarding-card" onclick="selectPath('youth')">
+                <h4>Youth (Starlight)</h4>
+                <p>Features playful vector sparkles, simplified level layouts, and child-friendly visual tokens.</p>
+            </div>
+            <button class="close-btn" style="margin-top: 10px; width: 100%; max-width: 280px;" onclick="document.getElementById('onboarding-modal').classList.remove('active')">Dismiss (Keep Current)</button>
+        </div>
+
+        <!-- Garden Selection Screen -->
+        <div class="screen-view" id="selector-screen">
+            <header class="app-header">
+                <div class="header-left-group">
+                    <button class="hdr-btn" onclick="navTo('welcome')" title="Return to Welcome">←</button>
+                    <div class="header-brand">
+                        <img src="./Assets/icons/logo.svg" alt="AuroMatch Emblem" class="brand-emblem-img">
+                        <div class="brand-text-stack">
+                            <span class="brand-umbrella-eyebrow">AUROMIND SERIES</span>
+                            <div class="brand-title-row">
+                                <h2 class="brand-auromatch-title">AUROMATCH</h2>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div style="text-align: center;">
+                    <div class="title-display" id="select-hdr">Select Sanctuary</div>
+                    <div style="font-size: 10px; color: #c5a880; opacity: 0.85; letter-spacing: 0.5px;">20 Grand Realms · 1,000 Levels</div>
+                </div>
+                <button class="hdr-btn" onclick="navTo('settings')">⚙</button>
+            </header>
+            <div class="garden-list-container" id="garden-list">
+                <!-- Injected dynamically -->
+            </div>
+        </div>
+
+        <!-- Gameplay Board Screen -->
+        <div class="screen-view" id="game-screen">
+            <header class="app-header">
+                <div class="header-left-group">
+                    <button class="hdr-btn" onclick="backToWelcome()" title="Return to Welcome">←</button>
+                    <div class="header-brand">
+                        <img src="./Assets/icons/logo.svg" alt="AuroMatch Emblem" class="brand-emblem-img">
+                        <div class="brand-text-stack">
+                            <span class="brand-umbrella-eyebrow">AUROMIND SERIES</span>
+                            <div class="brand-title-row">
+                                <h2 class="brand-auromatch-title">AUROMATCH</h2>
+                                <span class="brand-tagline-text">• Zen Tile Solitaire</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="header-center-group">
+                    <button class="header-realm-dropdown-pill" id="header-realm-dropdown-pill" onclick="window.openRealmsHubFromGame()" title="Switch Theme or Mode (Tap to open Realm Hub)">
+                        <span id="hdr-realm-icon">💎</span>
+                        <span id="hdr-realm-text">Theme: Royal Lapis</span>
+                        <span class="hdr-dropdown-arrow">▾</span>
+                    </button>
+                </div>
+                <div class="hud-progression-bar">
+                    <span class="hud-player-badge" id="header-player-badge" title="Player Name">👤 <span id="header-player-name">Seeker</span></span>
+                    <span class="hud-iq-badge" id="header-iq-badge" title="Focus IQ: Cognitive concentration and sharpness index">🧠 IQ: <span id="header-iq-count">80</span></span>
+                    <span class="hud-rank-badge" id="header-rank-badge" data-full-title="🌱 Aspirant">🌱 Aspirant</span>
+                    <span class="hud-level-indicator" id="header-level-indicator" title="Click to Jump to Level" style="cursor: pointer;" onclick="window.openLevelJumpModal()">Level 1 / 200</span>
+                    <div class="epiphany-serenity-meter-wrap" id="epiphany-serenity-wrap" style="display: none; align-items: center; gap: 8px; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(250, 204, 21, 0.4); border-radius: 12px; padding: 2px 10px;">
+                        <span style="font-size: 11px; font-weight: 700; color: #facc15;">FOCUS SERENITY: <strong id="serenity-val">100%</strong></span>
+                        <div style="width: 80px; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
+                            <div id="serenity-fill-bar" style="width: 100%; height: 100%; background: linear-gradient(90deg, #f59e0b, #10b981); transition: width 0.3s ease;"></div>
+                        </div>
+                    </div>
+                    <span class="hud-sparks-count" id="header-sparks-count">✨ 100</span>
+                    <span id="header-score-badge" style="font-size: 11px; font-weight: 800; color: #fde047; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.35); padding: 2px 8px; border-radius: 12px; display: inline-flex; align-items: center; gap: 3px;" title="Cumulative Exploration Score">🏆 <span id="header-score-count">0</span></span>
+                    <span id="header-clean-solve-badge" style="font-size: 10px; font-weight: 700; color: #ffd700; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.35); padding: 2px 8px; border-radius: 12px; display: inline-flex; align-items: center; gap: 3px;" title="No hints or reshuffles used yet (+5 Sparks bonus eligible)">✨ Clean Solve</span>
+                    <button class="senior-toggle-btn" id="btn-toggle-senior" onclick="window.toggleSeniorViewMode()" title="Toggle Senior View (aA)" aria-label="Toggle Senior View aA" style="margin-left: 4px;">aA</button>
+                </div>
+                <button class="hdr-btn" onclick="navTo('settings')">⚙</button>
+            </header>
+
+            <!-- Immersive Mode Drawer Backdrop -->
+            <div class="drawer-backdrop" id="drawer-backdrop" onclick="window.closeAllDrawers()"></div>
+
+            <!-- Left Drawer Toggle: Knowledge Field Guide -->
+            <button class="drawer-toggle-left" id="btn-toggle-field-guide" onclick="window.toggleFieldGuide()" title="Knowledge Field Guide">📖<br>Guide</button>
+
+            <!-- Right Drawer Toggle: Sanctuary Alignment -->
+            <button class="drawer-toggle-right" id="btn-toggle-alignment" onclick="window.toggleAlignmentPanel()" title="Sanctuary Alignment">⚖️<br>Align</button>
+
+            <!-- Mode Switcher HUD Bar -->
+            <div class="mode-toggle-bar">
+                <button class="mode-btn active" id="btn-mode-vita" onclick="window.switchGameplayMode('vita')" title="Pairs Campaign (400 Levels)">🪷 Pairs</button>
+                <button class="mode-btn" id="btn-mode-tileclub" onclick="window.switchGameplayMode('tile_club')" title="Tile Club Triad Match-3">📥 Tile Club</button>
+                <button class="mode-btn mode-btn-botanical" id="btn-mode-botanical" onclick="window.switchGameplayMode('botanical')" title="🌸 Botanical Art Campaign (200 Levels)">🌸 Botanical<span class="mode-word-art"> Art</span></button>
+                <button class="mode-btn mode-btn-realms" id="btn-mode-realms" onclick="window.switchGameplayMode('realms')" title="20 Thematic Realms (1,000 Levels)">🗺️ Realms</button>
+                <button class="senior-toggle-btn" id="btn-toggle-senior" onclick="window.toggleSeniorViewMode()" title="Toggle Senior View (aA)" aria-label="Toggle Senior View aA">aA</button>
+            </div>
+
+            <!-- Desktop 3-Column Sanctuary Grid -->
+            <div class="game-desktop-grid">
+                
+                <!-- Left Column: Botanical / Knowledge Field Guide -->
+                <aside id="field-guide-col">
+                    <button onclick="window.closeAllDrawers()" class="drawer-close-btn" title="Close Guide">✕</button>
+                    <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px;">
+                        <h3 id="field-guide-title" style="font-family: 'Playfair Display', serif; font-size: 18px; color: var(--accent-current); margin: 0;">Knowledge Field Guide</h3>
+                        <span id="fg-domain-pill" class="fg-domain-badge">Knowledge Quest</span>
+                    </div>
+                    <div id="field-guide-card" style="background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-current); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 8px;">
+                        <div id="fg-icon" style="font-size: 38px; text-align: center; margin-bottom: 2px;">🌲</div>
+                        <div id="fg-name" style="font-size: 16px; font-weight: 700; color: #ffffff; text-align: center;">Whispering Pines</div>
+                        <div id="fg-binomial" style="font-size: 12px; font-style: italic; color: #c5a880; text-align: center;">Woodland Bark & Emerald Veins</div>
+                        
+                        <div class="fg-audio-bar" style="display: flex; justify-content: center; gap: 8px; margin: 4px 0;">
+                            <button class="c-btn fg-listen-btn" onclick="window.playFieldGuideTTS()" title="Listen to pronunciation and lore" style="padding: 4px 12px; font-size: 11px;">🔊 Listen</button>
+                            <button class="c-btn fg-stop-btn" onclick="window.stopTTS()" title="Stop narration" style="padding: 4px 10px; font-size: 11px;">🔇 Stop</button>
+                        </div>
+
+                        <div style="height: 1px; background: var(--border-current); margin: 4px 0;"></div>
+                        <div><strong class="fg-meta-label" id="fg-label-definition">Realm Concept:</strong> <p id="fg-family" style="font-size: 12px; line-height: 1.4; color: #ffffff; margin: 2px 0 0 0;">Deep evergreen woodland sanctuary with cedarwood and pine needle textures.</p></div>
+                        <div><strong class="fg-meta-label" id="fg-label-lore">Sanctuary Objective:</strong> <p id="fg-role" style="font-size: 12px; line-height: 1.45; color: #dedede; margin: 2px 0 0 0;">Match unlocked tile pairs to dissolve the board and unlock progressive knowledge.</p></div>
+                        <div><strong class="fg-meta-label" id="fg-label-insight">Key Focus:</strong> <p id="fg-quality" style="font-size: 12px; line-height: 1.45; color: #ffd700; margin: 2px 0 0 0;">Calm focus and cognitive clarity</p></div>
+                    </div>
+                </aside>
+
+                <!-- Center Stage Column: 2.5D Isometric Board & Tray -->
+                <main id="center-stage-col">
+                    <!-- Interactive 2.5D Board -->
+                    <div class="board-container">
+                        <div class="epiphany-aura-wheel" id="epiphany-aura-wheel" style="display: none;"></div>
+                        <button class="floating-gameplay-prompt gameplay-prompt-dropdown" id="gameplay-prompt" onclick="window.openRealmsHubFromGame()" title="Select Sacred Realm (Stage 2 Hub)">
+                            <span>✨ Tap matching pairs (2) to dissolve ▾</span>
+                        </button>
+                        <div class="tile-layout" id="board">
+                            <!-- Tiles injected dynamically -->
+                        </div>
+
+                        <!-- Scripture Reflection Overlay -->
+                        <div class="match-overlay" id="match-overlay">
+                            <div class="match-card">
+                                <div class="match-card-icon" id="card-icon">🪷</div>
+                                <h3 id="card-title">Lotus</h3>
+                                <div class="match-card-quality" id="card-quality">Divine Presence</div>
+                                <p class="match-card-desc" id="card-desc">Quote body here.</p>
+                                <div class="card-controls">
+                                    <button class="c-btn" onclick="playTTS()">🔊 Listen</button>
+                                    <button class="c-btn" onclick="stopTTS()">🔇 Stop</button>
+                                </div>
+                                <a class="sabda-link" id="card-sabda" href="#" target="_blank" rel="noopener noreferrer">Download Source Book</a>
+                                <button class="close-btn" onclick="closeMatchCard()">Continue</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 7-Slot Sorting Tray (Mode B Tile Club & Triad Matches) -->
+                    <div class="tray-container" id="tray-container" style="display: none;">
+                        <div class="tray-guidance-bar">
+                            <span class="tray-guidance-text">📥 Holding Tray: Match 3 identical tiles to dissolve!</span>
+                            <span class="tray-slot-counter" id="tray-slot-counter">0 / 7</span>
+                        </div>
+                        <div class="tray" id="tray">
+                            <div class="tray-slot"></div>
+                            <div class="tray-slot"></div>
+                            <div class="tray-slot"></div>
+                            <div class="tray-slot"></div>
+                            <div class="tray-slot"></div>
+                            <div class="tray-slot"></div>
+                            <div class="tray-slot"></div>
+                        </div>
+                    </div>
+
+                    <!-- Modern Tactile Action Bar (Pic 3 Mahjong Style) -->
+                    <div class="gameplay-action-bar">
+                        <button class="tactile-action-btn" id="btn-action-shuffle" onclick="window.handleShuffleBoard()" title="Shuffle open tiles (S)">
+                            <div class="action-btn-circle">🔀</div>
+                            <span class="action-btn-title">Shuffle (S)</span>
+                        </button>
+                        <button class="tactile-action-btn" id="btn-action-undo" onclick="window.gameManager?.undo()" title="Undo last move (U)">
+                            <div class="action-btn-circle">↩️</div>
+                            <span class="action-btn-title">Undo (U)</span>
+                        </button>
+                        <button class="tactile-action-btn" id="btn-action-hint" onclick="window.gameManager?.provideHint()" title="Highlight match - 20 Sparks (H)">
+                            <div class="action-btn-circle">💡</div>
+                            <span class="action-btn-title">Hint (H)</span>
+                            <span class="action-btn-badge">20✨</span>
+                        </button>
+                        <button class="tactile-action-btn" id="btn-action-restart" onclick="window.gameManager?.restartStage()" title="Reset current board (R)">
+                            <div class="action-btn-circle">🔄</div>
+                            <span class="action-btn-title">Reset (R)</span>
+                        </button>
+                        <button class="tactile-action-btn" id="btn-action-lore" onclick="window.openLoreCard()" title="View Field Guide Lore (L)">
+                            <div class="action-btn-circle">📖</div>
+                            <span class="action-btn-title">Lore (L)</span>
+                        </button>
+                    </div>
+                    <!-- Live Footer Theme Switcher Pill (Pic 3) -->
+                    <div class="theme-switcher-bar" id="theme-switcher-bar">
+                        <button id="btn-theme-switcher" class="theme-switcher-pill" onclick="window.toggleStandardTheme()" title="Switch Standard Category Theme (Imperial Gold / Royal Lapis)">
+                            🎴 THEME: IMPERIAL GOLD (ACTIVE)
+                        </button>
+                    </div>
+                </main>
+
+                <!-- Right Column: Prahar Solar Clock & Mode Status -->
+                <aside id="status-prahar-col">
+                    <button onclick="window.closeAllDrawers()" class="drawer-close-btn" title="Close Panel">✕</button>
+                    <h3 style="font-family: 'Playfair Display', serif; font-size: 18px; color: var(--accent-current); margin: 0;">Sanctuary Alignment</h3>
+                    
+                    <!-- Prahar Solar Alignment Widget -->
+                    <div id="prahar-widget" style="background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-current); border-radius: 14px; padding: 14px;" title="Prahar: Traditional 3-hour solar divisions aligning musical ragas with human circadian energy">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #c5a880; font-weight: 700;">Solar Clock Prahar</div>
+                            <span style="font-size: 11px; color: #c5a880; cursor: help;" title="Prahar: Traditional 3-hour solar divisions aligning musical ragas with human circadian energy">ⓘ Info</span>
+                        </div>
+                        <div id="prahar-clock-name" style="font-size: 16px; font-weight: 700; color: #ffd700; margin: 4px 0;">Morning Prahar (Pratah)</div>
+                        <div id="prahar-clock-freq" style="font-size: 12px; color: #dedede;">Fundamental: 172.08 Hz (Platonic Year tone)</div>
+                        <div style="font-size: 10px; opacity: 0.8; margin-top: 4px; line-height: 1.3;">Circadian raga tuned to current time of day</div>
+                    </div>
+
+                    <!-- Audio Tuning Control (432Hz Pythagorean vs 440Hz Concert vs Disable) -->
+                    <div id="audio-tuning-ctrl" style="background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-current); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+                        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #c5a880; font-weight: 700;">Acoustic Tuning</div>
+                        <div style="display: flex; gap: 6px;">
+                            <button class="mode-btn" id="btn-tune-432" onclick="window.setTuningBase(432)" style="flex: 1; font-size: 11px; padding: 6px 4px; text-align: center;">432 Hz Natural</button>
+                            <button class="mode-btn" id="btn-tune-440" onclick="window.setTuningBase(440)" style="flex: 1; font-size: 11px; padding: 6px 4px; text-align: center;">440 Hz Concert</button>
+                            <button class="mode-btn active" id="btn-tune-off" onclick="window.setTuningBase('off')" style="flex: 0.9; font-size: 11px; padding: 6px 4px; text-align: center;" title="Disable acoustic tuning ambient drone">Disable</button>
+                        </div>
+                    </div>
+
+                    <!-- Mode Status & Matched Flora Preview -->
+                    <div id="mode-status-container" style="background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-current); border-radius: 14px; padding: 14px; flex: 1; display: flex; flex-direction: column; gap: 8px; overflow-y: auto;">
+                        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #c5a880; font-weight: 700;" id="status-col-heading">Matched Flora (Mode A)</div>
+                        <div id="status-tiles-left" style="font-size: 12px; color: #ffd700;">Remaining on board: 36 tiles</div>
+                        <div id="matched-flora-list" style="display: flex; flex-direction: column; gap: 6px; overflow-y: auto; max-height: 220px;">
+                            <!-- Injected dynamically on matches -->
+                        </div>
+                    </div>
+                </aside>
+
+            </div>
+
+
+        </div>
+
+        <!-- Consecration Jar Screen -->
+        <div class="screen-view jar-view" id="jar-screen">
+            <header class="app-header">
+                <button class="hdr-btn" onclick="navTo('welcome')">←</button>
+                <div style="text-align: center;">
+                    <div class="title-display" id="jar-hdr">Consecration Jar</div>
+                    <div style="font-size: 10px; color: #c5a880; opacity: 0.85; letter-spacing: 0.5px;">Mindful Surrender & Dissolution of Friction</div>
+                </div>
+                <button class="hdr-btn" onclick="navTo('settings')">⚙</button>
+            </header>
+            <div class="jar-canvas-container">
+                <canvas id="jar-canvas"></canvas>
+                <!-- Glowing Brass Incense Burner SVG shape -->
+                <svg class="jar-svg" id="brass-jar" viewBox="0 0 100 120" fill="none" stroke="#c5a880" stroke-width="2.5">
+                    <path d="M25 20 C25 20 15 60 20 85 C25 100 75 100 80 85 C85 60 75 20 75 20 Z" fill="rgba(197, 168, 128, 0.1)" />
+                    <ellipse cx="50" cy="20" rx="25" ry="8" fill="rgba(197, 168, 128, 0.2)" />
+                    <path d="M15 95 C15 95 30 115 50 115 C70 115 85 95 85 95" />
+                    <!-- Details loops -->
+                    <circle cx="50" cy="55" r="8" opacity="0.6" />
+                    <line x1="50" y1="40" x2="50" y2="70" opacity="0.4" />
+                    <line x1="35" y1="55" x2="65" y2="55" opacity="0.4" />
+                </svg>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 6px; font-size: 11px; color: #c5a880;">
+                <span id="reflection-char-count">0 / 300</span>
+                <span style="opacity: 0.8;">Ctrl+Enter to Consecrate</span>
+            </div>
+            <textarea class="reflection-textarea" id="reflection-input" maxlength="300"
+                placeholder="What vital storm, worry, or friction would you like to consecrate today?"
+                oninput="document.getElementById('reflection-char-count').innerText = this.value.length + ' / 300'"
+                onkeydown="if((event.ctrlKey || event.metaKey) && event.key==='Enter'){event.preventDefault();window.triggerConsecration();}"></textarea>
+            <button class="cta-btn" id="consecrate-btn" onclick="triggerConsecration()">Consecrate Reflection</button>
+            <div style="font-size: 11px; color: #ffd700; margin-top: 10px; opacity: 0.9;">🔒 Private on device · Dissolved with reverent intention into the sacred flame</div>
+        </div>
+
+        <!-- Constellation Grid (Star Calendar) -->
+        <div class="screen-view constellation-view" id="constellation-screen">
+            <header class="app-header">
+                <button class="hdr-btn" onclick="navTo('welcome')">←</button>
+                <div style="text-align: center;">
+                    <div class="title-display" id="stars-hdr">Star Calendar</div>
+                    <div style="font-size: 10px; color: #c5a880; opacity: 0.85; letter-spacing: 0.5px;">Cosmic Milestones & Journal Streak Stars</div>
+                </div>
+                <button class="hdr-btn" onclick="navTo('settings')">⚙</button>
+            </header>
+            <div class="stars-container">
+                <svg id="constellation-svg"></svg>
+                <div id="stars-grid"></div>
+            </div>
+            <p style="font-size: 12px; line-height: 1.5; opacity: 0.85; margin: 0 10px; text-align: center;">
+                ✨ Pulsing stars chart days with saved journal reflections. Golden rings highlight sacred Ashram milestones.
+            </p>
+        </div>
+
+        <!-- Daily Aspiration (Morning Oracle) -->
+        <div class="screen-view oracle-view" id="oracle-screen">
+            <header class="app-header">
+                <button class="hdr-btn" onclick="navTo('welcome')">←</button>
+                <div style="text-align: center;">
+                    <div class="title-display" id="oracle-hdr">Morning Oracle</div>
+                    <div style="font-size: 10px; color: #c5a880; opacity: 0.85; letter-spacing: 0.5px;">Daily Contemplation & Quality of Consciousness</div>
+                </div>
+                <button class="hdr-btn" onclick="navTo('settings')">⚙</button>
+            </header>
+            <div class="bag-container" onclick="drawDailyOracle()">
+                <!-- Draw velvet bag SVG shape -->
+                <svg class="velvet-bag" id="velvet-bag" viewBox="0 0 100 100" fill="none" stroke="#d97706" stroke-width="2">
+                    <path d="M25 35 C25 15 75 15 75 35 C75 55 90 85 80 90 C70 95 30 95 20 90 C10 85 25 55 25 35 Z" fill="rgba(217, 119, 6, 0.1)" />
+                    <path d="M20 35 Q50 45 80 35" stroke-dasharray="3,3" />
+                    <!-- Tassels loops -->
+                    <circle cx="20" cy="35" r="4" fill="#d97706" />
+                    <circle cx="80" cy="35" r="4" fill="#d97706" />
+                </svg>
+            </div>
+            <div id="oracle-result-container" style="display: none; padding: 16px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-current); border-radius: 16px; width: 100%; margin-top: 10px; text-align: center;">
+                <div id="oracle-symbol" style="font-size: 34px; margin-bottom: 2px;">🪷</div>
+                <h4 id="oracle-quality" style="font-family: 'Playfair Display', serif; font-size: 20px; color: var(--accent-current); margin-bottom: 6px;">Attitude</h4>
+                <p id="oracle-prompt" style="font-size: 13px; line-height: 1.4; opacity: 0.9; margin: 0 auto; max-width: 300px;"></p>
+            </div>
+            <p id="oracle-lock-msg" style="font-size: 12px; opacity: 0.8; margin-top: 14px; text-align: center;">Tap the velvet pouch to draw your daily quality focus.</p>
+        </div>
+
+        <!-- Settings Screen -->
+        <div class="screen-view settings-view" id="settings-screen">
+            <header class="app-header">
+                <button class="hdr-btn" onclick="backFromSettings()">←</button>
+                <div class="title-display">Settings</div>
+                <button class="hdr-btn" style="opacity: 0;">⚙</button>
+            </header>
+            <!-- AuroMind Sanctuary Portal Exit Card -->
+            <div class="setting-section" style="margin-top: 16px; background: rgba(225, 29, 72, 0.08); border: 1.5px solid rgba(225, 29, 72, 0.3); border-radius: 16px; padding: 12px; text-align: left;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <span style="font-size: 10px; font-weight: 800; color: #fb7185; letter-spacing: 1px; text-transform: uppercase;">AuroMind Sanctuary Portal</span>
+                    <span style="font-size: 10px; opacity: 0.75; color: var(--text-current);">Auto-saved</span>
+                </div>
+                <div style="font-size: 11px; color: var(--text-current); opacity: 0.85; margin-bottom: 10px;">
+                    Leave Zen Solitaire and return to the 16-game sanctuary catalog.
+                </div>
+                <button id="btn-auromatch-exit-auromind" class="hdr-btn" onclick="window.exitToAuroMindPortal()" style="width: 100%; background: #e11d48; color: #ffffff; border: none; border-radius: 9999px; padding: 8px 16px; font-weight: 700; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                    <span>🚪</span> <span>Exit Game to AuroMind</span>
+                </button>
+            </div>
+            
+            <div class="setting-section" style="margin-top: 16px;">
+                <h3 style="font-family: 'Playfair Display', serif; font-size: 16px; margin-bottom: 12px; color: var(--accent-current);">Player Identity</h3>
+                <div class="setting-row">
+                    <span class="setting-label">Seeker Name</span>
+                    <div style="display: flex; gap: 8px; flex: 1; justify-content: flex-end;">
+                        <input type="text" id="set-player-name" placeholder="Seeker" maxlength="24" style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-current); color: var(--text-current); padding: 4px 8px; border-radius: 8px; font-size: 12px; max-width: 140px;" onchange="window.updatePlayerNameFromSettings()" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="setting-section">
+                <h3 style="font-family: 'Playfair Display', serif; font-size: 16px; margin-bottom: 12px; color: var(--accent-current);">Level Progression (1–200)</h3>
+                <div class="setting-row">
+                    <div>
+                        <div class="setting-label" style="font-weight: 700;">Jump to Level</div>
+                        <div style="font-size: 10px; opacity: 0.75; max-width: 200px;">Directly load any level from 1 to 200</div>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <input type="number" id="set-jump-level-input" min="1" max="200" value="1" style="width: 60px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-current); color: #fff; padding: 4px 6px; border-radius: 6px; text-align: center; font-weight: 700;" />
+                        <button class="c-btn" onclick="window.jumpToLevel(parseInt(document.getElementById('set-jump-level-input').value, 10))" style="padding: 4px 10px; font-size: 11px; background: var(--accent-current); color: #0b1215; font-weight: 700; border-radius: 6px;">Go ▶</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="setting-section">
+                <h3 style="font-family: 'Playfair Display', serif; font-size: 16px; margin-bottom: 12px; color: var(--accent-current);">Experience & Curriculum Mode</h3>
+                <div class="setting-row">
+                    <div>
+                        <div class="setting-label" style="font-weight: 700;">Curriculum Mode</div>
+                        <div style="font-size: 10px; opacity: 0.75; max-width: 200px;">Choose between V1 General Knowledge and V2 Grand Thematic Realms</div>
+                    </div>
+                    <select id="set-experience-mode" onchange="changeExperienceModeSetting()" style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-current); color: var(--text-current); padding: 4px 8px; border-radius: 8px; font-weight: 600;">
+                        <option value="gk_quest">🌟 V1: General Knowledge Quest (520 Levels)</option>
+                        <option value="ashram_sanctuary">🪷 V2: Grand Thematic Realms (20 Realms · 1,000 Levels)</option>
+                    </select>
+                </div>
+                <div class="setting-row" style="margin-top: 10px;">
+                    <div>
+                        <div class="setting-label" style="font-weight: 700;">Theme Appearance (Standard & Pairs)</div>
+                        <div style="font-size: 10px; opacity: 0.75; max-width: 200px;">Choose elevated 3D theme for Pairs & Tile Club</div>
+                    </div>
+                    <select id="set-standard-theme" onchange="window.handleSettingsThemeChange(this.value)" style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-current); color: var(--text-current); padding: 4px 8px; border-radius: 8px; font-weight: 600;">
+                        <option value="imperial_gold">✨ Imperial Gold & Jewel Reliquary</option>
+                        <option value="royal_lapis">🔷 Royal Lapis & Golden Cloisonné</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="setting-section">
+                <h3 style="font-family: 'Playfair Display', serif; font-size: 16px; margin-bottom: 12px; color: var(--accent-current);">Sanctuary Modes</h3>
+                <div class="setting-row">
+                    <span class="setting-label">Path Selector</span>
+                    <select id="set-path-select" onchange="changePathSetting()" style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-current); color: var(--text-current); padding: 4px 8px; border-radius: 8px;">
+                        <option value="traditional">Traditional</option>
+                        <option value="secular">Secular</option>
+                        <option value="youth">Youth</option>
+                    </select>
+                </div>
+                <div class="setting-row">
+                    <span class="setting-label">Secular Terminology</span>
+                    <input type="checkbox" class="setting-toggle" id="set-secular-toggle" onchange="toggleSecularMode()">
+                </div>
+            </div>
+
+            <div class="setting-section">
+                <h3 style="font-family: 'Playfair Display', serif; font-size: 16px; margin-bottom: 12px; color: var(--accent-current);">Audio & Voices</h3>
+                <div class="setting-row">
+                    <span class="setting-label">Raga volume <span id="raga-vol-val" style="color: #ffd700; font-size: 11px; margin-left: 6px; font-weight: 700;">40%</span></span>
+                    <input type="range" class="volume-slider" id="raga-vol" min="0" max="1" step="0.05" value="0.4" oninput="changeVolume('raga')">
+                </div>
+                <div class="setting-row">
+                    <span class="setting-label">Gong volume <span id="gong-vol-val" style="color: #ffd700; font-size: 11px; margin-left: 6px; font-weight: 700;">60%</span></span>
+                    <input type="range" class="volume-slider" id="gong-vol" min="0" max="1" step="0.05" value="0.6" oninput="changeVolume('gong')">
+                </div>
+                <div class="setting-row">
+                    <span class="setting-label">Voice Accent</span>
+                    <select id="voice-accent" onchange="changeVoiceSetting()" style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-current); color: var(--text-current); padding: 4px 8px; border-radius: 8px;">
+                        <option value="english">English (en-IN)</option>
+                        <option value="french_cadence">French Cadence (fr-FR)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="setting-section">
+                <h3 style="font-family: 'Playfair Display', serif; font-size: 16px; margin-bottom: 12px; color: var(--accent-current);">Data Portability & Backups</h3>
+                <div class="setting-row" style="flex-wrap: wrap; gap: 10px;">
+                    <input type="password" id="backup-pw" placeholder="Backup password (press Enter)"
+                        onkeydown="if(event.key==='Enter'){event.preventDefault();window.exportProfileData();}"
+                        style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-current); color: var(--text-current); padding: 6px 10px; border-radius: 8px; font-size: 12px; flex: 1; min-width: 120px; outline: none;" />
+                    <button class="set-btn" onclick="exportProfileData()">Export Backup</button>
+                </div>
+                <div class="setting-row" style="margin-top: 10px;">
+                    <span class="setting-label" style="font-size: 12px;">Restore Backup</span>
+                    <input type="file" id="import-file" style="display: none;" onchange="importProfileData(event)" />
+                    <button class="set-btn" onclick="document.getElementById('import-file').click()">Select File</button>
+                </div>
+            </div>
+
+            <div class="setting-section" style="border-color: #ef9a9a;">
+                <h3 style="font-family: 'Playfair Display', serif; font-size: 16px; margin-bottom: 12px; color: #ff8a80;">Danger Zone</h3>
+                <div class="setting-row">
+                    <span class="setting-label" style="font-size: 12px; max-width: 160px; line-height: 1.4;">Wipes all reflections, unlock logs, and master keys.</span>
+                    <button class="set-danger-btn" onclick="triggerPurgeReset()">Purge App Data</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Darshan Day Milestone popup overlay -->
+        <div class="onboarding-overlay" id="darshan-modal" style="display: none; justify-content: center; align-items: center; padding: 24px; z-index: var(--z-overlay);">
+            <div class="match-card" style="border-color: #ffd700; box-shadow: 0 0 24px rgba(255,215,0,0.3);">
+                <div class="match-card-icon" style="background: #fffde7; color: #d97706; font-size: 28px;">🪷</div>
+                <h3 id="darshan-title" style="font-size: 20px;">Darshan Greeting</h3>
+                <div class="match-card-quality" id="darshan-meta" style="color: #d97706; font-size: 10px; letter-spacing: 1px;">Sacred Event</div>
+                <p class="match-card-desc" id="darshan-desc" style="font-size: 13px;"></p>
+                <button class="close-btn" onclick="document.getElementById('darshan-modal').style.display = 'none';">Enter Sanctuary</button>
+            </div>
+        </div>
+
+        <!-- Glossary definition bottom sheet -->
+        <div class="bottom-sheet" id="glossary-modal">
+            <div class="sheet-card">
+                <h4 class="sheet-title" id="glossary-title">Sadhana</h4>
+                <p class="sheet-desc" id="glossary-desc">Definition details here.</p>
+                <button class="close-btn" onclick="document.getElementById('glossary-modal').classList.remove('active')">Close</button>
+            </div>
+        </div>
+
+        <!-- Enriched Purge Data Modal Overlay (Zero Generic Popups) -->
+        <div class="stage-clear-overlay" id="purge-modal" style="display: none; z-index: var(--z-overlay); align-items: center; justify-content: center;">
+            <div class="stage-clear-card" style="max-width: min(380px, 92vw); width: 100%; box-sizing: border-box; text-align: center; padding: clamp(16px, 4vw, 22px); border: 1.5px solid rgba(248, 113, 113, 0.55); box-shadow: 0 16px 40px rgba(0,0,0,0.8), 0 0 24px rgba(239, 68, 68, 0.2);">
+                <div style="font-size: 28px; margin-bottom: 4px;">⚠️</div>
+                <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #f87171; font-weight: 700; margin-bottom: 4px;">Danger Zone</div>
+                <h3 style="font-family: 'Playfair Display', serif; font-size: 19px; color: #ffffff; margin-bottom: 6px;">Purge Sanctuary Data?</h3>
+                <p style="font-size: 11.5px; color: #d4d4d8; line-height: 1.5; margin-bottom: 14px;">
+                    This will permanently erase all 520 levels of progress, reflections, high scores, and seeker profiles. This action cannot be undone.
+                </p>
+
+                <div style="width: 100%; box-sizing: border-box; background: rgba(20, 10, 10, 0.55); border: 1px solid rgba(248, 113, 113, 0.4); border-radius: 12px; padding: 12px; margin-bottom: 14px; text-align: left;">
+                    <label for="purge-confirm-input" style="font-size: 10px; font-weight: 700; color: #f87171; letter-spacing: 1px; text-transform: uppercase; display: block; margin-bottom: 6px;">
+                        Type 'PURGE' verbatim to confirm:
+                    </label>
+                    <input type="text" id="purge-confirm-input" placeholder="Type PURGE to enable wipe" maxlength="12"
+                        autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false"
+                        onkeydown="if(event.key==='Enter'){event.preventDefault();window.confirmPurgeReset();}"
+                        style="width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(248, 113, 113, 0.5); background: rgba(0, 0, 0, 0.6); color: #ffffff; font-size: 14px; font-weight: 700; letter-spacing: 2px; font-family: 'Outfit', sans-serif; text-align: center; outline: none;" />
+                </div>
+
+                <div style="display: flex; gap: 8px; width: 100%; box-sizing: border-box;">
+                    <button class="cta-btn" id="btn-confirm-purge" onclick="window.confirmPurgeReset()" disabled style="flex: 1; margin: 0; padding: 10px 14px; font-size: 13px; font-weight: 700; background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%); border: 1px solid #f87171; color: #ffffff; opacity: 0.5; cursor: not-allowed;">
+                        Confirm Purge ⚠️
+                    </button>
+                    <button class="cta-btn" onclick="window.closePurgeModal()" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: #ffffff; width: auto; padding: 10px 16px; margin: 0; font-size: 13px;">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Player Name Entry Modal -->
+        <div class="stage-clear-overlay" id="name-entry-modal" style="display: none; z-index: var(--z-overlay);">
+            <div class="stage-clear-card" style="max-width: min(380px, 92vw); width: 100%; box-sizing: border-box; text-align: left; padding: clamp(14px, 4vw, 20px);  max-height: min(88dvh, 88vh); overflow-y: auto;">
+                <div style="font-size: 24px; text-align: center; margin-bottom: 2px;">✨</div>
+                <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: var(--accent-current); font-weight: 700; text-align: center;">Seeker Profile</div>
+                <h3 style="font-family: 'Playfair Display', serif; font-size: 18px; color: #ffffff; text-align: center; margin-bottom: 4px;" id="name-modal-title">Switch or Create Player</h3>
+                <p style="font-size: 11px; color: #d4d4d8; line-height: 1.4; text-align: center; margin-bottom: 10px;">
+                    Each seeker has independent progress across 520 levels.
+                </p>
+
+                <!-- Saved Profiles Quick-Select -->
+                <div id="saved-profiles-section" style="margin-bottom: 10px; display: none; width: 100%; box-sizing: border-box;">
+                    <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #c5a880; margin-bottom: 4px;">Saved Players:</div>
+                    <div id="saved-profiles-list" style="display: flex; flex-wrap: wrap; gap: 6px;"></div>
+                </div>
+
+                <div style="width: 100%; box-sizing: border-box; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-current); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+                    <label for="player-name-input" style="font-size: 10px; font-weight: 700; color: #ffd700; letter-spacing: 1px; text-transform: uppercase;">
+                        Seeker Name
+                    </label>
+                    <input type="text" id="player-name-input" placeholder="e.g. Gopal, Maya, Seeker..." maxlength="24"
+                        onkeydown="if(event.key==='Enter'){event.preventDefault();window.submitPlayerName();}"
+                        style="width: 100%; box-sizing: border-box; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--border-current); background: rgba(0, 0, 0, 0.4); color: #ffffff; font-size: 14px; font-family: 'Outfit', sans-serif; outline: none;" />
+                    
+                    <!-- Learning Avatar Selector -->
+                    <div style="margin-top: 4px; width: 100%; box-sizing: border-box;">
+                        <span style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #c5a880;">Learning Avatar:</span>
+                        <div id="avatar-picker-row" style="display: flex; gap: 6px; margin-top: 6px; justify-content: center; flex-wrap: wrap; width: 100%; box-sizing: border-box;">
+                            <button type="button" class="avatar-pill active" data-avatar="🦉" onclick="window.selectAvatar('🦉')" title="Wisdom Owl" aria-label="Wisdom Owl">🦉</button>
+                            <button type="button" class="avatar-pill" data-avatar="🔭" onclick="window.selectAvatar('🔭')" title="Astronomer Telescope" aria-label="Astronomer Telescope">🔭</button>
+                            <button type="button" class="avatar-pill" data-avatar="⚛️" onclick="window.selectAvatar('⚛️')" title="Physics Atom" aria-label="Physics Atom">⚛️</button>
+                            <button type="button" class="avatar-pill" data-avatar="🌿" onclick="window.selectAvatar('🌿')" title="Nature Leaf" aria-label="Nature Leaf">🌿</button>
+                            <button type="button" class="avatar-pill" data-avatar="🎨" onclick="window.selectAvatar('🎨')" title="Arts Palette" aria-label="Arts Palette">🎨</button>
+                            <button type="button" class="avatar-pill" data-avatar="🧭" onclick="window.selectAvatar('🧭')" title="Explorer Compass" aria-label="Explorer Compass">🧭</button>
+                            <button type="button" class="avatar-pill" data-avatar="✨" onclick="window.selectAvatar('✨')" title="Aspirant Spark" aria-label="Aspirant Spark">✨</button>
+                        </div>
+                    </div>
+
+                    <span style="font-size: 10px; color: #a1a1aa; margin-top: 2px;">
+                        🔒 Progress saved independently on this device.
+                    </span>
+                </div>
+                <div style="display: flex; gap: 8px; margin-top: 12px; width: 100%; box-sizing: border-box;">
+                    <button class="cta-btn" id="btn-submit-name" onclick="window.submitPlayerName()" style="flex: 1; margin: 0; padding: 10px 14px; font-size: 13px;">
+                        Confirm ▶
+                    </button>
+                    <button class="cta-btn" onclick="window.closeNameModal()" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: #ffffff; width: auto; padding: 10px 16px; margin: 0; font-size: 13px;">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stage Victory Modal -->
+        <div class="stage-clear-overlay" id="stage-clear-modal">
+            <div class="stage-clear-card">
+                <div style="font-size: 38px;" id="victory-icon">🌟</div>
+                <h3 style="font-family: 'Playfair Display', serif; font-size: 22px; color: #ffd700;" id="victory-title">Stage Cleared!</h3>
+                <div style="font-size: 14px; color: #ffffff;" id="victory-subtitle">Level 1 Complete</div>
+                <div style="display: flex; gap: 12px; margin: 8px 0;">
+                    <div style="background: rgba(255,255,255,0.06); padding: 8px 14px; border-radius: 12px; border: 1px solid var(--border-current);">
+                        <div style="font-size: 11px; color: #c5a880;">Sparks Earned</div>
+                        <div style="font-size: 16px; font-weight: 700; color: #ffd700;" id="victory-sparks">+15 ✨</div>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.06); padding: 8px 14px; border-radius: 12px; border: 1px solid var(--border-current);" id="victory-bonus-box">
+                        <div style="font-size: 11px; color: #c5a880;">Bonus</div>
+                        <div style="font-size: 13px; font-weight: 600; color: #ffd700;" id="victory-bonus-text">Clean Solve +5</div>
+                    </div>
+                </div>
+                <div id="victory-rank-up" style="display: none; font-size: 13px; font-weight: 700; color: #fde047;">Rank Promoted! +50 Sparks 💫</div>
+                <button class="cta-btn" onclick="window.nextLevelStage()" style="width: 100%; margin-top: 8px;">Next Level ➔</button>
+                <div style="font-size: 11px; color: #c5a880; margin-top: 4px; opacity: 0.85;">Press Enter or Space ➔</div>
+            </div>
+        </div>
+
+        <!-- Tray Overflow Calm Modal (Mode B Anti-Stress Recovery) -->
+        <div class="stage-clear-overlay" id="tray-overflow-modal" style="display: none; z-index: var(--z-overlay);">
+            <div class="stage-clear-card" style="max-width: 380px; text-align: center; padding: 24px; ">
+                <div style="font-size: 36px; margin-bottom: 4px;">📥</div>
+                <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #f59e0b; font-weight: 700;">Tray Capacity Reached</div>
+                <h3 style="font-family: 'Playfair Display', serif; font-size: 20px; color: #ffffff; margin-bottom: 8px;">Take a Breath</h3>
+                <p style="font-size: 12px; color: #d4d4d8; line-height: 1.5; margin-bottom: 18px;">
+                    All 7 tray slots are filled without forming a triad. You can return the last tiles back to the board freely or refresh the stage.
+                </p>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <button class="cta-btn" onclick="window.handleTrayFreeUndo()" style="margin: 0; padding: 12px; font-weight: 700; background: var(--theme-accent-gradient, linear-gradient(135deg, #f59e0b, #d97706)); color: #100a06;">
+                        ↩️ Return Last 2 Tiles (Free Undo)
+                    </button>
+                    <button class="cta-btn" onclick="window.handleTrayRestartStage()" style="margin: 0; padding: 10px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: #ffffff;">
+                        🔄 Restart Level Fresh
+                    </button>
+                </div>
+                <div style="font-size: 11px; color: #ffd700; margin-top: 10px; opacity: 0.9;">🌱 Zero penalty · Sparks preserved · Infinite undos (Esc to undo)</div>
+            </div>
+        </div>
+
+        <!-- 20 Secular Realms Browser Modal (1,000 Levels) -->
+        <div class="realms-browser-overlay" id="realms-browser-modal">
+            <div class="realms-browser-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">
+                    <div>
+                        <h3 style="font-family: 'Playfair Display', serif; font-size: 20px; color: #ffd700; margin: 0;">🗺️ The 20 Grand Realms (1,000 Levels)</h3>
+                        <p style="font-size: 11px; color: #c5a880; margin: 2px 0 0 0;">1,000 Levels (50 per Chapter) · 20 Dedicated 3D Tactile Tile Sets & Environmental Sanctuaries</p>
+                    </div>
+                    <button class="hdr-btn" onclick="window.closeRealmsBrowser()" style="font-size: 18px;">✕</button>
+                </div>
+                <div class="realms-grid" id="realms-grid-container">
+                    <!-- Dynamic realm cards injected here -->
+                </div>
+                <button class="cta-btn" onclick="window.closeRealmsBrowser()" style="width: 100%; margin-top: 4px;">Continue Journey ➔</button>
+            </div>
+        </div>
+
+        <!-- Level Jump Quick Modal (1–200 Campaign) -->
+        <div class="modal-overlay" id="level-jump-modal" style="display: none; align-items: center; justify-content: center; z-index: 120;">
+            <div class="settings-modal" style="max-width: 380px; text-align: center; border: 1px solid rgba(251, 191, 36, 0.4); box-shadow: 0 16px 36px rgba(0,0,0,0.6);">
+                <div style="font-size: 32px; margin-bottom: 4px;">🗺️</div>
+                <h3 style="font-family: 'Playfair Display', serif; font-size: 20px; color: #ffd700; margin-bottom: 4px;" id="jump-modal-title">Select Level (1–200)</h3>
+                <p style="font-size: 12px; color: #c5a880; margin-bottom: 16px;" id="jump-modal-subtitle">Jump directly to any level in the 200-Level Campaign</p>
+                <div style="display: flex; gap: 6px; justify-content: center; align-items: center; margin-bottom: 16px;">
+                    <button class="c-btn" onclick="window.adjustJumpLevel(-10)" style="padding: 6px 10px; font-size: 12px; font-weight: 700;">-10</button>
+                    <button class="c-btn" onclick="window.adjustJumpLevel(-1)" style="padding: 6px 10px; font-size: 12px; font-weight: 700;">-1</button>
+                    <input type="number" id="quick-jump-level-input" min="1" max="200" value="1" style="width: 76px; font-size: 18px; text-align: center; font-weight: 800; background: rgba(0,0,0,0.35); border: 2px solid #ffd700; color: #fff; padding: 6px; border-radius: 8px;" />
+                    <button class="c-btn" onclick="window.adjustJumpLevel(1)" style="padding: 6px 10px; font-size: 12px; font-weight: 700;">+1</button>
+                    <button class="c-btn" onclick="window.adjustJumpLevel(10)" style="padding: 6px 10px; font-size: 12px; font-weight: 700;">+10</button>
+                </div>
+                <div style="display: flex; gap: 8px; justify-content: center;">
+                    <button class="cta-btn" onclick="window.executeQuickLevelJump()" style="padding: 8px 20px; font-size: 13px; font-weight: 700; background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff;">Load Level ▶</button>
+                    <button class="cta-btn" onclick="window.closeLevelJumpModal()" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 8px 16px; font-size: 13px;">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ✨ Sacred Epiphany Reveal Modal (Periodic 6-12 Level Window) -->
+        <div class="modal-overlay" id="epiphany-modal" style="display: none; align-items: center; justify-content: center; z-index: 10000;">
+            <div class="epiphany-card epiphany-parchment-card">
+                <div class="epiphany-ribbon-tag">✨ SACRED EPIPHANY TRIAL ✨</div>
+                <div class="epiphany-icon" id="epiphany-icon" style="font-size: 32px; margin-top: 4px;">🪷</div>
+                <span class="epiphany-eyebrow" id="epiphany-eyebrow" style="color: #b45309; font-weight: 800;">SACRED EPIPHANY TRIAL</span>
+                <h3 class="epiphany-title" id="epiphany-verse-title">The 12-Petalled Lotus Mandala</h3>
+                <blockquote class="epiphany-quote" id="epiphany-verse-quote">
+                    “All life is only a lavish and manifold opportunity given us to discover, realise, express the Divine.”
+                    <cite>— SRI AUROBINDO</cite>
+                </blockquote>
+                <div class="epiphany-reward-pill" id="epiphany-reward-pill" style="background: rgba(180,83,9,0.12); border: 1.5px solid #b8860b; color: #451a03; font-weight: 800;">
+                    <span id="epiphany-reward-text">⚡ +60 TRIPLE SPARKS REWARD</span>
+                    <span class="epiphany-multiplier-tag" id="epiphany-reward-tag" style="background: #b8860b; color: #fff;">Gated Challenge</span>
+                </div>
+                <div class="epiphany-action-row" id="epiphany-action-row" style="display: flex; gap: 12px; width: 100%; justify-content: center; margin-top: 14px;">
+                    <button class="cta-btn epiphany-claim-btn" id="btn-enter-epiphany" style="border-radius: 999px; font-weight: 800; background: linear-gradient(135deg, #f59e0b, #d97706); color: #1c0a00; border: 1.5px solid #fde68a;" onclick="window.enterEpiphanyTrial()">
+                        Enter Sacred Trial ➔
+                    </button>
+                    <button class="btn-secondary epiphany-postpone-btn" id="btn-postpone-epiphany" style="background: rgba(255,255,255,0.7); border: 1.5px solid #b8860b; color: #451a03; font-weight: 700; border-radius: 999px; padding: 10px 18px; cursor: pointer;" onclick="window.postponeEpiphanyTrial()">
+                        Postpone Reflection
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Floating Toast Banner -->
+        <div class="toast-banner" id="toast-banner">Need 20 Sparks for a Hint ✨</div>
+
+        <!-- Footer Navigation -->
+        <footer class="app-footer" id="app-nav">
+            <div class="nav-tab active-tab" onclick="navTo('welcome')">
+                <span class="nav-icon">🏡</span>
+                <span>Sanctuary</span>
+            </div>
+            <div class="nav-tab" onclick="navTo('oracle')">
+                <span class="nav-icon">🔮</span>
+                <span>Oracle</span>
+            </div>
+            <div class="nav-tab" onclick="navTo('jar')">
+                <span class="nav-icon">🏺</span>
+                <span>Consecration</span>
+            </div>
+            <div class="nav-tab" onclick="navTo('constellation')">
+                <span class="nav-icon">🌌</span>
+                <span>Calendar</span>
+            </div>
+        </footer>
+
+    </div>
+
+    <!-- Modular JS entry loading -->
+    <!-- Offline-First PWA Service Worker (AuroProject Policy AP-PWA-014) -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('./sw.js').then(function(reg) {
+            console.log('[PWA] AuroMatch ServiceWorker registered with scope:', reg.scope);
+          }).catch(function(err) {
+            console.warn('[PWA] ServiceWorker registration failed:', err);
+          });
+        });
+      }
+    </script>
+    <!-- Commercial Entitlement Engine (ENT-001) -->
+    <script src="./src/controllers/entitlementManager.js"></script>
+    <script type="module" src="./src/main.js"></script>
+</body>
+</html>
