@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Radial Gradient: Deep Forest & Emerald Sanctuary -->
+    <radialGradient id="emeraldSanctuary" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#064e3b"/>
+      <stop offset="65%" stop-color="#022c22"/>
+      <stop offset="100%" stop-color="#01140f"/>
+    </radialGradient>
+
+    <!-- Auric Gold Edge Gradient -->
+    <linearGradient id="riddleGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fffbeb"/>
+      <stop offset="30%" stop-color="#fde047"/>
+      <stop offset="70%" stop-color="#d97706"/>
+      <stop offset="100%" stop-color="#92400e"/>
+    </linearGradient>
+
+    <!-- Radiant Leaf & Book Gradient -->
+    <linearGradient id="leafGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ecfdf5"/>
+      <stop offset="30%" stop-color="#6ee7b7"/>
+      <stop offset="70%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+
+    <!-- Subtle Glow Filter -->
+    <filter id="emeraldGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- 1. Circular Outer Base -->
+  <circle cx="256" cy="256" r="246" fill="url(#emeraldSanctuary)"/>
+
+  <!-- 2. Concentric Gold Wisdom Rings -->
+  <circle cx="256" cy="256" r="236" fill="none" stroke="url(#riddleGold)" stroke-width="3" opacity="0.8"/>
+  <circle cx="256" cy="256" r="224" fill="none" stroke="url(#riddleGold)" stroke-width="1.5" stroke-dasharray="6 4" opacity="0.5"/>
+
+  <!-- 3. Central Radiance Star / Spark of Truth -->
+  <circle cx="256" cy="140" r="14" fill="#fbbf24" filter="url(#emeraldGlow)"/>
+  <path d="M256 112 L260 136 L284 140 L260 144 L256 168 L252 144 L228 140 L252 136 Z" fill="#fffbeb"/>
+
+  <!-- 4. Contemplative Open Book / Lotus Pages of Lexicon -->
+  <!-- Left Page -->
+  <path d="M256 360 C230 340 180 326 130 334 C120 335 112 327 112 317 L112 210 C112 200 120 192 130 190 C180 182 230 196 256 218 Z" 
+        fill="url(#leafGrad)" opacity="0.95" stroke="url(#riddleGold)" stroke-width="2"/>
+  
+  <!-- Right Page -->
+  <path d="M256 360 C282 340 332 326 382 334 C392 335 400 327 400 317 L400 210 C400 200 392 192 382 190 C332 182 282 196 256 218 Z" 
+        fill="url(#leafGrad)" opacity="0.95" stroke="url(#riddleGold)" stroke-width="2"/>
+
+  <!-- Page Spine & Ribbons -->
+  <path d="M256 216 L256 365" stroke="url(#riddleGold)" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- 5. Floating Scrambled Letter Tiles Forming Harmony: W - O - R - D -->
+  <g transform="translate(144, 386)">
+    <!-- Tile 1 -->
+    <rect x="0" y="0" width="46" height="46" rx="10" fill="#ffffff" stroke="#10b981" stroke-width="2" filter="url(#emeraldGlow)"/>
+    <text x="23" y="32" font-family="'Cinzel', serif" font-size="24" font-weight="bold" fill="#064e3b" text-anchor="middle">W</text>
+  </g>
+
+  <g transform="translate(202, 386)">
+    <!-- Tile 2 -->
+    <rect x="0" y="0" width="46" height="46" rx="10" fill="#ffffff" stroke="#10b981" stroke-width="2" filter="url(#emeraldGlow)"/>
+    <text x="23" y="32" font-family="'Cinzel', serif" font-size="24" font-weight="bold" fill="#064e3b" text-anchor="middle">O</text>
+  </g>
+
+  <g transform="translate(264, 386)">
+    <!-- Tile 3 -->
+    <rect x="0" y="0" width="46" height="46" rx="10" fill="#ffffff" stroke="#10b981" stroke-width="2" filter="url(#emeraldGlow)"/>
+    <text x="23" y="32" font-family="'Cinzel', serif" font-size="24" font-weight="bold" fill="#064e3b" text-anchor="middle">R</text>
+  </g>
+
+  <g transform="translate(322, 386)">
+    <!-- Tile 4 -->
+    <rect x="0" y="0" width="46" height="46" rx="10" fill="#ffffff" stroke="#10b981" stroke-width="2" filter="url(#emeraldGlow)"/>
+    <text x="23" y="32" font-family="'Cinzel', serif" font-size="24" font-weight="bold" fill="#064e3b" text-anchor="middle">D</text>
+  </g>
+</svg>
