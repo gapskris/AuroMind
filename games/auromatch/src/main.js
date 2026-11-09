@@ -471,6 +471,11 @@ window.addEventListener('load', async () => {
         }
 
         playAshramMeditationGong();
+        const toast = document.getElementById('toast-banner');
+        if (toast) {
+            toast.classList.remove('show');
+            toast.classList.remove('active');
+        }
         modal.classList.add('active');
     };
 
