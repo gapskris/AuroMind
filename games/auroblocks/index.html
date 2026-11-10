@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>AuroBlocks: Mindful Geometry</title>
+    <meta name="description" content="A tranquil, ad-free block puzzle uniting the combo flow of Block Blast with the strategic precision of Blockudoku, designed for children and seniors with sacred geometry and 432 Hz procedural sound." />
+    <meta property="og:title" content="AuroBlocks: Mindful Geometry" />
+    <meta property="og:description" content="A tranquil, ad-free block puzzle uniting the combo flow of Block Blast with the strategic precision of Blockudoku, designed for children and seniors with sacred geometry and 432 Hz procedural sound." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#141210" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="AuroBlocks" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./pwa-192x192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
+    <script>
+      (function () {
+        try {
+          if ('caches' in window) {
+            caches.keys().then(function (names) {
+              Promise.all(
+                names.map(function (name) {
+                  return caches.open(name).then(function (cache) {
+                    return cache.keys().then(function (reqs) {
+                      var deletions = [];
+                      for (var i = 0; i < reqs.length; i++) {
+                        var url = reqs[i].url || '';
+                        if (
+                          url.indexOf('/node_modules/') !== -1 ||
+                          url.indexOf('/src/') !== -1 ||
+                          url.indexOf('/@vite/') !== -1 ||
+                          url.indexOf('.tsx') !== -1
+                        ) {
+                          deletions.push(cache.delete(reqs[i]));
+                        }
+                      }
+                      return Promise.all(deletions).then(function (res) {
+                        return res.length > 0;
+                      });
+                    });
+                  });
+                })
+              ).then(function (results) {
+                var hadStaleDevCache = results.some(Boolean);
+                if (hadStaleDevCache && !sessionStorage.getItem('auroblocks_dev_cache_purged')) {
+                  sessionStorage.setItem('auroblocks_dev_cache_purged', '1');
+                  window.location.reload();
+                } else if (!hadStaleDevCache) {
+                  sessionStorage.removeItem('auroblocks_dev_cache_purged');
+                }
+              });
+            });
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <script type="module" crossorigin src="./assets/index-BLt2QrTp.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-Ccfp-y1N.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
+

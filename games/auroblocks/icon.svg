@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="96" fill="#141210" />
+  <circle cx="256" cy="256" r="210" fill="none" stroke="#e8c15a" stroke-width="4" stroke-opacity="0.3" />
+  <circle cx="256" cy="256" r="160" fill="none" stroke="#e8c15a" stroke-width="3" stroke-opacity="0.5" />
+  <circle cx="256" cy="256" r="90" fill="none" stroke="#e8c15a" stroke-width="4" stroke-opacity="0.75" />
+  <circle cx="256" cy="256" r="40" fill="none" stroke="#e8c15a" stroke-width="5" />
+  <!-- Hexagonal Mandala Petals -->
+  <g stroke="#e8c15a" stroke-width="3" stroke-opacity="0.6" fill="none">
+    <circle cx="256" cy="166" r="90" />
+    <circle cx="334" cy="211" r="90" />
+    <circle cx="334" cy="301" r="90" />
+    <circle cx="256" cy="346" r="90" />
+    <circle cx="178" cy="301" r="90" />
+    <circle cx="178" cy="211" r="90" />
+  </g>
+  <!-- Sacred Triangles -->
+  <polygon points="256,106 386,331 126,331" fill="none" stroke="#e8c15a" stroke-width="3" stroke-opacity="0.4" />
+  <polygon points="256,406 386,181 126,181" fill="none" stroke="#e8c15a" stroke-width="3" stroke-opacity="0.4" />
+  <!-- Center Golden Bindu -->
+  <circle cx="256" cy="256" r="16" fill="#e8c15a" />
+</svg>

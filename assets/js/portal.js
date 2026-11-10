@@ -55,7 +55,8 @@ function initTheaterMode() {
     'vak-sanctuary': 'games/vak-living-sanctuary/index.html',
     'auromatch': 'games/auromatch/index.html',
     'wordriddle': 'games/word-riddle/index.html',
-    'auromandala': 'games/auromandala/index.html'
+    'auromandala': 'games/auromandala/index.html',
+    'auroblocks': 'games/auroblocks/index.html'
   };
 
   function openGameInTheater(gameId, title, icon) {
