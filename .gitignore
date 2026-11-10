@@ -1,0 +1,11 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Local backups
+*_backup*/
+*backup*/
+
+# OS / Editor
+.DS_Store
+Thumbs.db

@@ -1,16 +1,26 @@
 // Service Worker for Vak: The Control of Speech (PWA Offline First with Fresh Online Updates)
-const CACHE_NAME = 'auro-vak-v2.17';
-const ASSETS_TO_CACHE = [
+const CACHE_NAME = 'auro-vak-v2.18';
+const CORE_SHELL_ASSETS = [
   './',
   './index.html',
-  './data/levels_source.json',
   './manifest.webmanifest'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
+    caches.open(CACHE_NAME).then(async (cache) => {
+      // 1. Mandatory shell assets — must succeed
+      await cache.addAll(CORE_SHELL_ASSETS);
+
+      // 2. Optional external JSON assets (graceful fallback in standalone or subpath mode)
+      try {
+        const jsonRes = await fetch('./data/levels_source.json');
+        if (jsonRes && jsonRes.ok) {
+          await cache.put('./data/levels_source.json', jsonRes);
+        }
+      } catch (e) {
+        // In standalone single-file bundle on GitHub Pages, JSON is embedded into index.html
+      }
     }).then(() => self.skipWaiting())
   );
 });
@@ -22,6 +32,7 @@ self.addEventListener('activate', (event) => {
         keys.map((key) => {
           const isVakCache = key.startsWith('auro-vak-') || key.startsWith('vak-');
           if (isVakCache && key !== CACHE_NAME) {
+            console.log(`[SW] Deleting obsolete cache: ${key}`);
             return caches.delete(key);
           }
         })
