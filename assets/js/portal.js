@@ -52,6 +52,7 @@ function initTheaterMode() {
 
   const gameUrls = {
     'vak': 'games/vak/index.html',
+    'vak-sanctuary': 'games/vak-living-sanctuary/index.html',
     'auromatch': 'games/auromatch/index.html',
     'wordriddle': 'games/word-riddle/index.html'
   };
