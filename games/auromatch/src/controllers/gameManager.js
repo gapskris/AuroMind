@@ -258,14 +258,30 @@ export class GameManager {
         const saved = localStorage.getItem('auromatch_player_state');
         if (saved) {
           const parsed = JSON.parse(saved);
+          const rawLevel = (typeof parsed.currentLevel === 'number' && parsed.currentLevel > 0) ? parsed.currentLevel : 1;
+          let modeLevels = { vita: rawLevel, tile_club: 1, botanical: 1, realms: 1 };
+          if (parsed.modeLevels) {
+            modeLevels = { ...modeLevels, ...parsed.modeLevels };
+          } else {
+            try {
+              const rawML = localStorage.getItem('auromatch_mode_levels');
+              if (rawML) modeLevels = { ...modeLevels, ...JSON.parse(rawML) };
+            } catch(e) {}
+          }
+          if (parsed.gameplayMode) {
+            this.gameplayMode = (parsed.gameplayMode === 'classic') ? 'vita' : parsed.gameplayMode;
+          }
+          modeLevels[this.gameplayMode] = Math.max(modeLevels[this.gameplayMode] || 1, rawLevel);
+
           const state = {
             name: typeof parsed.name === 'string' ? parsed.name.trim() : '',
-            currentLevel: Math.max(1, Math.min(TOTAL_LEVELS, parsed.currentLevel || 1)),
+            currentLevel: Math.max(1, Math.min(TOTAL_LEVELS, modeLevels[this.gameplayMode] || rawLevel)),
+            modeLevels,
             sparks: typeof parsed.sparks === 'number' ? parsed.sparks : 100,
             score: typeof parsed.score === 'number' ? parsed.score : 0,
-            focusIQ: typeof parsed.focusIQ === 'number' ? parsed.focusIQ : (80 + Math.min(120, ((parsed.currentLevel || 1) - 1) * 2)),
+            focusIQ: typeof parsed.focusIQ === 'number' ? parsed.focusIQ : (80 + Math.min(120, (rawLevel - 1) * 2)),
             goldenAuraLevelsRemaining: typeof parsed.goldenAuraLevelsRemaining === 'number' ? parsed.goldenAuraLevelsRemaining : 0,
-            isNewUser: parsed.currentLevel === 1 && !parsed.hasProgress
+            isNewUser: rawLevel === 1 && !parsed.hasProgress
           };
           if (Array.isArray(parsed.epiphaniesUnlocked)) {
             this.epiphaniesUnlocked = parsed.epiphaniesUnlocked;
@@ -305,7 +321,12 @@ export class GameManager {
           try {
             const stored = JSON.parse(storedRaw);
             if (stored && stored.name === this.player.name) {
-              if (typeof stored.currentLevel === 'number' && stored.currentLevel > this.player.currentLevel) {
+              if (stored.modeLevels && this.player.modeLevels) {
+                for (const m in stored.modeLevels) {
+                  this.player.modeLevels[m] = Math.max(this.player.modeLevels[m] || 1, stored.modeLevels[m] || 1);
+                }
+              }
+              if (stored.gameplayMode === this.gameplayMode && typeof stored.currentLevel === 'number' && stored.currentLevel > this.player.currentLevel) {
                 this.player.currentLevel = stored.currentLevel;
               }
               if (typeof stored.sparks === 'number' && stored.sparks > this.player.sparks) {
@@ -321,9 +342,16 @@ export class GameManager {
           } catch (e) {}
         }
 
+        if (!this.player.modeLevels) {
+          this.player.modeLevels = { vita: 1, tile_club: 1, botanical: 1, realms: 1 };
+        }
+        this.player.modeLevels[this.gameplayMode] = this.player.currentLevel || 1;
+
         const payload = {
           name: this.player.name || '',
           currentLevel: this.player.currentLevel,
+          modeLevels: this.player.modeLevels,
+          gameplayMode: this.gameplayMode,
           sparks: this.player.sparks,
           score: this.player.score || 0,
           focusIQ: this.player.focusIQ || 80,
@@ -336,6 +364,7 @@ export class GameManager {
         localStorage.setItem('auromatch_level_index', String(this.player.currentLevel || 1));
         localStorage.setItem('auromatch_sparks_balance', String(this.player.sparks || 100));
         localStorage.setItem('auromatch_gameplay_mode', this.gameplayMode || 'botanical');
+        localStorage.setItem('auromatch_mode_levels', JSON.stringify(this.player.modeLevels));
         setItemAsync('auromatch_player_state', payload);
 
         if (this.player.name) {
@@ -657,13 +686,21 @@ export class GameManager {
 
   setGameplayMode(mode) {
     if (mode === 'classic') mode = 'vita'; // Backward compatibility alias
-    if (this.gameplayMode === mode) return;
-    this.gameplayMode = mode;
-    if (mode === 'realms' || mode === 'botanical') {
-      this.startNewStage(1);
-    } else {
-      this.startNewStage(this.player.currentLevel || 1);
+    if (this.gameplayMode === mode && this.tiles && this.tiles.length > 0) return;
+
+    if (!this.player.modeLevels) {
+      this.player.modeLevels = { vita: 1, tile_club: 1, botanical: 1, realms: 1 };
     }
+    // Preserve current level in outgoing mode
+    this.player.modeLevels[this.gameplayMode] = this.player.currentLevel || 1;
+
+    this.gameplayMode = mode;
+    // Restore target mode's independent saved progress level
+    const targetLevel = this.player.modeLevels[mode] || 1;
+    this.player.currentLevel = targetLevel;
+
+    this.savePlayerState();
+    this.startNewStage(targetLevel);
   }
 
   toggleSeniorView(forcedValue = null) {
@@ -1308,6 +1345,10 @@ export class GameManager {
       // Advance level up to the mode's campaign ceiling (400 for Pairs)
       const maxLevels = this.getTotalLevels();
       this.player.currentLevel = Math.min(maxLevels, this.player.currentLevel + 1);
+      if (!this.player.modeLevels) {
+        this.player.modeLevels = { vita: 1, tile_club: 1, botanical: 1, realms: 1 };
+      }
+      this.player.modeLevels[this.gameplayMode] = this.player.currentLevel;
       const newRank = this.getRank();
       let rankPromoted = false;
       if (newRank.name !== oldRank.name) {

@@ -469,7 +469,14 @@ export class BoardRenderer {
 
     const activeTiles = this.tiles.filter(t => !t.isMatched);
 
-
+    // Precise DOM layer & hit-test sorting: Render lower layers first, and within same layer render blocked before free
+    const sortedActiveTiles = [...activeTiles].sort((a, b) => {
+      if (a.z !== b.z) return a.z - b.z;
+      const aFree = VitaBoardGenerator.isTileFree(a, activeTiles);
+      const bFree = VitaBoardGenerator.isTileFree(b, activeTiles);
+      if (aFree !== bFree) return aFree ? 1 : -1;
+      return 0;
+    });
 
     const domainRibbons = {
 
@@ -495,7 +502,7 @@ export class BoardRenderer {
 
 
 
-    activeTiles.forEach(tile => {
+    sortedActiveTiles.forEach(tile => {
 
       const isFree = VitaBoardGenerator.isTileFree(tile, activeTiles);
 
@@ -551,7 +558,8 @@ export class BoardRenderer {
 
       el.style.top = `${posY}px`;
 
-      el.style.zIndex = `${tile.z * 10 + 10}`;
+      const baseZ = tile.z * 20 + 10;
+      el.style.zIndex = `${baseZ + (isSelected ? 6 : (isFree ? 2 : 0))}`;
 
 
 

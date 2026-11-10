@@ -1529,7 +1529,11 @@ window.addEventListener('load', async () => {
                     formation = 'Tile Club';
                 } else if (storedMode === 'realms' && activeGameManager && activeGameManager.currentRealm) {
                     formation = activeGameManager.currentRealm.name;
+                } else if (storedMode === 'vita' || storedMode === 'classic') {
+                    formation = 'Pairs Campaign';
                 }
+                const curModeLevel = (player.modeLevels && player.modeLevels[storedMode]) ? player.modeLevels[storedMode] : (player.currentLevel || 1);
+                player.currentLevel = curModeLevel;
                 txtResume.innerText = `Resume: Level ${player.currentLevel || 1} (${formation})`;
             }
             if (sparksResume) {
@@ -1608,25 +1612,27 @@ window.addEventListener('load', async () => {
     };
 
     window.handleGatewayResume = () => {
-        const hasName = activeGameManager && activeGameManager.player && activeGameManager.player.name;
-        if (!hasName) {
-            window.openNameModal(() => {
-                if (!isPurgeActive()) {
-                    localStorage.setItem('auromatch_has_entered_sanctuary', 'true');
-                    setItemAsync('auromatch_has_entered_sanctuary', 'true');
-                }
-                window.executeDoorOpeningCeremony(() => {
-                    window.beginDirectJourney();
-                });
-            });
-        } else {
+        const hasName = activeGameManager && activeGameManager.player && activeGameManager.player.name && activeGameManager.player.name !== 'Seeker';
+        const doResume = () => {
             if (!isPurgeActive()) {
                 localStorage.setItem('auromatch_has_entered_sanctuary', 'true');
                 setItemAsync('auromatch_has_entered_sanctuary', 'true');
             }
             window.executeDoorOpeningCeremony(() => {
+                let savedMode = localStorage.getItem('auromatch_gameplay_mode');
+                if (savedMode && activeGameManager) {
+                    activeGameManager.setGameplayMode(savedMode);
+                }
                 window.beginDirectJourney();
             });
+        };
+
+        if (!hasName) {
+            window.openNameModal(() => {
+                doResume();
+            });
+        } else {
+            doResume();
         }
     };
 
@@ -1666,9 +1672,7 @@ window.addEventListener('load', async () => {
         window.switchGameplayMode(mode);
         const hasName = activeGameManager && activeGameManager.player && activeGameManager.player.name && activeGameManager.player.name !== 'Seeker';
         const launch = () => {
-            window.executeDoorOpeningCeremony(() => {
-                window.beginDirectJourney();
-            });
+            window.beginDirectJourney();
         };
         if (!hasName) {
             window.openNameModal(() => {

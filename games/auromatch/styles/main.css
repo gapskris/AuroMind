@@ -4399,8 +4399,11 @@ body {
     }
 
     .sanctuary-door-stage {
-        max-width: 440px !important;
-        height: 380px !important;
+        max-width: 360px !important;
+        max-height: min(320px, 38dvh) !important;
+        height: auto !important;
+        aspect-ratio: 1 / 1.15 !important;
+        margin: 6px auto !important;
     }
 
 
@@ -6752,8 +6755,8 @@ body[data-theme="botanical"] .sanctuary-dot-grid {
     align-items: center;
     justify-content: space-between;
     width: 100%;
-    height: 100%;
-    height: 100dvh;
+    height: 100% !important;
+    max-height: 100% !important;
     padding: 12px 14px max(16px, env(safe-area-inset-bottom, 16px));
     box-sizing: border-box;
     text-align: center;
@@ -7705,8 +7708,11 @@ body[data-theme="royal_lapis"] .header-realm-dropdown-pill {
 
     /* Scale Sanctuary Doors proportionally to tablet width */
     .sanctuary-door-stage {
-        max-width: 440px !important;
-        height: 380px !important;
+        max-width: 360px !important;
+        max-height: min(320px, 38dvh) !important;
+        height: auto !important;
+        aspect-ratio: 1 / 1.15 !important;
+        margin: 6px auto !important;
     }
     
     /* Scale Realm Selection cards */
@@ -7755,8 +7761,11 @@ body[data-theme="royal_lapis"] .header-realm-dropdown-pill {
     }
 
     .sanctuary-door-stage {
-        max-width: 480px !important;
-        height: 420px !important;
+        max-width: 360px !important;
+        max-height: min(340px, 38dvh) !important;
+        height: auto !important;
+        aspect-ratio: 1 / 1.15 !important;
+        margin: 6px auto !important;
     }
 
     .board-container {
@@ -7988,8 +7997,11 @@ body:has(.stage-clear-overlay.active) .toast-banner,
     }
 
     .sanctuary-door-stage {
-        max-width: 440px !important;
-        height: 380px !important;
+        max-width: 360px !important;
+        max-height: min(320px, 38dvh) !important;
+        height: auto !important;
+        aspect-ratio: 1 / 1.15 !important;
+        margin: 6px auto !important;
     }
 
     .game-desktop-grid {
