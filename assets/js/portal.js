@@ -46,10 +46,6 @@ function initTheaterMode() {
     });
   }
 
-  const isLocal = window.location.hostname === 'localhost' || 
-                  window.location.hostname === '127.0.0.1' || 
-                  window.location.protocol === 'file:';
-
   const gameUrls = {
     'vak': 'games/vak/index.html',
     'vak-sanctuary': 'games/vak-living-sanctuary/index.html',
@@ -63,27 +59,20 @@ function initTheaterMode() {
     const url = gameUrls[gameId];
     if (!url) return;
 
+    // Suspend portal 432 Hz ambient audio so it does not collide with child game audio
+    if (typeof window.suspendAmbientAudio === 'function') {
+      window.suspendAmbientAudio();
+    }
+
     if (theaterTitle) theaterTitle.textContent = title || 'AuroMind Game';
     if (theaterIcon && icon) theaterIcon.src = icon;
     
     // Enter True Game Mode: hides portal header & sidebar for 100% viewport height
     document.body.classList.add('in-game-mode');
 
-    // Load into iframe
+    // Load into iframe (mock client-side license pass dispatch disabled)
     if (theaterIframe) {
       theaterIframe.src = url;
-      theaterIframe.onload = () => {
-        try {
-          const storedToken = localStorage.getItem('auromind_game_pass_' + gameId);
-          if (storedToken && theaterIframe.contentWindow) {
-            theaterIframe.contentWindow.postMessage({
-              type: 'AUROMIND_LICENSE_GRANTED',
-              gameId: gameId,
-              token: storedToken
-            }, '*');
-          }
-        } catch (e) {}
-      };
     }
 
     // Transition view
@@ -157,15 +146,9 @@ function initTheaterMode() {
     });
   }
 
-  // Listen to HTML5 PostMessage from child game iframes (Vak, AuroMatch, etc.)
+  // Listen to HTML5 PostMessage from same-origin child game iframes (Vak, AuroMatch, etc.)
   window.addEventListener('message', (event) => {
-    // Validate origin: accept same-origin, github.io, or local dev origins
-    const origin = event.origin || '';
-    const isAllowed = origin === window.location.origin ||
-                      origin.endsWith('.github.io') ||
-                      origin.includes('localhost') ||
-                      origin.includes('127.0.0.1');
-    if (!isAllowed) return;
+    if (event.origin !== window.location.origin) return;
 
     if (event.data && (event.data.type === 'AUROMIND_CLOSE_THEATER' || event.data.action === 'EXIT_GAME')) {
       closeTheater();
@@ -323,6 +306,29 @@ function initAmbientAudio() {
   let isPlaying = false;
   let currentVolume = 0.035;
 
+  function stopAmbientAudio() {
+    if (!isPlaying) return;
+    isPlaying = false;
+    audioBtn.classList.remove('active');
+    const activeOsc = oscillator;
+    oscillator = null;
+    if (gainNode && audioCtx) {
+      try {
+        gainNode.gain.linearRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
+      } catch (e) {}
+    }
+    setTimeout(() => {
+      if (activeOsc) {
+        try {
+          activeOsc.stop();
+          activeOsc.disconnect();
+        } catch (e) {}
+      }
+    }, 260);
+  }
+
+  window.suspendAmbientAudio = stopAmbientAudio;
+
   window.setAmbientVolume = (volRatio) => {
     currentVolume = volRatio * 0.07;
     if (gainNode && audioCtx && isPlaying) {
@@ -337,16 +343,7 @@ function initAmbientAudio() {
     }
 
     if (isPlaying) {
-      gainNode.gain.linearRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
-      setTimeout(() => {
-        if (oscillator) {
-          oscillator.stop();
-          oscillator.disconnect();
-          oscillator = null;
-        }
-      }, 500);
-      isPlaying = false;
-      audioBtn.classList.remove('active');
+      stopAmbientAudio();
     } else {
       oscillator = audioCtx.createOscillator();
       gainNode = audioCtx.createGain();
@@ -625,10 +622,6 @@ function initFeedbackModal() {
 
   if (!feedbackBtn || !modal || !form) return;
 
-  // Placeholder for user's Web3Forms Access Key
-  // Once the user generates a key at web3forms.com, it can be dropped in here.
-  const WEB3FORMS_ACCESS_KEY = '076591f7-fef5-4ea4-8f9f-14d389883cf9';
-
   const openModal = () => {
     modal.classList.add('open');
     if (statusMsg) {
@@ -668,14 +661,14 @@ function initFeedbackModal() {
     });
   });
 
-  // Handle Form Submit via Native Hidden Iframe (100% reliable in all browsers)
-  form.addEventListener('submit', (e) => {
+  // Handle Form Submit via CSP-compatible fetch() (connect-src https://api.web3forms.com)
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
     const topic = document.getElementById('feedback-topic-select')?.value || 'General Sanctuary Experience';
     const message = messageInput?.value.trim() || '';
     const subjectInput = document.getElementById('feedback-subject-input');
 
     if (!message) {
-      e.preventDefault();
       if (statusMsg) {
         statusMsg.style.display = 'block';
         statusMsg.className = 'feedback-status-msg error';
@@ -689,48 +682,87 @@ function initFeedbackModal() {
       subjectInput.value = `💬 AuroMind Feedback: [${topic}]`;
     }
 
-    // Set Loading UI State
-    const originalBtnText = submitBtn.innerHTML;
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = '<span>Sending with care... 🕊️</span>';
-    if (statusMsg) statusMsg.style.display = 'none';
+    const originalBtnHTML = submitBtn ? submitBtn.innerHTML : '<span>Send Feedback 🕊️</span>';
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Sending...';
+    }
+    if (statusMsg) {
+      statusMsg.style.display = 'none';
+      statusMsg.className = 'feedback-status-msg';
+      statusMsg.textContent = '';
+    }
 
-    // When the hidden iframe loads the Web3Forms success response:
-    const frame = document.getElementById('feedback-target-frame');
-    if (frame) {
-      frame.onload = () => {
+    try {
+      const response = await fetch(form.action || 'https://api.web3forms.com/submit', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json'
+        },
+        body: new FormData(form)
+      });
+
+      let data = null;
+      try {
+        data = await response.json();
+      } catch (parseErr) {}
+
+      if (!response.ok || (data && data.success === false)) {
+        const errorText = (data && data.message) || 'Unable to send feedback right now. Please try again.';
         if (statusMsg) {
           statusMsg.style.display = 'block';
-          statusMsg.className = 'feedback-status-msg success';
-          statusMsg.textContent = 'Thank you! Your thoughts have been received with gratitude 🌸';
+          statusMsg.className = 'feedback-status-msg error';
+          statusMsg.textContent = errorText;
         }
-        submitBtn.innerHTML = '<span>Sent with Gratitude 🌸</span>';
-        setTimeout(() => {
-          form.reset();
+        if (submitBtn) {
           submitBtn.disabled = false;
-          submitBtn.innerHTML = originalBtnText;
-          sentimentChips.forEach((c, idx) => c.classList.toggle('active', idx === 0));
-          closeModal();
-        }, 1800);
-      };
+          submitBtn.innerHTML = originalBtnHTML;
+        }
+        return;
+      }
+
+      if (statusMsg) {
+        statusMsg.style.display = 'block';
+        statusMsg.className = 'feedback-status-msg success';
+        statusMsg.textContent = 'Thank you! Your thoughts have been received with gratitude 🌸';
+      }
+      if (submitBtn) {
+        submitBtn.innerHTML = '<span>Sent with Gratitude 🌸</span>';
+      }
+      form.reset();
+      sentimentChips.forEach((c, idx) => c.classList.toggle('active', idx === 0));
+      setTimeout(() => {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = originalBtnHTML;
+        }
+        closeModal();
+      }, 1800);
+    } catch (err) {
+      if (statusMsg) {
+        statusMsg.style.display = 'block';
+        statusMsg.className = 'feedback-status-msg error';
+        statusMsg.textContent = 'Network error while sending feedback. Please check your connection and try again.';
+      }
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = originalBtnHTML;
+      }
     }
   });
 }
 
 // ==========================================================================
-// 8. SANCTUARY PASS & PURCHASE BRIDGE (COMMERCIAL ENGINE ENT-001)
+// 8. SANCTUARY PASS & PURCHASE BRIDGE (PLANNED INFO MODAL ONLY)
 // ==========================================================================
 function initPurchaseBridge() {
   const modal = document.getElementById('purchase-modal');
   const closeBtn = document.getElementById('purchase-modal-close-btn');
   const confirmBtn = document.getElementById('btn-confirm-purchase');
   const titleEl = document.getElementById('purchase-game-title');
-  const theaterIframe = document.getElementById('game-viewport-iframe');
-
-  let activePurchaseGameId = 'vak';
 
   window.openPurchaseModal = function(gameId, title) {
-    activePurchaseGameId = gameId || 'vak';
+    const activePurchaseGameId = gameId || 'vak';
     if (titleEl) {
       titleEl.textContent = title || (activePurchaseGameId === 'vak' ? 'VAK — The Control of Speech' : 'AuroMatch — Zen Tile Solitaire');
     }
@@ -750,22 +782,7 @@ function initPurchaseBridge() {
 
   if (confirmBtn) {
     confirmBtn.addEventListener('click', () => {
-      const token = 'AUROMIND-SANCTUARY-PASS-' + activePurchaseGameId.toUpperCase() + '-' + Date.now();
-      try {
-        localStorage.setItem('auromind_game_pass_' + activePurchaseGameId, token);
-      } catch (e) {}
-
-      // Dispatch to game iframe
-      if (theaterIframe && theaterIframe.contentWindow) {
-        theaterIframe.contentWindow.postMessage({
-          type: 'AUROMIND_LICENSE_GRANTED',
-          gameId: activePurchaseGameId,
-          token: token
-        }, '*');
-      }
-
       closeModal();
-      alert('✨ Sanctuary Pass successfully activated! All 400 levels and themes unlocked.');
     });
   }
 }

@@ -344,14 +344,6 @@ html, body {
   color: #FFFFFF;
   box-shadow: 0 4px 14px rgba(2, 132, 199, 0.3);
 }
-  transition: all var(--transition-fast);
-}
-
-.btn-account:hover {
-  background: linear-gradient(135deg, var(--accent-gold), var(--accent-gold-dark));
-  color: #070a13;
-  box-shadow: 0 4px 12px var(--border-glow);
-}
 
 /* ==========================================================================
    SCROLLABLE DASHBOARD CONTENT
@@ -1002,7 +994,8 @@ body.in-game-mode .portal-main-area {
 }
 
 @media (max-width: 580px) {
-  .games-uniform-grid {
+  .games-uniform-grid,
+  .live-sanctuaries-grid {
     grid-template-columns: 1fr;
   }
   .game-card {
@@ -1451,7 +1444,8 @@ body.senior-mode .guide-pillar-modal-item p {
   .hero-banner {
     padding: 1.15rem 1.5rem !important;
   }
-  .games-uniform-grid {
+  .games-uniform-grid,
+  .live-sanctuaries-grid {
     grid-template-columns: repeat(2, 1fr) !important;
     gap: 1.15rem !important;
   }
@@ -1487,7 +1481,8 @@ body.senior-mode .guide-pillar-modal-item p {
     margin-top: 0 !important;
     gap: 0.6rem !important;
   }
-  .games-uniform-grid {
+  .games-uniform-grid,
+  .live-sanctuaries-grid {
     grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)) !important;
     gap: 0.85rem !important;
   }

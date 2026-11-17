@@ -20,16 +20,39 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('sw.js').catch(() => {});
+        navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(() => {});
       });
     }
   </script>
   <script>
     const CL = [[1,"CALM","LCMA",["CAM"],"Take three deep breaths when you feel nervous to stay _______.","Not agitated, excited, or disturbed; peaceful","Holistic Education • Character & Will","Character & Will","Aspirant"],[2,"CARE","EACR",["ACE"],"Wash your hands with gentle _______ before sitting down to eat.","The provision of what is necessary for health and welfare","Holistic Education • Body & Movement","Body & Movement","Aspirant"],[3,"FACT","TAFC",["ACT"],"Always verify every _______ before drawing your conclusion.","Something that is known and proven to be true","Holistic Education • Mind & Science","Mind & Science","Aspirant"],[4,"GROW","RWGO",["ROW"],"Healthy meals and sound sleep help young bones _______.","To increase in physical size, strength, and vitality","Holistic Education • Body & Movement","Body & Movement","Aspirant"],[5,"HOPE","OPHE",["HOP"],"Never lose _______; sunny skies always follow stormy clouds.","A feeling of expectation and desire for a certain thing to happen","Holistic Education • Heart & Feelings","Heart & Feelings","Aspirant"],[6,"IDEA","AEID",["AID"],"A tiny _______ can grow into a magnificent invention.","A thought, concept, or plan formed in the mind","Holistic Education • Mind & Science","Mind & Science","Aspirant"],[7,"KIND","DINK",["INK"],"It takes very little effort to be _______ to those around you.","Having or showing a friendly, generous, and considerate nature","Holistic Education • Heart & Feelings","Heart & Feelings","Aspirant"],[8,"TRUE","ERUT",["RUE"],"Always speak what is _______, even when it feels difficult.","In accordance with fact, reality, or actual circumstance","Holistic Education • Character & Will","Character & Will","Aspirant"],[9,"PLAN","LNPA",["LAP"],"A clear _______ turns a difficult dream into reality.","A set of thoughtful steps to achieve a goal","Holistic Education • Mind & Science","Mind & Science","Aspirant"],[10,"CLUE","LEUC",["CUE"],"Follow each subtle _______ to unravel the mystery.","A piece of evidence that helps solve a riddle or puzzle","Holistic Education • Mind & Science","Mind & Science","Aspirant"],[11,"GLOW","LOGW",["LOG"],"Running in the cool morning air brings a healthy _______ to cheeks.","A warm, healthy radiance seen on the skin","Holistic Education • Body & Movement","Body & Movement","Aspirant"],[12,"READ","EDRA",["ARE"],"When you _______, you travel across space and time.","To look at and comprehend written words and thoughts","Holistic Education • Mind & Science","Mind & Science","Aspirant"],[13,"ZEAL","ELAZ",["ALE"],"The children worked with joyful _______ to clean up the park.","Great energy, passion, and enthusiasm in pursuit of a cause","Holistic Education • Character & Will","Character & Will","Aspirant"],[14,"JUMP","MJUP",[],"Children love to _______ over puddles on rainy afternoons.","To push oneself off a surface into the air using legs","Holistic Education • Body & Movement","Body & Movement","Aspirant"],[15,"LEAP","PALE",["ALE"],"Frogs can _______ many times their own body length.","To spring a great distance or height with energy","Holistic Education • Body & Movement","Body & Movement","Aspirant"],[16,"PACE","AEPC",["ACE"],"Find a comfortable _______ so you do not run out of breath.","A consistent, steady speed of walking or running","Holistic Education • Body & Movement","Body & Movement","Aspirant"],[17,"REST","SRET",["SET"],"After a hard soccer match, take time to _______ and drink water.","Ceasing work or movement in order to relax and recover","Holistic Education • Body & Movement","Body & Movement","Aspirant"],[18,"FLOW","LFOW",["LOW"],"Let your breath _______ gently in and out during yoga.","To move smoothly, easily, and continuously like water","Holistic Education • Body & Movement","Body & Movement","Aspirant"],[19,"FIRM","MIRF",["FIR"],"Keep your feet _______ on the mat when practicing balance.","Solid, steady, and not easily shaken or moved","Holistic Education • Body & Movement","Body & Movement","Aspirant"],[20,"FAST","TFSA",["FAT"],"The cheetah is the most _______ four-legged animal on Earth.","Moving or capable of moving at high speed","Holistic Education • Body & Movement","Body & Movement","Aspirant"],[21,"FEAT","EFAT",["ATE"],"Climbing the tall rock wall was an impressive _______.","An act showing great physical skill, courage, or strength","Holistic Education • Body & Movement","Body & Movement","Aspirant"],[22,"WALK","ALWK",["LAW"],"An evening _______ through the park helps calm the mind.","To travel on foot at a natural, moderate speed","Holistic Education • Body & Movement","Body & Movement","Aspirant"],[23,"DART","TDRA",["ART"],"Dragonflies _______ over the pond water catching mosquitoes.","To move suddenly and rapidly like an arrow","Holistic Education • Body & Movement","Body & Movement","Aspirant"],[24,"TONE","ONTE",["NET"],"Swimming laps improves muscle _______ across your entire body.","The normal state of healthy firmness in a muscle","Holistic Education • Body & Movement","Body & Movement","Aspirant"],[25,"BEND","EDNB",["BED"],"Always _______ your knees when lifting a heavy box from the floor.","To curve or flex a part of the body without straining","Holistic Education • Body & Movement","Body & Movement","Aspirant"],[26,"DASH","SDAH",["HAD"],"Make a quick _______ across the yard before the rain pours down.","To run or travel somewhere in a great hurry","Holistic Education • Body & Movement","Body & Movement","Aspirant"],[27,"DIVE","IEVD",[],"Watch the pelican _______ into ocean waves to catch silver fish.","To plunge headfirst into water or toward the ground","Holistic Education • Body & Movement","Body & Movement","Aspirant"],[28,"FLEX","LFEX",[],"Cat stretches help _______ spinal muscles after long desk work.","To bend or contract a joint or muscle deliberately","Holistic Education • Body & Movement","Body & Movement","Aspirant"],[29,"FULL","LULF",[],"Inhale a _______ breath into your belly before exhaling slowly.","Containing as much or as many as is possible; complete","Holistic Education • Body & Movement","Body & Movement","Aspirant"],[30,"GAIT","AIGT",["TAG"],"He walked with a confident, cheerful _______ across the field.","A person's manner of walking or moving on foot","Holistic Education • Body & Movement","Body & Movement","Aspirant"],[31,"BRAVE","RVAEB",["ARE"],"Be _______ enough to stand up for a smaller child being teased.","Ready to face and endure danger, pain, or difficulty with courage","Holistic Education • Character & Will","Character & Will","Learner"],[32,"CLEAN","LNCEA",["ACE"],"Drink pure, _______ water to keep every cell in your body happy.","Free from dirt, marks, or pollutants; unpolluted","Holistic Education • Body & Movement","Body & Movement","Learner"],[33,"FOCUS","SUFOC",[],"The archer must _______ completely on the center of the target.","Directing full care and attention toward one thing","Holistic Education • Mind & Science","Mind & Science","Learner"],[34,"HEART","ETHAR",["ARE"],"Put your whole _______ into comforting someone who feels alone.","The emotional center of human compassion, feeling, and courage","Holistic Education • Heart & Feelings","Heart & Feelings","Learner"],[35,"HONOR","OORHN",["NOR"],"Treat your elders and teachers with sincere and grateful _______.","High respect, esteem, and adherence to moral principles","Holistic Education • Character & Will","Character & Will","Learner"],[36,"LEARN","EANLR",["ALE"],"The mind that loves to _______ stays young forever.","To gain knowledge, understanding, or skill","Holistic Education • Mind & Science","Mind & Science","Learner"],[37,"SHARE","HERAS",["ARE"],"Always offer to _______ your colored pencils with a classmate.","To give a portion of something to another person","Holistic Education • Heart & Feelings","Heart & Feelings","Learner"],[38,"PEACE","CEAPE",["ACE"],"Living in _______ with classmates makes school a joy for all.","A state of mutual harmony, calm, and freedom from quarrel","Holistic Education • Heart & Feelings","Heart & Feelings","Learner"],[39,"TRUST","SRTUT",[],"It takes months to build _______, so guard it carefully.","Firm belief in the reliability, truth, or ability of someone","Holistic Education • Heart & Feelings","Heart & Feelings","Learner"],[40,"BLOOM","OLOMB",[],"The desert flowers burst into sudden, dazzling _______ after rare spring showers.","A flower, especially one cultivated for its beauty; to open into flower","Holistic Education • Nature & Ecology","Nature & Ecology","Learner"],[41,"BUILD","ULBID",["BUD"],"Regular push-ups help _______ upper body strength gradually.","To develop, strengthen, and increase physical capacity","Holistic Education • Body & Movement","Body & Movement","Learner"],[42,"GRIP","RIGP",["RIG"],"Ensure a firm _______ on the climbing wall holds before stepping.","To take and keep a firm, secure hold of something","Holistic Education • Body & Movement","Body & Movement","Learner"],[43,"HEAL","AHEL",["ALE"],"A scraped knee will _______ quickly with clean bandages and rest.","To become sound, healthy, or whole again after injury","Holistic Education • Body & Movement","Body & Movement","Learner"],[44,"HIKE","IHKE",[],"Families love to _______ up scenic mountain trails in autumn.","To walk for a long distance across country or trails","Holistic Education • Nature & Ecology","Nature & Ecology","Learner"],[45,"KICK","CKIK",[],"Soccer players learn how to _______ the ball with pinpoint accuracy.","To strike forcibly with the foot or leg","Holistic Education • Body & Movement","Body & Movement","Learner"],[46,"LIFT","TFLI",["FIT"],"Use the strength of your legs to _______ heavy laundry baskets.","To raise to a higher position or level using strength","Holistic Education • Body & Movement","Body & Movement","Learner"],[47,"LONG","NGOL",["LOG"],"A _______ bike ride along the riverbank makes for a joyful Saturday.","Lasting or taking a great amount of time or distance","Holistic Education • Body & Movement","Body & Movement","Learner"],[48,"SKIP","ISPK",["SIP"],"Children love to _______ with jumping ropes on the sidewalk.","To move along lightly, stepping from one foot to the other","Holistic Education • Body & Movement","Body & Movement","Learner"],[49,"SWIM","MSIW",[],"Learning to _______ is both great exercise and an essential safety skill.","To propel oneself through water using the limbs","Holistic Education • Body & Movement","Body & Movement","Learner"],[50,"WARM","RWAM",["ARM"],"A _______ smile makes the new student feel welcomed on day one.","Showing, having, or producing gentle affection and comfort","Holistic Education • Heart & Feelings","Heart & Feelings","Learner"],[51,"GLAD","DGAL",["LAD"],"We were so _______ to see our grandparents arrive for dinner.","Pleased, delighted, and cheerful in spirit","Holistic Education • Heart & Feelings","Heart & Feelings","Learner"],[52,"HELP","PLHE",[],"Always offer to _______ an elderly neighbor carry heavy bags.","To make it easier for someone to do something by offering aid","Holistic Education • Heart & Feelings","Heart & Feelings","Learner"],[53,"MILD","DIML",["DIM"],"A _______ tone of voice can calm an angry disagreement.","Gentle, temperate, and not harsh or severe in temperament","Holistic Education • Heart & Feelings","Heart & Feelings","Learner"],[54,"DEAR","REDA",["ARE"],"Write a sweet letter to a _______ friend who moved away.","Regarded with deep affection and cherished fondly","Holistic Education • Heart & Feelings","Heart & Feelings","Learner"],[55,"LOVE","VLOE",[],"A mother's _______ provides a safe shelter for growing birds.","An intense feeling of deep affection and heartfelt care","Holistic Education • Heart & Feelings","Heart & Feelings","Learner"],[56,"SAFE","EAFS",["SEA"],"A warm hug makes a frightened child feel completely _______.","Protected from or not exposed to danger or risk; secure","Holistic Education • Heart & Feelings","Heart & Feelings","Learner"],[57,"FAIR","RFIA",["AIR"],"Be a _______ referee and apply the rules equally to both sides.","Treating people equally without favoritism or discrimination","Holistic Education • Heart & Feelings","Heart & Feelings","Learner"],[58,"FOND","DOFN",["NOD"],"She was deeply _______ of reading storybooks beside her cat.","Having an affection or liking for someone or something","Holistic Education • Heart & Feelings","Heart & Feelings","Learner"],[59,"PITY","TPYI",["PIT"],"Take _______ on a shivering stray puppy and bring it warm milk.","The feeling of sorrow and compassion caused by the suffering of others","Holistic Education • Heart & Feelings","Heart & Feelings","Learner"],[60,"JUST","SUTJ",[],"A _______ leader gives an equal hearing to both sides.","Based on or behaving according to what is morally right and fair","Holistic Education • Character & Will","Character & Will","Learner"],[61,"GOOD","ODOG",["DOG"],"Quiet everyday _______ outlasts noisy, boastful actions.","Possessing high moral qualities; virtuous, kind, and righteous","Holistic Education • Character & Will","Character & Will","Learner"],[62,"DUTY","TYUD",[],"Perform your _______ cheerfully without waiting for rewards.","A moral or legal obligation; a task required by conscience","Holistic Education • Character & Will","Character & Will","Learner"],[63,"PURE","EPRU",["RUE"],"Keep your intentions _______ and your pathway will stay bright.","Free from moral corruption, deceit, or taint; clean and wholesome","Holistic Education • Character & Will","Character & Will","Learner"],[64,"GRIT","TRGI",[],"True _______ means picking yourself up every time you fall down.","Courage, resolve, and strength of character; perseverance","Holistic Education • Character & Will","Character & Will","Learner"],[65,"ACTIVE","CVETAI",["ACE"],"Staying physically _______ improves both mood and schoolwork.","Engaging in energetic physical work, sports, or exercise","Holistic Education • Body & Movement","Body & Movement","Thinker"],[66,"CREATE","ARETEC",["ACE"],"Take wood and glue to _______ your own model wooden sailboat.","To bring something into existence through imaginative skill","Holistic Education • Arts & Imagination","Arts & Imagination","Thinker"],[67,"EFFORT","FEORTF",["FOR"],"Crossing the finish line rewarded months of diligent _______.","Vigorous, determined physical or mental exertion","Holistic Education • Character & Will","Character & Will","Thinker"],[68,"FRIEND","IFDNRE",["DEN"],"To have a loyal _______, you must first be one yourself.","A person with whom one has a bond of mutual affection","Holistic Education • Heart & Feelings","Heart & Feelings","Thinker"],[69,"GENTLE","NTELEG",["EEL"],"Be _______ when holding a newborn kitten in your hands.","Mild in temperament or behavior; kind and tender","Holistic Education • Heart & Feelings","Heart & Feelings","Thinker"],[70,"HEALTH","LAHHTE",["ALE"],"Good physical _______ is the foundation for all other adventures.","The state of being free from illness or injury; wholeness","Holistic Education • Body & Movement","Body & Movement","Thinker"],[71,"WONDER","ORDNWE",["DEN"],"Looking up at a starry night fills the heart with _______.","A feeling of joyful amazement and curiosity","Holistic Education • Mind & Science","Mind & Science","Thinker"],[72,"LISTEN","IETLSN",["ITS"],"Take time to _______ carefully before forming your opinion.","To give one's attention to sound or to hear with empathy","Holistic Education • Heart & Feelings","Heart & Feelings","Thinker"],[73,"NATURE","AENRUT",["ANT"],"Spending quiet hours in _______ heals and restores a tired mind.","The phenomena of the physical world collectively, including plants and animals","Holistic Education • Nature & Ecology","Nature & Ecology","Thinker"],[74,"BRIGHT","RGBHIT",["BIG"],"Use _______ watercolors to depict the tropical reef fish.","Reflecting or giving off much light; shining and vivid in color","Holistic Education • Arts & Imagination","Arts & Imagination","Thinker"],[75,"PROVE","ERVPO",["ORE"],"Good scientists conduct experiments to _______ their theory.","To show that something is true using evidence","Holistic Education • Mind & Science","Mind & Science","Thinker"],[76,"SOLVE","LSOVE",["LOSE"],"Work patiently to _______ problems step by step.","To find the correct answer or explanation for a problem","Holistic Education • Mind & Science","Mind & Science","Thinker"],[77,"STUDY","YTDUS",["DUST"],"Take quiet time to _______ and understand how things work.","To devote time and attention to acquiring knowledge","Holistic Education • Mind & Science","Mind & Science","Thinker"],[78,"THINK","IKHTN",["HIT"],"Pause to _______ deeply before speaking or acting.","To use the mind actively to form ideas and judgements","Holistic Education • Mind & Science","Mind & Science","Thinker"],[79,"SMART","MSTAR",["ARM"],"Being _______ means knowing when to ask questions.","Quick-witted, intelligent, and capable","Holistic Education • Mind & Science","Mind & Science","Thinker"],[80,"WRITE","TEIRW",["TIE"],"Learn to _______ your thoughts with clarity and joy.","To express ideas, feelings, and facts in written words","Holistic Education • Mind & Science","Mind & Science","Thinker"],[81,"LOGIC","OICLG",["LOG"],"Apply calm _______ to untangle complicated arguments.","Clear, sound, and step-by-step reasoning","Holistic Education • Mind & Science","Mind & Science","Thinker"],[82,"BRAIN","RBANI",["AIR"],"Daily challenges exercise your _______ like a muscle.","The organ of thought, memory, and nervous control","Holistic Education • Mind & Science","Mind & Science","Thinker"],[83,"ALERT","EALRT",["ALE"],"Keep your eyes _______ for new and interesting details.","Quick to notice and respond to what is happening","Holistic Education • Mind & Science","Mind & Science","Thinker"],[84,"ADAPT","DPATA",["PAD"],"Animals _______ their coats to survive cold mountain winters.","To adjust thoughtfully to new situations or environments","Holistic Education • Mind & Science","Mind & Science","Thinker"],[85,"GRASP","RAPSG",["GAP"],"With patient guidance, she began to _______ long division.","To understand and mentally take hold of an idea","Holistic Education • Mind & Science","Mind & Science","Thinker"],[86,"PROBE","OEPRB",["ORE"],"Space telescopes _______ deep into galaxies millions of light-years away.","To explore, examine, or investigate deeply","Holistic Education • Mind & Science","Mind & Science","Thinker"],[87,"SKILL","KSLIL",["ILK"],"Baking delicious bread is a _______ anyone can learn with patience.","The ability to do something well through practice","Holistic Education • Mind & Science","Mind & Science","Thinker"],[88,"TEACH","ATHCE",["ACE"],"When you _______ a classmate, you understand the subject twice as well.","To impart knowledge or instruct someone in a skill","Holistic Education • Mind & Science","Mind & Science","Thinker"],[89,"ADEPT","PEADT",["APE"],"Beavers are remarkably _______ at building sturdy river dams.","Very skilled or proficient at doing something","Holistic Education • Mind & Science","Mind & Science","Thinker"],[90,"AWARE","WRAAE",["ARE"],"Be _______ of your surroundings when walking through busy streets.","Having knowledge or perception of a situation or fact","Holistic Education • Mind & Science","Mind & Science","Thinker"],[91,"LUCID","UDLIC",["LID"],"The teacher gave a remarkably _______ explanation of photosynthesis.","Expressed clearly and easy to understand; bright","Holistic Education • Mind & Science","Mind & Science","Thinker"],[92,"QUERY","ERYUQ",["RUE"],"Type your _______ into the catalog to find where the book is shelved.","A question, especially one addressed to an official or expert","Holistic Education • Mind & Science","Mind & Science","Thinker"],[93,"SWIFT","WSITF",["FIT"],"The _______ swallow caught insects in mid-flight effortlessly.","Moving or capable of moving with immense speed","Holistic Education • Body & Movement","Body & Movement","Thinker"],[94,"AGILE","LGIEA",["AGE"],"An _______ gymnast flips across the balance beam with ease.","Able to move quickly, lightly, and easily","Holistic Education • Body & Movement","Body & Movement","Thinker"],[95,"AWAKE","WKAEA",["WAKE"],"Splash water on your face to feel fully _______ in the morning.","Not asleep; fully conscious, alert, and alive to surroundings","Holistic Education • Body & Movement","Body & Movement","Thinker"],[96,"CLIMB","BILMC",[],"Step carefully as you _______ up the wooden ladder into the treehouse.","To go up or ascend using hands and feet","Holistic Education • Body & Movement","Body & Movement","Thinker"],[97,"DANCE","CEADN",["ACE"],"Cultural festivals invite everyone to _______ and rejoice together.","To move rhythmically to music, taking a sequence of steps","Holistic Education • Arts & Imagination","Arts & Imagination","Thinker"],[98,"EXCEL","LXEEC",["EEL"],"Dedicate an hour each afternoon if you wish to _______ in tennis.","To be exceptionally good at or proficient in an activity","Holistic Education • Body & Movement","Body & Movement","Thinker"],[99,"FLEET","LFETE",["EEL"],"The _______ young gazelle escaped the pursuing predator easily.","Fast, light, and nimble in movement on foot","Holistic Education • Body & Movement","Body & Movement","Thinker"],[100,"FORCE","ROCFE",["FOR"],"Use wisdom and gentle technique rather than blind _______ to untie knots.","Strength, power, or physical energy exerted","Holistic Education • Body & Movement","Body & Movement","Thinker"],[101,"FRESH","RSEFH",["HER"],"A cool shower makes you feel completely _______ after soccer.","Not tired or depleted; full of renewed energy and vigor","Holistic Education • Nature & Ecology","Nature & Ecology","Thinker"],[102,"GLIDE","DGELI",["DIG"],"Ice skaters _______ across the frozen rink with effortless ease.","To move with a smooth, continuous, effortless motion","Holistic Education • Body & Movement","Body & Movement","Thinker"],[103,"HARDY","DHARY",["DAY"],"Mountain sheep are remarkably _______ animals on rocky cliffs.","Robust and capable of enduring difficult conditions","Holistic Education • Body & Movement","Body & Movement","Thinker"],[104,"POWER","WPREO",["ORE"],"Weightlifters generate immense explosive _______ from their legs.","The capacity or ability to exert bodily force and work","Holistic Education • Body & Movement","Body & Movement","Thinker"],[105,"QUICK","KUCQI",[],"A _______ dodge kept the goalkeeper from conceding a goal.","Moving or functioning fast with little delay","Holistic Education • Body & Movement","Body & Movement","Thinker"],[106,"RELAX","EALXR",["ALE"],"Let your shoulders _______ away from your ears as you breathe.","To make or become less tense, anxious, or rigid","Holistic Education • Heart & Feelings","Heart & Feelings","Thinker"],[107,"SURGE","EUGSR",["RUE"],"A sudden _______ of adrenaline helped him sprint past the pack.","A sudden, powerful rush of physical energy or force","Holistic Education • Body & Movement","Body & Movement","Thinker"],[108,"TEMPO","OETPM",["MET"],"Keep a steady musical _______ while skipping rope with friends.","The rate, speed, or rhythm of an activity or motion","Holistic Education • Arts & Imagination","Arts & Imagination","Thinker"],[109,"TRAIN","ATRNI",["AIR"],"Swimmers _______ in the pool before sunrise every single week.","To practice a sport or physical skill to prepare for a goal","Holistic Education • Body & Movement","Body & Movement","Thinker"],[110,"VITAL","TAILV",["AIL"],"Clean oxygen and fresh water are _______ for human survival.","Essential to life; full of life and lively energy","Holistic Education • Body & Movement","Body & Movement","Thinker"],[111,"BALANCE","LECABAN",["ACE"],"Riding a bicycle requires developing good bodily _______.","An even distribution of weight enabling someone to remain steady","Holistic Education • Body & Movement","Body & Movement","Discerner"],[112,"COURAGE","AORUCGE",["ACE"],"True _______ is doing the right thing despite your knees shaking.","The mental or moral strength to venture, persevere, and withstand fear","Holistic Education • Character & Will","Character & Will","Discerner"],[113,"CURIOUS","RSUIUCO",["OUR"],"A _______ child asks why the sky is blue and how birds fly.","Eager to learn, know, and explore new things","Holistic Education • Mind & Science","Mind & Science","Discerner"],[114,"EMPATHY","TYMAEHP",["APE"],"Listen with _______ to understand what words cannot express.","The ability to understand and share the feelings of another","Holistic Education • Heart & Feelings","Heart & Feelings","Discerner"],[115,"EXPLORE","OXLEREP",["EEL"],"Curious learners love to _______ new trails and discover hidden treasures.","To travel through or investigate something unfamiliar","Holistic Education • Mind & Science","Mind & Science","Discerner"],[116,"HARMONY","ONRHYMA",["ANY"],"When children cooperate, their classroom functions in lovely _______.","Agreement or concord; a pleasing arrangement of parts","Holistic Education • Heart & Feelings","Heart & Feelings","Discerner"],[117,"HONESTY","SOYNHTE",["HEN"],"Speak with _______ and you will never need to remember lies.","The quality of being fair, truthful, and free from deceit","Holistic Education • Character & Will","Character & Will","Discerner"],[118,"INQUIRE","QUIEINR",["RUE"],"Curious minds _______ into the mysteries of outer space.","To investigate or seek information with interest","Holistic Education • Mind & Science","Mind & Science","Discerner"],[119,"PATIENT","TATIEPN",["ANT"],"A _______ gardener knows that blossoms cannot be hurried.","Able to accept delay, trouble, or suffering without becoming angry","Holistic Education • Character & Will","Character & Will","Discerner"],[120,"RESPECT","SETERPC",["PET"],"Treat every human being with equal dignity and sincere _______.","A feeling of deep admiration for someone elicited by their qualities","Holistic Education • Heart & Feelings","Heart & Feelings","Discerner"],[121,"INSIGHT","NGTIISH",["HIS"],"A flash of _______ can solve a puzzle that took hours to ponder.","The capacity to gain deep and clear understanding","Holistic Education • Mind & Science","Mind & Science","Discerner"],[122,"WISDOM","SDOWIM",["DIM"],"Age brings experience, but reflection brings genuine _______.","The quality of having good judgment and deep understanding","Holistic Education • Mind & Science","Mind & Science","Discerner"],[123,"PONDER","ENPDRO",["DEN"],"Great philosophers _______ questions that have no quick answers.","To consider something deeply and thoroughly","Holistic Education • Mind & Science","Mind & Science","Discerner"],[124,"REASON","NOESAR",["ARE"],"Human beings possess the remarkable gift of _______.","The power of the mind to think and judge logically","Holistic Education • Mind & Science","Mind & Science","Discerner"],[125,"MEMORY","RMYOEM",["ORE"],"Practice sharpens your _______ for names, numbers, and poems.","The wonderful capacity to store and recall experiences","Holistic Education • Mind & Science","Mind & Science","Discerner"],[126,"CLEVER","VLRCEE",["EEL"],"The _______ crow dropped pebbles in the jar to raise the water level.","Quick to understand, learn, and devise good solutions","Holistic Education • Mind & Science","Mind & Science","Discerner"],[127,"DEDUCE","EUDEDC",["CUE"],"From muddy footprints, we can _______ that a puppy ran here.","To arrive at a fact by reasoning from known clues","Holistic Education • Mind & Science","Mind & Science","Discerner"],[128,"GENIUS","NGUEIS",["SUE"],"True _______ is often ninety-nine percent dedicated practice.","Exceptional natural ability or intellectual power","Holistic Education • Mind & Science","Mind & Science","Discerner"],[129,"INVENT","VNNIET",["INN"],"Dreamers _______ new technologies to solve humanity's challenges.","To design, create, or originate something brand new","Holistic Education • Mind & Science","Mind & Science","Discerner"],[130,"MASTER","SMTEAR",["ARE"],"With daily practice, anyone can _______ a musical instrument.","To acquire complete knowledge or skill in a subject","Holistic Education • Mind & Science","Mind & Science","Discerner"],[131,"METHOD","THEOMD",["DOT"],"Following a steady _______ prevents mistakes in science labs.","A particular, orderly procedure for accomplishing something","Holistic Education • Mind & Science","Mind & Science","Discerner"],[132,"NOTICE","OETCIN",["ICE"],"Take time to _______ how sunlight filters through the leaves.","To become aware of something through observation","Holistic Education • Mind & Science","Mind & Science","Discerner"],[133,"SEARCH","ECRSAH",["ACE"],"Seekers _______ for truth in both ancient books and nature.","To look through or explore carefully in order to find something","Holistic Education • Mind & Science","Mind & Science","Discerner"],[134,"SHREWD","DSREWH",["DEW"],"A _______ negotiator finds an outcome that benefits both sides.","Having or showing sharp powers of judgment","Holistic Education • Mind & Science","Mind & Science","Discerner"],[135,"TALENT","LANTET",["ALE"],"Nurture your _______ so it can blossom and serve your community.","Natural aptitude or skill in a particular activity","Holistic Education • Mind & Science","Mind & Science","Discerner"],[136,"THEORY","HTEYOR",["HER"],"Einstein formulated the _______ of relativity through deep thought.","A system of ideas intended to explain something observed","Holistic Education • Mind & Science","Mind & Science","Discerner"],[137,"VISION","IOSVIN",["SON"],"Leaders with _______ inspire others to build a cleaner world.","The ability to think about or plan the future with wisdom","Holistic Education • Mind & Science","Mind & Science","Discerner"],[138,"DETAIL","IALTDE",["AID"],"An eagle's eye can spot the tiniest _______ from high in the sky.","An individual feature, fact, or item within a whole","Holistic Education • Mind & Science","Mind & Science","Discerner"],[139,"FIGURE","GUFIRE",["FIG"],"With a pencil and paper, try to _______ out the puzzle's answer.","To calculate, solve, or understand through thinking","Holistic Education • Mind & Science","Mind & Science","Discerner"],[140,"FLUENT","LNUTEF",["FUN"],"Reading every evening helps you become _______ in a new language.","Able to express oneself easily, smoothly, and articulately","Holistic Education • Mind & Science","Mind & Science","Discerner"],[141,"NOTION","OOINTN",["INN"],"She challenged the old _______ that math is too hard for anyone.","A conception of or belief about something","Holistic Education • Mind & Science","Mind & Science","Discerner"],[142,"TACTIC","CCTAIT",["ACT"],"Passing the ball quickly was their winning _______ against defense.","An action or strategy carefully planned to achieve an end","Holistic Education • Mind & Science","Mind & Science","Discerner"],[143,"VERIFY","YERFVI",["FIR"],"Always _______ news sources before forwarding stories online.","To make sure or demonstrate that something is true and accurate","Holistic Education • Mind & Science","Mind & Science","Discerner"],[144,"VIGOUR","OIUVRG",["OUR"],"Youth is blessed with an abundance of natural physical _______.","Active bodily strength, physical energy, and robust force","Holistic Education • Body & Movement","Body & Movement","Discerner"],[145,"ROBUST","TBOUSR",["BUS"],"Regular hiking keeps the heart and leg muscles _______.","Strong, healthy, and vigorous in constitution","Holistic Education • Body & Movement","Body & Movement","Discerner"],[146,"RHYTHM","HYRHMT",["TRY"],"Rowers pull their oars in perfect _______ across the lake.","A regular, repeated pattern of physical movement or sound","Holistic Education • Arts & Imagination","Arts & Imagination","Discerner"],[147,"SUPPLE","EPSLUP",["PUP"],"Daily stretching keeps tendons and joints _______ and pain-free.","Bending and moving easily and gracefully; flexible","Holistic Education • Body & Movement","Body & Movement","Discerner"],[148,"LIMBER","IBERLM",["ELM"],"Dancers spend twenty minutes getting _______ before a recital.","Warm, supple, and flexible in body and limbs","Holistic Education • Body & Movement","Body & Movement","Discerner"],[149,"ENDURE","REDUNE",["DEN"],"Marathoners train their minds to _______ physical fatigue.","To undergo hardship or physical fatigue without giving up","Holistic Education • Body & Movement","Body & Movement","Discerner"],[150,"IMMUNE","UMENMI",["EMU"],"A nutritious diet keeps your _______ system strong against colds.","Protected against or resistant to a particular infection","Holistic Education • Body & Movement","Body & Movement","Discerner"],[151,"POISED","OIDESP",["DIP"],"The diver stood _______ on the platform before a perfect dive.","Having a composed, graceful, and self-assured manner","Holistic Education • Character & Will","Character & Will","Discerner"],[152,"SERENE","NEEERS",["SEE"],"Her _______ face showed that she was completely relaxed.","Calm, peaceful, untroubled, and tranquil","Holistic Education • Heart & Feelings","Heart & Feelings","Discerner"],[153,"ACTION","CIONAT",["ACT"],"Put good ideas into physical _______ by helping in the garden.","The fact or process of doing something physically","Holistic Education • Body & Movement","Body & Movement","Discerner"],[154,"BOUNCE","NEBUCO",["CUB"],"Children love to _______ on trampolines on sunny afternoons.","To move quickly up, back, or away from a surface","Holistic Education • Body & Movement","Body & Movement","Discerner"],[155,"BREEZE","REEZBE",["BEE"],"A summer _______ cooled the runners after their morning race.","A gentle, cool, and refreshing outdoor wind","Holistic Education • Nature & Ecology","Nature & Ecology","Discerner"],[156,"DARING","IAGDNR",["AID"],"The _______ gymnast landed a complex double twist on the mat.","Adventurous, bold, and physically courageous","Holistic Education • Character & Will","Character & Will","Discerner"],[157,"HEARTY","EHRTYA",["ARE"],"A _______ bowl of warm soup revived the cold winter hikers.","Wholesome, vigorous, substantial, and nourishing","Holistic Education • Body & Movement","Body & Movement","Discerner"],[158,"LIVELY","ILLEVY",["VEIL"],"The playground was filled with the sound of _______ games.","Full of life, physical energy, and vibrant animation","Holistic Education • Body & Movement","Body & Movement","Discerner"],[159,"MOTION","OONIMT",["NOT"],"Swimming engages almost every muscle in continuous _______.","The action or process of moving or being moved","Holistic Education • Body & Movement","Body & Movement","Discerner"],[160,"MUSCLE","UCSEML",["CUE"],"Regular pull-ups build back and shoulder _______ efficiently.","A band of tissue that produces physical motion","Holistic Education • Body & Movement","Body & Movement","Discerner"],[161,"NIMBLE","BEMLNI",["ELM"],"Mountain goats are incredibly _______ on steep, gravelly slopes.","Quick and light in movement, action, or footwork","Holistic Education • Body & Movement","Body & Movement","Discerner"],[162,"SPRINT","INSPTR",["ITS"],"Give every ounce of energy in the final hundred-meter _______.","To run at full top speed over a short distance","Holistic Education • Body & Movement","Body & Movement","Discerner"],[163,"STABLE","ATBLSE",["ALE"],"A wide, balanced stance keeps martial artists _______ on their feet.","Firmly established; not likely to wobble or topple over","Holistic Education • Body & Movement","Body & Movement","Discerner"],[164,"STEADY","ESDTAY",["ATE"],"Keep a _______ grip on the bicycle handlebars going downhill.","Firmly fixed, supported, or balanced; not shaking","Holistic Education • Character & Will","Character & Will","Discerner"],[165,"STRIDE","TDISER",["ITS"],"Walk with an upright _______ and a smile on your face.","To walk with long, decisive, and confident steps","Holistic Education • Body & Movement","Body & Movement","Discerner"],[166,"STRIVE","VTISRE",["ITS"],"Athletes _______ every day to surpass their personal best time.","To make strenuous physical or mental efforts toward a goal","Holistic Education • Character & Will","Character & Will","Discerner"],[167,"STRONG","RSOGNT",["GOT"],"Carry heavy groceries with both hands to keep your spine _______.","Having the power to move heavy weights or resist attack","Holistic Education • Body & Movement","Body & Movement","Discerner"],[168,"THRIVE","IRVETH",["HER"],"Young seedlings _______ when given sunshine, soil, and water.","To grow or develop vigorously; to flourish in health","Holistic Education • Body & Movement","Body & Movement","Discerner"],[169,"UPBEAT","ABTEUP",["APE"],"Listen to an _______ song to get energized for a morning jog.","Cheerful, energetic, lively, and optimistic in spirit","Holistic Education • Heart & Feelings","Heart & Feelings","Discerner"],[170,"WARMTH","MWTRHA",["ARM"],"Gentle morning sunshine brings soothing _______ to cool limbs.","The comfortable quality of being moderately hot","Holistic Education • Heart & Feelings","Heart & Feelings","Discerner"],[171,"CREATIVE","TEIRAVCE",["ACE"],"Express your _______ ideas through painting, building, or writing.","Able to use imagination to make original things","Holistic Education • Mind & Science","Mind & Science","Illumined"],[172,"ENDURING","NUNRGDIE",["DEN"],"Their friendship proved to be an _______ bond across fifty years.","Continuing or long-lasting; able to withstand long trials","Holistic Education • Character & Will","Character & Will","Illumined"],[173,"GENEROUS","NUOEERGS",["NOR"],"A _______ host ensures every guest has plenty of warm food.","Showing a readiness to give more of something than necessary","Holistic Education • Heart & Feelings","Heart & Feelings","Illumined"],[174,"MINDFUL","IMLFUDN",["DIM"],"Eating in a _______ way lets you savor every single bite.","Fully aware and present in the current moment","Holistic Education • Mind & Science","Mind & Science","Illumined"],[175,"NOURISH","IHSRUNO",["HIS"],"Fresh fruits, nuts, and greens _______ growing muscles.","To provide food and nutrients necessary for health and growth","Holistic Education • Body & Movement","Body & Movement","Illumined"],[176,"RADIANT","TARDIAN",["AID"],"Her healthy habits made her skin and smile look _______.","Emanating great vitality, health, and bright happiness","Holistic Education • Body & Movement","Body & Movement","Illumined"],[177,"HARMONIC","OIAHCRNM",["AIM"],"Tuning forks produce pure _______ vibrations that ring through the room.","Relating to or characterized by harmony in music; consonant","Holistic Education • Arts & Imagination","Arts & Imagination","Illumined"],[178,"IMAGINE","MINEIGA",["AGE"],"When you _______, you build worlds before building them in reality.","To create pictures and new ideas in your mind","Holistic Education • Mind & Science","Mind & Science","Illumined"],[179,"REFLECT","CTERFEL",["EEL"],"Before you sleep, pause to _______ on the lessons of the day.","To think quietly and carefully about an experience","Holistic Education • Mind & Science","Mind & Science","Illumined"],[180,"OBSERVE","BVEOSER",["BEE"],"Sit quietly and _______ how ants cooperate to carry food.","To watch carefully and notice important details","Holistic Education • Mind & Science","Mind & Science","Illumined"],[181,"DISCERN","ISRENDC",["DEN"],"True wisdom helps you _______ truth from mere appearance.","To recognize and perceive differences clearly","Holistic Education • Mind & Science","Mind & Science","Illumined"],[182,"ANALYSE","LESNAAY",["ALE"],"Before fixing a broken clock, _______ each moving gear.","To break something down into parts to understand it","Holistic Education • Mind & Science","Mind & Science","Illumined"],[183,"EARNEST","SNREAET",["ANT"],"His _______ desire to learn won the respect of his teachers.","Sincere, serious, and deeply committed in purpose","Holistic Education • Mind & Science","Mind & Science","Illumined"],[184,"LOGICAL","ICAGLLO",["AIL"],"Follow a _______ sequence when writing a computer program.","Based on sound, orderly, and valid reasoning","Holistic Education • Mind & Science","Mind & Science","Illumined"],[185,"ENQUIRE","NQIUEER",["RUE"],"Do not hesitate to _______ when you do not understand a topic.","To ask questions in order to seek knowledge","Holistic Education • Mind & Science","Mind & Science","Illumined"],[186,"INQUIRY","NIQUYIR",["RUN"],"Scientific _______ begins with wonder and careful observation.","An act of asking for information or deep investigation","Holistic Education • Mind & Science","Mind & Science","Illumined"],[187,"EXAMINE","MNXEEAI",["AIM"],"Use a magnifying glass to _______ the veins of a fallen leaf.","To inspect someone or something in detail","Holistic Education • Mind & Science","Mind & Science","Illumined"],[188,"MASTERY","ERMYATS",["ARE"],"Years of woodworking gave the artisan complete _______ of tools.","Comprehensive knowledge or exceptional skill in a field","Holistic Education • Mind & Science","Mind & Science","Illumined"],[189,"PRODIGY","IGRDOPY",["DIG"],"The young piano _______ played Mozart with effortless grace.","A young person endowed with exceptional abilities","Holistic Education • Mind & Science","Mind & Science","Illumined"],[190,"PRUDENT","ENTDRUP",["DEN"],"It is _______ to save a portion of your allowance for a rainy day.","Acting with or showing careful forethought for the future","Holistic Education • Mind & Science","Mind & Science","Illumined"],[191,"RESOLVE","ELRSOEV",["EEL"],"She faced the difficult climb with unwavering inner _______.","Firm determination to accomplish a chosen purpose","Holistic Education • Mind & Science","Mind & Science","Illumined"],[192,"SCHOLAR","HCLOARS",["ARC"],"A humble _______ knows that learning is an endless ocean.","A dedicated student or specialist in a field of knowledge","Holistic Education • Mind & Science","Mind & Science","Illumined"],[193,"TEACHER","ECAHTRE",["ACE"],"A great _______ lights a candle of curiosity inside every student.","A person who guides, instructs, and inspires learners","Holistic Education • Mind & Science","Mind & Science","Illumined"],[194,"VENTURE","EVNERTU",["EVE"],"Starting a garden is a rewarding _______ for the whole family.","A daring or risky journey, undertaking, or enterprise","Holistic Education • Mind & Science","Mind & Science","Illumined"],[195,"ACQUIRE","UAIRQEC",["ACE"],"Practice helps you _______ fluent reading skills over time.","To buy, obtain, or develop a skill or asset","Holistic Education • Mind & Science","Mind & Science","Illumined"],[196,"AGILITY","YILTIGA",["AIL"],"Solving puzzles improves mental _______ and keeps thinking nimble.","The ability to think or move quickly and easily","Holistic Education • Mind & Science","Mind & Science","Illumined"],[197,"CLARIFY","RIFYACL",["AIL"],"Ask a polite question if you need the teacher to _______ a point.","To make a statement or situation clear and less confused","Holistic Education • Mind & Science","Mind & Science","Illumined"],[198,"CONCEPT","NCECOPT",["NET"],"Gravity is a fundamental _______ in understanding the universe.","An abstract idea or general notion formed in thought","Holistic Education • Mind & Science","Mind & Science","Illumined"],[199,"EDUCATE","ADCEETU",["ACE"],"Schools strive to _______ children into wise and caring citizens.","To give intellectual, moral, and social instruction","Holistic Education • Mind & Science","Mind & Science","Illumined"],[200,"FLUENCY","EFLCNUY",["CUE"],"Daily conversation practice builds incredible _______ in languages.","The ability to speak or write easily, clearly, and smoothly","Holistic Education • Mind & Science","Mind & Science","Illumined"],[201,"PRECISE","REPSEIC",["ICE"],"Give _______ directions so guests can easily find the library.","Marked by exactness and accuracy of expression or detail","Holistic Education • Mind & Science","Mind & Science","Illumined"],[202,"STUDENT","TTDNEUS",["DEN"],"Every great master was once an eager and humble _______.","A person who is studying at school or dedicated to learning","Holistic Education • Mind & Science","Mind & Science","Illumined"],[203,"STAMINA","AAINSTM",["AIM"],"Daily cycling builds the _______ required for long trail rides.","The physical endurance to sustain prolonged effort","Holistic Education • Body & Movement","Body & Movement","Illumined"],[204,"POSTURE","USRTOEP",["ORE"],"Sitting with straight _______ prevents shoulder strain at school.","The position in which someone holds their body while standing or sitting","Holistic Education • Body & Movement","Body & Movement","Illumined"],[205,"RECOVER","COVRERE",["EVE"],"Adequate rest helps tired muscles _______ after track practice.","To return to a normal state of energy, health, or strength","Holistic Education • Body & Movement","Body & Movement","Illumined"],[206,"REFRESH","ERREFHS",["HER"],"A splash of cool mountain water will _______ a weary hiker.","To give new strength or energy to; to invigorate","Holistic Education • Body & Movement","Body & Movement","Illumined"],[207,"BREATHE","HAETRBE",["ARE"],"When startled, close your eyes and _______ deeply three times.","To draw air into the lungs and expel it to sustain life","Holistic Education • Body & Movement","Body & Movement","Illumined"],[208,"CAPABLE","PALCAEB",["ACE"],"With regular practice, you are _______ of running a full mile.","Having the physical ability, fitness, or quality necessary","Holistic Education • Body & Movement","Body & Movement","Illumined"],[209,"DYNAMIC","NMYACDI",["AID"],"A _______ warm-up prepares cold muscles for rigorous sports.","Characterized by constant change, activity, or progress","Holistic Education • Body & Movement","Body & Movement","Illumined"],[210,"FITNESS","NTEFISS",["FIN"],"Playing outdoors with friends builds lifelong bodily _______.","The condition of being physically healthy and strong","Holistic Education • Body & Movement","Body & Movement","Illumined"],[211,"HEALTHY","YLHATEH",["ALE"],"Eating colourful vegetables keeps the entire body _______.","In a good physical or mental condition; vigorous","Holistic Education • Body & Movement","Body & Movement","Illumined"],[212,"HYDRATE","DRAETYH",["ARE"],"Remember to _______ regularly during sunny outdoor play.","To drink adequate water to maintain bodily health","Holistic Education • Body & Movement","Body & Movement","Illumined"],[213,"PROWESS","EPWROSS",["ORE"],"The young archer demonstrated marvelous _______ at the tournament.","Distinguished skill or expertise in an activity or sport","Holistic Education • Body & Movement","Body & Movement","Illumined"],[214,"RESTORE","ERSTERO",["ORE"],"Warm herbal tea helped _______ the weary travelers' spirits.","To bring back to a healthy, vigorous, or energetic state","Holistic Education • Body & Movement","Body & Movement","Illumined"],[215,"VIBRANT","TNRIAVB",["AIR"],"Playing outdoors in fresh air makes children healthy and _______.","Full of energy, enthusiasm, and bright life","Holistic Education • Body & Movement","Body & Movement","Illumined"],[216,"AEROBIC","OAIRBEC",["ACE"],"Running and dancing are fantastic _______ activities for youth.","Relating to exercise that strengthens the heart and lungs","Holistic Education • Body & Movement","Body & Movement","Illumined"],[217,"ELASTIC","LATSEIC",["ACE"],"Warm muscles are remarkably _______ and resist sports injuries.","Able to resume normal shape after being stretched","Holistic Education • Body & Movement","Body & Movement","Illumined"],[218,"FRESHEN","NESHEFR",["HEN"],"A quick face wash helps _______ you up for evening homework.","To make or become fresh, cool, clean, or untired","Holistic Education • Body & Movement","Body & Movement","Illumined"],[219,"GRAPPLE","EPPALRG",["AGE"],"Wrestlers _______ with respect on the circular competition mat.","To engage in a close physical struggle or wrestling match","Holistic Education • Body & Movement","Body & Movement","Illumined"],[220,"GYMNAST","YAMSGTN",["ANT"],"The young _______ stuck a flawless landing on two feet.","A person trained in gymnastics and bodily acrobatics","Holistic Education • Body & Movement","Body & Movement","Illumined"],[221,"JOGGING","GGJGION",["JOG"],"Morning _______ is a gentle habit that strengthens the lungs.","The activity of running at a steady, gentle pace as exercise","Holistic Education • Body & Movement","Body & Movement","Illumined"],[222,"KINETIC","TIINCKE",["ICE"],"A speeding roller coaster car possesses immense _______ energy.","Relating to or resulting from physical motion","Holistic Education • Body & Movement","Body & Movement","Illumined"],[223,"OUTDOOR","UOOORDT",["DOT"],"Spending time in _______ sunlight strengthens bones naturally.","Done, situated, or used out of doors; in the open air","Holistic Education • Nature & Ecology","Nature & Ecology","Illumined"],[224,"PLIABLE","BEPLAIL",["AIL"],"Warm dough is soft, _______, and easy to roll into shapes.","Easily bent; flexible and supple without snapping","Holistic Education • Body & Movement","Body & Movement","Illumined"],[225,"RESTFUL","USEFTLR",["FUR"],"A _______ afternoon nap prepares your mind for evening study.","Having a quiet, relaxing, and soothing quality","Holistic Education • Heart & Feelings","Heart & Feelings","Illumined"],[226,"SOMATIC","TOIASCM",["ACT"],"Gentle breathing exercises release deep _______ tension.","Relating to the physical body, especially distinct from the mind","Holistic Education • Body & Movement","Body & Movement","Illumined"],[227,"STRETCH","TCSTREH",["HER"],"Always _______ your calves and hamstrings after a long run.","To straighten or extend one's body or part of it","Holistic Education • Body & Movement","Body & Movement","Illumined"],[228,"SWIMMER","RMISMWE",["RIM"],"The champion _______ sliced through the cool water like a dolphin.","A person who swims, especially for sport or recreation","Holistic Education • Body & Movement","Body & Movement","Illumined"],[229,"PLAYFUL","FYULLAP",["ALL"],"The _______ puppy chased its own tail around the sunny garden.","Full of fun and energy; enjoying games and laughter","Holistic Education • Heart & Feelings","Heart & Feelings","Illumined"],[230,"COMFORT","OCORMFT",["FOR"],"Offer words of _______ when a teammate is feeling down.","Consolation in a time of distress, sadness, or pain","Holistic Education • Heart & Feelings","Heart & Feelings","Illumined"],[231,"AFFECTION","FANFTIOEC",["ACE"],"Dogs show unconditional _______ to their human families.","A gentle feeling of fondness or liking toward someone","Holistic Education • Heart & Feelings","Heart & Feelings","Devoted"],[232,"BRILLIANT","ILABINLRT",["AIL"],"A _______ idea lit up the discussion and solved the puzzle.","Exceptionally clever, radiant, and talented","Holistic Education • Mind & Science","Mind & Science","Devoted"],[233,"ELEGANCE","GALEEECN",["ACE"],"The ballerina moved across the stage with breathtaking _______.","The quality of being graceful, stylish, and pleasing in appearance","Holistic Education • Arts & Imagination","Arts & Imagination","Devoted"],[234,"GRATITUDE","IERUATGDT",["AGE"],"A heart full of _______ finds joy in the simplest wildflowers.","The quality of being thankful; readiness to show appreciation","Holistic Education • Heart & Feelings","Heart & Feelings","Devoted"],[235,"STRENGTH","HRNSTTEG",["GET"],"Lifting garden tools builds genuine bodily _______ over time.","The state or quality of being physically powerful","Holistic Education • Body & Movement","Body & Movement","Devoted"],[236,"VITALITY","TYTIALVI",["AIL"],"Deep breathing exercises fill the chest with radiant _______.","The state of being strong, full of life, and active","Holistic Education • Body & Movement","Body & Movement","Devoted"],[237,"PATIENCE","INECAEPT",["ACE"],"Teaching a younger sibling requires endless love and _______.","The capacity to accept delay or trouble without becoming annoyed","Holistic Education • Heart & Feelings","Heart & Feelings","Devoted"],[238,"PERCEIVE","RCIEPEVE",["EVE"],"A trained observer can _______ subtle shifts in the wind.","To become aware of something through the senses or mind","Holistic Education • Mind & Science","Mind & Science","Devoted"],[239,"STUDIOUS","IUUSTSDO",["DOT"],"A _______ student respects the wealth contained in libraries.","Devoted to reading, learning, and academic effort","Holistic Education • Mind & Science","Mind & Science","Devoted"],[240,"DILIGENT","NDLIETGI",["DEN"],"The _______ builder lays each brick with great care.","Showing steady, earnest, and careful effort","Holistic Education • Mind & Science","Mind & Science","Devoted"],[241,"ELOQUENT","QTEUEOLN",["EEL"],"The speaker was so _______ that everyone listened in silence.","Expressing ideas gracefully, persuasively, and clearly","Holistic Education • Mind & Science","Mind & Science","Devoted"],[242,"INNOVATE","EINNTAVO",["ANT"],"Engineers constantly _______ to make clean energy affordable.","To introduce new, fresh, and inventive methods","Holistic Education • Mind & Science","Mind & Science","Devoted"],[243,"DISCOVER","CSDOIVRE",["COD"],"Every hike into the forest is a chance to _______ something new.","To find or learn about something for the first time","Holistic Education • Mind & Science","Mind & Science","Devoted"],[244,"EVALUATE","AELEVTAU",["ALE"],"Always _______ information carefully before believing it.","To judge the value, quality, or truth of something","Holistic Education • Mind & Science","Mind & Science","Devoted"],[245,"JUDGMENT","ENUJTMDG",["DEN"],"Developing good _______ takes practice, reflection, and honesty.","The ability to make considered decisions or come to conclusions","Holistic Education • Mind & Science","Mind & Science","Devoted"],[246,"MOTIVATE","VTAETMIO",["AIM"],"Praise and encouragement _______ young runners to do their best.","To provide a reason for doing something with enthusiasm","Holistic Education • Mind & Science","Mind & Science","Devoted"],[247,"PRACTICE","TAECIRCP",["ACE"],"Daily _______ transforms clumsy fingers into nimble musicians.","Repeated exercise in an activity to build skill","Holistic Education • Mind & Science","Mind & Science","Devoted"],[248,"RATIONAL","LTAIROAN",["AIL"],"Keep a _______ head when rumors cause unnecessary panic.","Based on or in accordance with sound reason or logic","Holistic Education • Mind & Science","Mind & Science","Devoted"],[249,"SKILLFUL","IFLUKSLL",["ILK"],"The _______ potter shaped the spinning clay into an elegant vase.","Having or showing high competence and dexterity","Holistic Education • Mind & Science","Mind & Science","Devoted"],[250,"STRATEGY","ERAYGTTS",["AGE"],"A wise chess player develops a quiet _______ three moves ahead.","A plan of action designed to achieve a major goal","Holistic Education • Mind & Science","Mind & Science","Devoted"],[251,"ACCURACY","RCUAYCCA",["ARC"],"In mathematics, double-check your steps to ensure _______.","The quality or state of being correct or precise","Holistic Education • Mind & Science","Mind & Science","Devoted"],[252,"ACCURATE","CAUEACTR",["ACE"],"An _______ map helps hikers navigate safely through the mountains.","Correct in all details; exact and truthful","Holistic Education • Mind & Science","Mind & Science","Devoted"],[253,"APTITUDE","UIATTEPD",["AID"],"He showed a strong _______ for drawing from an early age.","A natural ability or talent for doing something","Holistic Education • Mind & Science","Mind & Science","Devoted"],[254,"CAPACITY","ACTAIPYC",["ACT"],"Every child has an enormous _______ for kindness and creativity.","The ability or power to do, experience, or understand","Holistic Education • Mind & Science","Mind & Science","Devoted"],[255,"CONCLUDE","DLUCOCNE",["COD"],"From the dark storm clouds, we can _______ that rain is near.","To arrive at a judgment or opinion by reasoning","Holistic Education • Mind & Science","Mind & Science","Devoted"],[256,"DECIPHER","HDERPIEC",["DIP"],"Archaeologists worked for years to _______ ancient hieroglyphs.","To convert a coded or confusing message into intelligible text","Holistic Education • Mind & Science","Mind & Science","Devoted"],[257,"EVIDENCE","NVEEEDIC",["DEN"],"Scientists demand verifiable _______ before accepting a new claim.","The available facts indicating whether a belief is true","Holistic Education • Mind & Science","Mind & Science","Devoted"],[258,"MEMORIZE","IMMEZORE",["ORE"],"Actors _______ their lines so they can speak naturally on stage.","To commit something accurately to memory","Holistic Education • Mind & Science","Mind & Science","Devoted"],[259,"SAGACITY","ICTAAYGS",["ACT"],"Her _______ guided the team away from several costly mistakes.","The quality of being wise and showing sound judgment","Holistic Education • Mind & Science","Mind & Science","Devoted"],[260,"SCRUTINY","UNTYICSR",["CRY"],"The new bridge design passed rigorous engineering _______.","Critical observation or close, careful examination","Holistic Education • Mind & Science","Mind & Science","Devoted"],[261,"SIMPLIFY","YFSIPIML",["FLY"],"A good teacher knows how to _______ tough formulas for kids.","To make something easier to understand or do","Holistic Education • Mind & Science","Mind & Science","Devoted"],[262,"VALIDATE","TIVDLEAA",["AID"],"Independent tests helped _______ the scientist's new discovery.","To check or prove the validity or accuracy of something","Holistic Education • Mind & Science","Mind & Science","Devoted"],[263,"FLEXIBLE","BLLFIXEE",["BEE"],"Willow branches are remarkably _______ in fierce winds.","Able to bend easily without breaking or straining","Holistic Education • Body & Movement","Body & Movement","Devoted"],[264,"GRACEFUL","FGAUELRC",["ACE"],"The deer made a _______ leap over the wooden garden fence.","Characterized by elegance or beauty of movement and form","Holistic Education • Arts & Imagination","Arts & Imagination","Devoted"],[265,"TRANQUIL","ALNTIQUR",["AIL"],"A walk beside a forest stream leaves the senses _______.","Free from disturbance; peacefully quiet and calm","Holistic Education • Heart & Feelings","Heart & Feelings","Devoted"],[266,"ATHLETIC","CILTATHE",["ACE"],"Joining the school relay team is a fun _______ challenge.","Physically strong, fit, and active in sports","Holistic Education • Body & Movement","Body & Movement","Devoted"],[267,"ENERGISE","RGNEESEI",["SEE"],"A brisk walk in the park will _______ your tired legs.","To give vitality, vigor, and enthusiasm to someone","Holistic Education • Body & Movement","Body & Movement","Devoted"],[268,"EXERCISE","CXIEESRE",["ICE"],"Daily physical _______ keeps hearts strong and bodies nimble.","Activity requiring physical effort to sustain health","Holistic Education • Body & Movement","Body & Movement","Devoted"],[269,"MOVEMENT","EMVNTOEM",["EVE"],"Watch the slow, deliberate _______ of a praying mantis.","An act of changing physical position or posture","Holistic Education • Body & Movement","Body & Movement","Devoted"],[270,"POWERFUL","WPFEUROL",["FEW"],"The _______ ocean waves crashed majestically against the rocks.","Having great physical strength, energy, or force","Holistic Education • Body & Movement","Body & Movement","Devoted"],[271,"RECHARGE","CEGAHRRE",["ACE"],"Eight hours of sound sleep will _______ your body for school.","To regain energy, strength, and vitality through rest","Holistic Education • Body & Movement","Body & Movement","Devoted"],[272,"TIRELESS","STRLEIES",["EEL"],"Sheepdogs are _______ guardians when herding flocks across hills.","Having or showing great effort without becoming fatigued","Holistic Education • Body & Movement","Body & Movement","Devoted"],[273,"VIGOROUS","SVOGUORI",["OUR"],"A _______ half-hour bike ride gets the blood pumping warmly.","Strong, healthy, and full of intense energy","Holistic Education • Body & Movement","Body & Movement","Devoted"],[274,"WELLNESS","NELSEWSL",["EEL"],"Nutritious food, exercise, and friendship create true _______.","The state of being in good physical and mental health","Holistic Education • Body & Movement","Body & Movement","Devoted"],[275,"CHAMPION","ICPHOMAN",["AIM"],"A true sporting _______ displays modesty in victory and grace in loss.","A person who has surpassed all rivals in a contest","Holistic Education • Body & Movement","Body & Movement","Devoted"],[276,"EXERTION","TIXENROE",["NET"],"Sweating is the body's natural cooling response to _______.","Physical or mental effort put into an activity","Holistic Education • Body & Movement","Body & Movement","Devoted"],[277,"FOOTWORK","OFTROOKW",["FOR"],"Boxing and tennis both demand lightning-fast, nimble _______.","The manner of moving or using the feet in sports or dance","Holistic Education • Body & Movement","Body & Movement","Devoted"],[278,"MUSCULAR","RMSALCUU",["ARC"],"Rowers develop strong _______ backs from pulling heavy oars.","Having well-developed muscles; strong and powerful","Holistic Education • Body & Movement","Body & Movement","Devoted"],[279,"PHYSICAL","SAIHPCYL",["AIL"],"Daily _______ education classes keep school children fit and alert.","Relating to the body as opposed to the mind","Holistic Education • Body & Movement","Body & Movement","Devoted"],[280,"PHYSIQUE","QYUHISPE",["HIP"],"Swimmers typically develop a lean, tall, and broad _______.","The form, size, and development of a person's body","Holistic Education • Body & Movement","Body & Movement","Devoted"],[281,"KINDNESS","SSNNKIDE",["DEN"],"A small act of _______ creates ripples that travel for miles.","The quality of being friendly, generous, and considerate","Holistic Education • Heart & Feelings","Heart & Feelings","Devoted"],[282,"PEACEFUL","UFLCEAEP",["ACE"],"A _______ resolution to an argument leaves both sides happy.","Free from disturbance; tranquil, untroubled, and calm","Holistic Education • Heart & Feelings","Heart & Feelings","Devoted"],[283,"RADIANCE","AIRNEACD",["ACE"],"Her pure heart spread an infectious _______ wherever she went.","Light or heat as emitted or reflected; glowing warmth","Holistic Education • Heart & Feelings","Heart & Feelings","Devoted"],[284,"SERENITY","ETIESNYR",["EYE"],"Cultivate inner _______ so harsh words cannot wound your spirit.","The state of being calm, peaceful, and untroubled","Holistic Education • Heart & Feelings","Heart & Feelings","Devoted"],[285,"ALTRUISM","LURASITM",["AIL"],"True _______ asks nothing in return for doing good deeds.","Selfless concern for the well-being and happiness of others","Holistic Education • Heart & Feelings","Heart & Feelings","Devoted"],[286,"BONHOMIE","OEOBMHIN",["HEN"],"The holiday dinner was filled with laughter and natural _______.","Cheerful friendliness, geniality, and warm sociability","Holistic Education • Heart & Feelings","Heart & Feelings","Devoted"],[287,"CHEERFUL","ULECHRFE",["CUE"],"A _______ greeting in the morning lifts everyone's spirits.","Noticeably happy, optimistic, and pleasant in mood","Holistic Education • Heart & Feelings","Heart & Feelings","Devoted"],[288,"COURTESY","ORTECYSU",["CRY"],"Holding the elevator door for someone is simple, daily _______.","The showing of politeness and consideration in attitude","Holistic Education • Heart & Feelings","Heart & Feelings","Devoted"],[289,"DEVOTION","INOTEVOD",["DEN"],"He cared for his elderly dog with tender, unwavering _______.","Love, loyalty, or enthusiasm for a person, activity, or cause","Holistic Education • Heart & Feelings","Heart & Feelings","Devoted"],[290,"EMPATHIC","CITEMAPH",["ACE"],"An _______ response acknowledges tears before offering advice.","Showing an ability to understand and share another's feelings","Holistic Education • Heart & Feelings","Heart & Feelings","Devoted"],[291,"COMPASSION","NOAPSOSCIM",["AIM"],"True _______ does not merely watch; it steps forward to assist.","Sympathetic pity and concern for the sufferings of others","Holistic Education • Heart & Feelings","Heart & Feelings","Luminous"],[292,"CREATIVITY","AECTYVIRTI",["ACE"],"Building with colorful building blocks nurtures childhood _______.","The use of imagination or original ideas in the production of art","Holistic Education • Arts & Imagination","Arts & Imagination","Luminous"],[293,"DISCOVERY","RDOIECYSV",["COD"],"The _______ of penicillin saved millions of human lives.","The act of finding something unknown or groundbreaking","Holistic Education • Mind & Science","Mind & Science","Luminous"],[294,"GENEROSITY","RYISGETEON",["EYE"],"Her _______ was evident in how readily she shared her paints.","The quality of being kind and giving freely to others","Holistic Education • Heart & Feelings","Heart & Feelings","Luminous"],[295,"PERSEVERANCE","RERPESECEVAN",["ACE"],"Winning the spelling bee took months of daily _______.","Persistence in doing something despite difficulty or delay in success","Holistic Education • Character & Will","Character & Will","Luminous"],[296,"INTEGRITY","GRITEYNIT",["GET"],"True _______ is doing the right thing when no one is watching.","The quality of being honest and having strong moral principles","Holistic Education • Heart & Feelings","Heart & Feelings","Luminous"],[297,"MINDFULNESS","FEUNMLISNDS",["DEN"],"Practicing _______ helps children focus before afternoon study.","The quality or state of being conscious or aware of something; presence","Holistic Education • Mind & Science","Mind & Science","Luminous"],[298,"FAITHFUL","LFUIHATF",["AIL"],"A _______ companion never abandons you when challenges arise.","Remaining loyal, steadfast, and steadfastly true to promises","Holistic Education • Heart & Feelings","Heart & Feelings","Luminous"],[299,"FONDNESS","ESODFSNN",["DEN"],"He looked back with great _______ on his childhood village.","Affection or liking for someone or something cherished","Holistic Education • Heart & Feelings","Heart & Feelings","Luminous"],[300,"FRIENDLY","YNLDREIF",["DEN"],"A _______ wave across the street makes neighbors feel connected.","Kind, pleasant, and behaving in an approachable manner","Holistic Education • Heart & Feelings","Heart & Feelings","Luminous"],[301,"GLADNESS","NSELGADS",["AGE"],"Sharing festive treats brought heartfelt _______ to the family.","The state of being happy, joyful, or deeply delighted","Holistic Education • Heart & Feelings","Heart & Feelings","Luminous"],[302,"GOODNESS","ONDGSESO",["DEN"],"Never doubt that quiet _______ will outlast noisy boastfulness.","The quality of being morally good, virtuous, or kind","Holistic Education • Heart & Feelings","Heart & Feelings","Luminous"],[303,"GRACIOUS","IGURASCO",["AIR"],"Be a _______ winner and praise your opponent's gallant effort.","Courteous, kind, polite, and pleasant in behavior","Holistic Education • Heart & Feelings","Heart & Feelings","Luminous"],[304,"JUBILANT","AJITBLUN",["AIL"],"The soccer team was _______ after winning the championship game.","Feeling or expressing great triumph, happiness, and joy","Holistic Education • Heart & Feelings","Heart & Feelings","Luminous"],[305,"MERCIFUL","CLIMFERU",["CUE"],"A _______ judge considers mitigating circumstances with kindness.","Treating others with compassion, forgiveness, and forbearance","Holistic Education • Heart & Feelings","Heart & Feelings","Luminous"],[306,"OBLIGING","IOGLBGIN",["BIG"],"The shopkeeper was remarkably _______ and found the rare book.","Willing to do a service or kindness; helpful and accommodating","Holistic Education • Heart & Feelings","Heart & Feelings","Luminous"],[307,"REASSURE","SSURAERE",["ARE"],"A gentle smile can _______ a frightened child in the hospital.","To say or do something to remove the doubts or fears of someone","Holistic Education • Heart & Feelings","Heart & Feelings","Luminous"],[308,"RELIABLE","ILRBEEAL",["AIL"],"A _______ friend is one you can count on in any emergency.","Consistently good in quality, performance, or character; dependable","Holistic Education • Heart & Feelings","Heart & Feelings","Luminous"],[309,"SOOTHING","ONOIHSTG",["GOT"],"The sound of rain against the windowpane is remarkably _______.","Having a gently calming, tranquil, and comforting effect","Holistic Education • Heart & Feelings","Heart & Feelings","Luminous"],[310,"SYMPATHY","PHSYAYTM",["HAM"],"Send a handwritten note of _______ when a friend loses a pet.","Feelings of pity and sorrow for someone else's misfortune","Holistic Education • Heart & Feelings","Heart & Feelings","Luminous"],[311,"THANKFUL","NAKUHLTF",["ANT"],"Be _______ for a warm bed, good food, and a loving home.","Pleased and relieved; expressing gratitude for blessings","Holistic Education • Heart & Feelings","Heart & Feelings","Luminous"],[312,"TOLERANT","RTAELONT",["ALE"],"A democratic society is built upon fair and _______ dialogue.","Showing willingness to allow the existence of opinions or habits one disproves","Holistic Education • Heart & Feelings","Heart & Feelings","Luminous"],[313,"TRUSTING","NGTRSTIU",["ITS"],"Dogs are naturally _______ companions when treated with love.","Inclined to trust; showing confidence in others' goodwill","Holistic Education • Heart & Feelings","Heart & Feelings","Luminous"],[314,"HUMILITY","MTYILUHI",["HIM"],"True _______ is knowing your gifts without boasting of them.","The quality of having a modest view of one's own importance","Holistic Education • Character & Will","Character & Will","Luminous"],[315,"FAIRNESS","NERASFSI",["AIR"],"Referees must judge every play with absolute, unbending _______.","Impartial and just treatment or behavior without favoritism","Holistic Education • Character & Will","Character & Will","Luminous"],[316,"TENACITY","NECTAIYT",["ACE"],"Her _______ in studying paid off when she passed the exam.","The quality or fact of being very determined and persistent","Holistic Education • Character & Will","Character & Will","Luminous"],[317,"CHIVALRY","HLRVICAY",["AIL"],"Opening doors for elderly people is a touch of timeless _______.","Courteous, gallant, and protective behavior toward others","Holistic Education • Character & Will","Character & Will","Luminous"],[318,"FEARLESS","ERLAFSES",["ALE"],"Be _______ in standing up for classmates who are left out.","Lacking fear; brave, bold, valiant, and courageous","Holistic Education • Character & Will","Character & Will","Luminous"],[319,"FIDELITY","TILYDIFE",["FED"],"Soldiers swear an oath of _______ to protect their homeland.","Faithfulness to a person, cause, or belief, demonstrated by loyalty","Holistic Education • Character & Will","Character & Will","Luminous"],[320,"MORALITY","YMIAORTL",["AIL"],"A society thrives when honesty and _______ are cherished by all.","Principles concerning the distinction between right and wrong","Holistic Education • Character & Will","Character & Will","Luminous"],[321,"NOBILITY","OITYILNB",["BIT"],"The _______ of Abraham Lincoln was seen in his forgiving heart.","The quality of having fine personal qualities or high moral character","Holistic Education • Character & Will","Character & Will","Luminous"],[322,"OBEDIENT","IOTEBDEN",["BED"],"A well-trained puppy is happily _______ to gentle whistles.","Complying with or willing to comply with orders or guidance","Holistic Education • Character & Will","Character & Will","Luminous"],[323,"PUNCTUAL","CATUPLNU",["ACT"],"Being _______ shows that you respect other people's time.","Happening or doing something at the agreed or proper time; on time","Holistic Education • Character & Will","Character & Will","Luminous"],[324,"RESOLUTE","SOUERETL",["EEL"],"The climbers were _______ in their quest to reach the summit.","Admirably purposeful, determined, and unwavering in decision","Holistic Education • Character & Will","Character & Will","Luminous"],[325,"SELFLESS","FSEESLLS",["EEL"],"The heroic nurse provided _______ care to patients around the clock.","Concerned more with the needs and wishes of others than with one's own","Holistic Education • Character & Will","Character & Will","Luminous"],[326,"TRUTHFUL","UTLTFUHR",["FUR"],"A _______ witness describes events exactly as they happened.","Telling or expressing the truth; honest and accurate","Holistic Education • Character & Will","Character & Will","Luminous"],[327,"VERACITY","RETIYAVC",["ACE"],"We have no reason to doubt the _______ of her honest account.","Conformity to facts; accuracy and habitual truthfulness","Holistic Education • Character & Will","Character & Will","Luminous"],[328,"VIRTUOUS","URTSIUOV",["ITS"],"Living a _______ life brings a clear conscience and peaceful sleep.","Having or showing high moral standards; righteous and good","Holistic Education • Character & Will","Character & Will","Luminous"],[329,"YIELDING","DYGNILIE",["DEN"],"A wise negotiator is firm on principles but _______ on details.","Giving way under pressure; reasonably accommodating and gentle","Holistic Education • Character & Will","Character & Will","Luminous"],[330,"SYMPHONY","NOYYPMSH",["HOP"],"Beethoven composed his famous Fifth _______ with thunderous power.","An elaborate musical composition for full orchestra","Holistic Education • Arts & Imagination","Arts & Imagination","Luminous"],[331,"ORIGINAL","NAORIGIL",["AIL"],"Her costume design was completely _______ and won top prize.","Present or existing from the beginning; not dependent on other ideas","Holistic Education • Arts & Imagination","Arts & Imagination","Luminous"],[332,"ARTISTIC","CIRITATS",["ACT"],"She arranged the autumn flowers with an innate _______ flair.","Having or revealing natural creative skill in visual arts or music","Holistic Education • Arts & Imagination","Arts & Imagination","Luminous"],[333,"COMPOSER","OMPRCOES",["ORE"],"The film _______ created a soaring orchestral theme for the heroes.","A person who writes musical compositions professionally","Holistic Education • Arts & Imagination","Arts & Imagination","Luminous"],[334,"CREATION","NICARTEO",["ACE"],"Every painting in the museum is a unique, human _______.","The action or process of bringing something into existence","Holistic Education • Arts & Imagination","Arts & Imagination","Luminous"],[335,"DECORATE","RECEOTAD",["ACE"],"Children love to _______ the classroom with paper snowflakes.","To make something look more attractive by adding ornaments","Holistic Education • Arts & Imagination","Arts & Imagination","Luminous"],[336,"DRAMATIC","MTDCAARI",["ACT"],"The play reached a _______ climax when the hero revealed his identity.","Relating to drama or the performance of plays; striking","Holistic Education • Arts & Imagination","Arts & Imagination","Luminous"],[337,"LUMINOUS","UILSUOMN",["OIL"],"The landscape painting had a magical, _______ sky at twilight.","Full of or shedding light; bright or shining, especially in darkness","Holistic Education • Arts & Imagination","Arts & Imagination","Luminous"],[338,"MAJESTIC","JIMETCSA",["ACE"],"Towering redwoods create a _______ cathedral of nature in California.","Having or showing impressive beauty or dignity; grand","Holistic Education • Arts & Imagination","Arts & Imagination","Luminous"],[339,"METAPHOR","EAROPHMT",["APE"],"Calling books 'ships of discovery' is a vivid and memorable _______.","A figure of speech in which a word or phrase is applied to an object","Holistic Education • Arts & Imagination","Arts & Imagination","Luminous"],[340,"MINSTREL","NLTRISME",["ELM"],"The wandering _______ entertained travelers by the tavern fireplace.","A medieval singer or musician who sang or recited poetry","Holistic Education • Arts & Imagination","Arts & Imagination","Luminous"],[341,"MUSICIAN","NIAMISUC",["AIM"],"The young _______ practiced his violin until every note rang true.","A person who plays a musical instrument or writes music","Holistic Education • Arts & Imagination","Arts & Imagination","Luminous"],[342,"PAINTING","TPNGIAIN",["ANT"],"The oil _______ hung in the gallery glowed with warm candlelight.","The action or skill of using paint; a painted picture","Holistic Education • Arts & Imagination","Arts & Imagination","Luminous"],[343,"RHYTHMIC","HIRCMYTH",["CRY"],"The dancers moved to the steady, _______ beat of hand drums.","Having or relating to a pleasingly regular repeated pattern","Holistic Education • Arts & Imagination","Arts & Imagination","Luminous"],[344,"SCULPTOR","TPROLSCU",["CUP"],"Michelangelo was a master Italian _______ who carved marble flawlessly.","An artist who makes sculptures out of stone, clay, metal, or wood","Holistic Education • Arts & Imagination","Arts & Imagination","Luminous"],[345,"TAPESTRY","RSAPTEYT",["APE"],"Medieval castles hung woven woolen _______ to keep stone walls warm.","A piece of thick textile fabric with pictures or designs woven in","Holistic Education • Arts & Imagination","Arts & Imagination","Luminous"],[346,"WOODWORK","OODWRWKO",["ROD"],"Carving a wooden spoon is an accessible and practical piece of _______.","Things made of wood, or the craft of carving and joining wood","Holistic Education • Arts & Imagination","Arts & Imagination","Luminous"],[347,"PRISTINE","EIRIPSNT",["ITS"],"Leave the mountain campsite in _______ condition for future hikers.","In its original condition; unspoiled, pure, clean, and fresh","Holistic Education • Nature & Ecology","Nature & Ecology","Luminous"],[348,"FLOURISH","UIRLSOFH",["FIR"],"Wild orchids _______ in the damp, shaded canopy of cloud forests.","To grow or develop in a healthy or vigorous way; to thrive","Holistic Education • Nature & Ecology","Nature & Ecology","Luminous"],[349,"CONSERVE","SRNEECVO",["EVE"],"Turn off dripping taps to _______ precious fresh drinking water.","To protect something of value, especially environment, from harm or waste","Holistic Education • Nature & Ecology","Nature & Ecology","Luminous"],[350,"MOUNTAIN","NTNOUIMA",["AIM"],"Eagle nests are tucked safely high on the crags of the rocky _______.","A large natural elevation of the earth's surface rising abruptly from surroundings","Holistic Education • Nature & Ecology","Nature & Ecology","Luminous"],[351,"TEAM","MATE",["MATE"],"A united _______ works together so that each member helps the other succeed.","To work in common for a great ideal, to form a true team where each one puts all his goodwill and devotion to the common work—this is the secret of success.","The Mother • Words of Long Ago","Sportsmanship & Teamwork","Avatar"],[352,"VIGOR","GIROV",["VIGOUR"],"Morning exercise fills the body with fresh strength and healthy _______.","A calm and concentrated vigor in the physical is necessary for the fullness of life.","Sri Aurobindo • Letters on Yoga, SABCL Vol. 24","Sportsmanship & Vitality","Avatar"],[353,"ENERGY","GENERY",["GENRE"],"Channel your daily _______ into learning, helpful acts, and wholesome play.","All energy belongs to the Divine and when consecrated to the Divine it becomes pure and luminous.","The Mother • Words of the Mother, CWM Vol. 14","Sportsmanship & Vitality","Avatar"],[354,"COACH","CHOCA",["CACAO"],"A wise _______ guides players with encouragement, skill, and patience.","A physical trainer or coach should not merely instruct techniques but awaken inner mastery and goodwill.","Sri Aurobindo • On Physical Education","Sportsmanship & Guidance","Avatar"],[355,"MODESTY","TOYMEDS",["MODEST"],"True champions show quiet _______ in victory and honor their opponents.","Modesty is not weakness; it is the quiet recognition that all capacity belongs to the Divine.","The Mother • Words of the Mother, CWM Vol. 14","Sportsmanship & Character","Avatar"],[356,"ENDURANCE","UNCANDERE",["UNDER"],"Long-distance running builds patient _______ and quiet perseverance.","Endurance is the physical form of faith; it carries us through the darkest hours toward victory.","The Mother • Words of the Mother, CWM Vol. 14","Sportsmanship & Endurance","Avatar"],[357,"DISCIPLINE","LIPICSIDEN",["LINED"],"Daily training and regular habits cultivate noble inner _______.","Discipline is an absolute necessity for any serious progress in the physical as in the inner life.","The Mother • On Education, CWM Vol. 12","Sportsmanship & Discipline","Avatar"],[358,"RESILIENCE","SILERIENCE",["RELIC"],"When stumbling in a match, inner _______ helps you rise and try again.","An inner resilience that refuses to accept defeat is the true sign of spiritual grit.","The Mother • Words of the Mother, CWM Vol. 14","Sportsmanship & Resilience","Avatar"],[359,"COORDINATION","NOTICORDINOA",["ACTION"],"Quick passing and teamwork require sharp physical _______.","Harmony between mind, vital and body requires conscious coordination of all movements and faculties.","The Mother • On Education, CWM Vol. 12","Sportsmanship & Agility","Avatar"],[360,"CHEERFULNESS","SELFCHEERNUS",["CHEER"],"Facing every match with sunny _______ lifts the spirit of all teammates.","Cheerfulness is the best friend of health and sadhana; it opens the door to the sunlight of Grace.","The Mother • Words of the Mother, CWM Vol. 14","Sportsmanship & Joy","Avatar"],[361,"SPORTSMANSHIP","PROMISSPATSHN",["SPORT"],"True _______ means playing fair, respecting the referee, and honoring rivals.","In games, the supreme virtue is sportsmanship: playing with full energy without rancour or vanity.","The Mother • Words of the Mother, CWM Vol. 12","Sportsmanship & Honor","Avatar"],[362,"GIVE","VIEG",["VIE"],"It is a joyful virtue to _______ without expecting anything in return.","To give oneself to the Divine is the whole secret of the spiritual life.","Sri Aurobindo • Letters on Yoga, SABCL Vol. 23","Service & Helpfulness","Avatar"],[363,"SERVE","VEERS",["VEER"],"Step forward willingly to _______ those who are sick or in need.","To serve the Divine in all beings without desire or egoism is the highest work.","Sri Aurobindo • Essays on the Gita","Service & Helpfulness","Avatar"],[364,"AIDE","DAEI",["IDEA"],"A thoughtful _______ offers a helping hand to teachers and classmates.","To act as an aide to someone in need is an offering of selfless goodwill.","The Mother • Education and Guidance","Service & Helpfulness","Avatar"],[365,"ASSIST","SITSAS",["SITS"],"Always be ready to _______ an elderly person crossing the busy road.","We should always be ready to assist our brothers and sisters on the journey.","The Mother • Words of Long Ago","Service & Helpfulness","Avatar"],[366,"RESCUE","SECURE",["SECURE"],"Brave lifeguards rush into deep waves to _______ swimmers in distress.","The Grace descends to rescue the soul from darkness and lift it into the Light.","Sri Aurobindo • Savitri, Book I","Service & Helpfulness","Avatar"],[367,"NURTURE","RUNTURE",["TURN"],"Tender gardeners _______ young saplings with fresh soil, water, and sun.","To nurture the aspiration in the heart requires steady care and silent devotion.","The Mother • Words of the Mother, CWM Vol. 14","Service & Helpfulness","Avatar"],[368,"SHELTER","LEETHER",["SHEET"],"Large leafy banyan trees offer cool _______ from the midday heat.","The Divine Consciousness is the eternal shelter where no harm can enter.","Sri Aurobindo • Letters on Yoga, SABCL Vol. 23","Service & Helpfulness","Avatar"],[369,"SHARING","GARNISH",["GARNISH"],"True joy doubles when you practice generous _______ with your friends.","In sharing what we have with others, the heart opens and ego dissolves.","The Mother • Questions and Answers, CWM Vol. 7","Service & Helpfulness","Avatar"],[370,"CARING","RACING",["RACING"],"A gentle and _______ word can heal an aching heart.","A gentle caring attitude creates an atmosphere of peace and mutual trust.","The Mother • Words of the Mother, CWM Vol. 13","Service & Helpfulness","Avatar"],[371,"UPHOLD","LODPUH",["HOLD"],"Stand firm and _______ fairness when you see someone treated unkindly.","Those who love the truth must uphold it with quiet strength and unfaltering faith.","Sri Aurobindo • The Ideal of Human Unity","Service & Helpfulness","Avatar"],[372,"SERVICE","RECIVES",["SERVE"],"Selfless _______ to humanity cleanses the heart and elevates the soul.","To serve the Divine in humanity is the true spirit of consecrated service.","Sri Aurobindo • Letters on Yoga, SABCL Vol. 23","Service & Helpfulness","Avatar"],[373,"GOODWILL","WOODGILL",["GOOD"],"Radiate warm _______ toward everyone you meet throughout the day.","Goodwill toward all brings peace to oneself and harmony to the surroundings.","The Mother • Words of the Mother, CWM Vol. 14","Service & Helpfulness","Avatar"],[374,"VOLUNTEER","REVOLUTEN",["NOVEL"],"Energetic youth _______ their time to clean playgrounds and plant trees.","To volunteer one's service for a noble collective work brings true joy.","The Mother • Words of the Mother, CWM Vol. 13","Service & Helpfulness","Avatar"],[375,"ASSISTANCE","SANCTIESSA",["ASSETS"],"Offering timely _______ to those carrying heavy burdens shows true nobility.","Mutual assistance among companions makes difficult roads smooth and joyous.","The Mother • Words of Long Ago","Service & Helpfulness","Avatar"],[376,"CHARITABLE","REACHABILT",["REACH"],"A noble and _______ soul shares blessings with the underprivileged.","A charitable heart sees the good in others and forgives their frailties.","Sri Aurobindo • Essays on the Gita","Service & Helpfulness","Avatar"],[377,"HELPFULNESS","SUNFLEEPHLLS",["HELP"],"Daily acts of _______ build a warm and supportive classroom community.","A constant helpfulness opens the door of the heart and invites divine Grace.","The Mother • Words of the Mother, CWM Vol. 14","Service & Helpfulness","Avatar"],[378,"HOSPITALITY","TOPIALISTHY",["TOTAL"],"Welcoming travelers with sincere _______ is an ancient sacred tradition.","Generous hospitality offered with sincerity is an ancient and sacred virtue.","The Mother • Words of Long Ago","Service & Helpfulness","Avatar"],[379,"BENEVOLENCE","ELEVENBONEC",["NOBLE"],"Pure _______ wishes happiness and well-being for every living creature.","Benevolence is the spontaneous flowering of love that expects nothing in return.","Sri Aurobindo • The Human Cycle","Service & Helpfulness","Avatar"],[380,"SELFLESSNESS","SSELSESLFENS",["LESS"],"True sacrifice and _______ place the welfare of others before self-interest.","Selflessness is the secret of spiritual victory; through it ego dissolves.","The Mother • Words of the Mother, CWM Vol. 14","Service & Helpfulness","Avatar"],[381,"SOFT","TOFS",["OFT"],"Speak with a _______ tone when reassuring someone who feels afraid.","A soft answer turneth away wrath; gentleness dissolves all bitter waves.","Sri Aurobindo • Translations, SABCL Vol. 8","Gentleness & Mercy","Avatar"],[382,"SWEET","TEWSE",["WEST"],"Speak with _______ and calm words rather than harsh impatience.","Sweetness is the natural expression of harmony and purity of heart.","The Mother • Words of the Mother, CWM Vol. 14","Gentleness & Mercy","Avatar"],[383,"SMILE","ELSIM",["MILES"],"A cheerful _______ lights up the room and dissolves all tension.","A smile from the heart dissolves all clouds and brings the sunlight of the soul.","The Mother • Words of the Mother, CWM Vol. 14","Gentleness & Mercy","Avatar"],[384,"MERCY","RYCEM",["REMY"],"Show generous _______ rather than seeking harsh retribution.","Mercy is the compassionate hand of the Divine raised over struggling mortals.","Sri Aurobindo • Savitri, Book XI","Gentleness & Mercy","Avatar"],[385,"TENDER","REDENT",["ENTER"],"Approach hurt animals with loving and _______ care.","A tender sympathy toward all creatures opens the secret doors of the soul.","Sri Aurobindo • Savitri, Book II","Gentleness & Mercy","Avatar"],[386,"SWEETNESS","WESTENSES",["SWEET"],"Inner _______ turns difficult encounters into peaceful moments.","Sweetness in speech and benevolence in action bring the divine harmony into daily life.","The Mother • Words of the Mother, CWM Vol. 14","Gentleness & Mercy","Avatar"],[387,"TOLERANCE","RELOCATEN",["LEARN"],"Practicing broad _______ allows diverse viewpoints to coexist happily.","Tolerance is understanding the right of others to be different from ourselves.","The Mother • Words of the Mother, CWM Vol. 14","Gentleness & Mercy","Avatar"],[388,"GENTLENESS","SENTELGNES",["GENTLE"],"Great strength is best shown through quiet patience and _______.","Gentleness in speech is a supreme virtue; it conquers hearts where force fails.","The Mother • Words of Long Ago","Gentleness & Mercy","Avatar"],[389,"FORGIVENESS","SOVERIGNFES",["GIVEN"],"Sincere _______ frees your mind from the heavy burden of anger.","True forgiveness unties the knot of resentment and liberates the consciousness.","The Mother • Words of the Mother, CWM Vol. 14","Gentleness & Mercy","Avatar"],[390,"CONSIDERATION","COORDINATIONS",["ACTION"],"Always show thoughtful _______ for the feelings and space of others.","Thoughtful consideration for others is the very foundation of harmonious community life.","The Mother • Words of the Mother, CWM Vol. 12","Gentleness & Mercy","Avatar"],[391,"ALLY","LAYL",["LAY"],"A loyal _______ stands steadfast beside you through adversity.","A true ally is one whose soul is aligned with yours in the search for truth.","Sri Aurobindo • The Human Cycle","Fellowship & Unity","Avatar"],[392,"LEAD","DALE",["DALE"],"True captains _______ through humble example rather than loud orders.","Those who lead must first learn to serve and master their own nature.","Sri Aurobindo • The Human Cycle","Fellowship & Unity","Avatar"],[393,"LOYAL","ALLYO",["ALLOY"],"A _______ friend remains trustworthy through good and difficult times.","A loyal heart remains faithful to the truth through all trials and difficulties.","Sri Aurobindo • Letters on Yoga, SABCL Vol. 23","Fellowship & Unity","Avatar"],[394,"ACCORD","CARDOC",["CARD"],"Musicians must play in perfect _______ to produce melodious harmony.","When all the parts of the being are in accord, perfect peace reigns within.","The Mother • Prayers and Meditations","Fellowship & Unity","Avatar"],[395,"SHIELD","SLIDEH",["SLIDE"],"Truth and integrity act as a protective _______ against falsehood.","Purity of intention is the strongest shield against hostile suggestions.","Sri Aurobindo • Letters on Yoga, SABCL Vol. 24","Fellowship & Unity","Avatar"],[396,"FELLOW","WELLOF",["WELL"],"Treat each school _______ with kindness, equality, and mutual respect.","Regard your fellow seekers not as rivals, but as companions in the same divine adventure.","The Mother • Words to Children","Fellowship & Unity","Avatar"],[397,"UNITED","UNTIED",["UNTIED"],"When students stand _______, no obstacle can halt their common progress.","United in thought, united in aim, let the hearts beat in harmony.","Sri Aurobindo • Hymns to the Mystic Fire","Fellowship & Unity","Avatar"],[398,"SINCERE","RESIENC",["SCENE"],"Speak with a _______ voice that reflects truth without pretense.","Be completely sincere in your aspiration and nothing can turn you away from the goal.","The Mother • Words of the Mother, CWM Vol. 14","Fellowship & Unity","Avatar"],[399,"FRATERNITY","TRAINERTYF",["TRAIN"],"Universal _______ treats every human being as an honored sibling.","Fraternity is the spiritual bond that unites all humanity into one family.","Sri Aurobindo • The Ideal of Human Unity","Fellowship & Unity","Avatar"],[400,"SOLIDARITY","TARDILOYIS",["RADIO"],"Standing together in noble _______ gives courage to the weak.","A deep sense of human solidarity is the first step toward universal unity.","Sri Aurobindo • The Ideal of Human Unity","Fellowship & Unity","Avatar"],[401,"FELLOWSHIP","POWELLISHF",["SHELF"],"Warm gatherings and shared stories strengthen community _______.","In true spiritual fellowship, each works for the progress and well-being of all.","The Mother • Words of the Mother, CWM Vol. 13","Fellowship & Unity","Avatar"],[402,"COOPERATION","POORTICONEA",["ACTION"],"Team sports flourish when players prioritize generous _______.","Cooperation is the key to collective progress; without it individuals remain separate fragments.","The Mother • Words of the Mother, CWM Vol. 12","Fellowship & Unity","Avatar"],[403,"COMRADESHIP","MISHAPCODER",["PROMISE"],"True _______ thrives when companions share hardships with cheerful grit.","Comradeship in a great cause elevates ordinary mortals into heroes.","Sri Aurobindo • Letters on Yoga, SABCL Vol. 23","Fellowship & Unity","Avatar"],[404,"PARTNERSHIP","TRANSHIPPER",["TRAIN"],"An equal _______ in study builds deeper insight and mutual growth.","An equal partnership built on mutual respect and goodwill leads to harmonious achievement.","The Mother • On Education","Fellowship & Unity","Avatar"],[405,"TRUTHFULNESS","SUNTRUTHLEFS",["TRUTH"],"Unwavering _______ creates a life anchored in honor and purity.","Truthfulness is the bedrock of character; without it no spiritual structure can stand.","Sri Aurobindo • Letters on Yoga, SABCL Vol. 23","Fellowship & Unity","Avatar"],[406,"HARMONIOUS","MOONSURHAI",["MANOR"],"Team spirit makes diverse talents blend into a single _______ melody.","A harmonious collective life is the ultimate aim of the spiritual evolution.","Sri Aurobindo • The Life Divine, Book II","Fellowship & Unity","Avatar"],[407,"PEACEMAKER","REPACKEEMA",["PEACE"],"A calm student steps in as a gentle _______ to resolve playground disputes.","Blessed is the peacemaker who replaces discord with mutual understanding and light.","The Mother • Words of the Mother, CWM Vol. 15","Fellowship & Unity","Avatar"]];
+    const VAK_DOMAIN_TO_THEME_MAP = {
+      'Character & Will': 'Virtues & Divine Qualities',
+      'Gentleness & Mercy': 'Virtues & Divine Qualities',
+      'Sportsmanship & Character': 'Virtues & Divine Qualities',
+      'Sportsmanship & Honor': 'Virtues & Divine Qualities',
+      'Body & Movement': 'Yogic Practice & Disciplines',
+      'Sportsmanship & Vitality': 'Yogic Practice & Disciplines',
+      'Sportsmanship & Discipline': 'Yogic Practice & Disciplines',
+      'Sportsmanship & Agility': 'Yogic Practice & Disciplines',
+      'Heart & Feelings': 'Soul & Psychic Being',
+      'Fellowship & Unity': 'Spiritual States & Realizations',
+      'Sportsmanship & Joy': 'Spiritual States & Realizations',
+      'Sportsmanship & Teamwork': 'Spiritual States & Realizations',
+      'Nature & Ecology': 'Metaphysical Concepts & Reality',
+      'Mind & Science': 'Planes of Consciousness',
+      'Arts & Imagination': 'Spiritual Figures & Sacred Terms',
+      'Sportsmanship & Guidance': 'Spiritual Figures & Sacred Terms',
+      'Service & Helpfulness': 'Ignorance, Mortality & Obstacles',
+      'Sportsmanship & Endurance': 'Ignorance, Mortality & Obstacles',
+      'Sportsmanship & Resilience': 'Ignorance, Mortality & Obstacles'
+    };
+    window.__VAK_DOMAIN_TO_THEME_MAP__ = VAK_DOMAIN_TO_THEME_MAP;
     window.__EMBEDDED_TEACHINGS_DB__ = {
       version: "1.3.0",
       description: "Vak Complete (407 Levels)",
       total_levels: CL.length,
+      quotes: {},
       levels: CL.map(function(arr) {
         return {
           id: arr[0],
@@ -43,6 +66,7 @@
           quote: arr[5],
           author: arr[6],
           domain: arr[7],
+          theme: VAK_DOMAIN_TO_THEME_MAP[arr[7]] || arr[7],
           rankRequired: arr[8]
         };
       })
@@ -121,6 +145,78 @@
           })
         };
       }
+      function buildEmbeddedQuotesIndex(targetDb) {
+        const db = targetDb || (typeof window !== 'undefined' ? window.__EMBEDDED_TEACHINGS_DB__ : null);
+        if (!db) return {};
+        if (!db.quotes || typeof db.quotes !== 'object') {
+          db.quotes = {};
+        }
+        const quotes = db.quotes;
+        const escapeRx = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        if (Array.isArray(db.levels)) {
+          for (let i = 0; i < db.levels.length; i++) {
+            const lvl = db.levels[i];
+            if (!lvl) continue;
+            if (!lvl.theme && lvl.domain && VAK_DOMAIN_TO_THEME_MAP[lvl.domain]) {
+              lvl.theme = VAK_DOMAIN_TO_THEME_MAP[lvl.domain];
+            }
+            const word = String(lvl.targetWord || '').trim().toUpperCase();
+            if (!word || !lvl.quote || quotes[word]) continue;
+            const domain = lvl.domain || 'Holistic Education';
+            quotes[word] = {
+              text: lvl.quote,
+              author: lvl.author || ('Holistic Education • ' + domain),
+              book: domain,
+              theme: domain,
+              match: 'exact'
+            };
+          }
+        }
+        if (typeof window !== 'undefined' && window.__EMBEDDED_COSMOS_LEVELS__ && Array.isArray(window.__EMBEDDED_COSMOS_LEVELS__.levels)) {
+          const cosmosLevels = window.__EMBEDDED_COSMOS_LEVELS__.levels;
+          for (let i = 0; i < cosmosLevels.length; i++) {
+            const lvl = cosmosLevels[i];
+            if (!lvl) continue;
+            const word = String(lvl.targetWord || '').trim().toUpperCase();
+            if (!word || !lvl.quote || quotes[word]) continue;
+            const domain = lvl.domain || lvl.worldName || 'Cosmos';
+            quotes[word] = {
+              text: lvl.quote,
+              author: lvl.author || ('Contemplative Reflection • ' + domain),
+              book: domain,
+              theme: domain,
+              match: 'exact'
+            };
+          }
+        }
+        if (typeof window !== 'undefined' && Array.isArray(window.__EMBEDDED_MATRIMANDIR_LEVELS__)) {
+          const matriLevels = window.__EMBEDDED_MATRIMANDIR_LEVELS__;
+          for (let i = 0; i < matriLevels.length; i++) {
+            const lvl = matriLevels[i];
+            if (!lvl) continue;
+            const qText = lvl.gardenQuote || lvl.quote;
+            if (!qText) continue;
+            const gName = lvl.gardenName || 'Matrimandir';
+            const wordsList = Array.isArray(lvl.words) ? lvl.words.slice() : [];
+            if (lvl.soulWord) wordsList.push(lvl.soulWord);
+            for (let j = 0; j < wordsList.length; j++) {
+              const word = String(wordsList[j] || '').trim().toUpperCase();
+              if (!word || quotes[word]) continue;
+              const isExact = new RegExp('\\b' + escapeRx(word) + '\\b', 'i').test(qText);
+              quotes[word] = {
+                text: qText,
+                author: lvl.author || 'The Mother & Sri Aurobindo',
+                book: 'Matrimandir — Garden of ' + gName,
+                theme: gName,
+                match: isExact ? 'exact' : 'thematic'
+              };
+            }
+          }
+        }
+        return quotes;
+      }
+      window.__VAK_BUILD_QUOTES_INDEX__ = buildEmbeddedQuotesIndex;
+      buildEmbeddedQuotesIndex(window.__EMBEDDED_TEACHINGS_DB__);
     })();
   </script>
   <script>
@@ -381,6 +477,7 @@ module.exports = { FEATURE_FLAGS, PRIVACY_CONFIG };
 class ContentGuardController {
 constructor() {
 this.stateKey = 'auro_vak_content_guard';
+this.remoteUrl = (typeof window !== 'undefined' && window.__VAK_REMOTE_VERSION_URL__) || null;
 this.state = { disabled: false, notice: '', withdrawnQuotes: [] };
 }
 loadCachedState() {
@@ -402,11 +499,14 @@ this.state = { disabled: false, notice: '', withdrawnQuotes: [] };
 }
 return this.state;
 }
-async refresh(url = 'version.json') {
+async refresh(url = null) {
 this.loadCachedState();
+const targetUrl = url || (typeof window !== 'undefined' && window.__VAK_REMOTE_VERSION_URL__) || this.remoteUrl || null;
+if (!targetUrl) return this.state;
 try {
 if (typeof fetch === 'undefined') return this.state;
-const res = await fetch(url + '?v=' + Date.now(), { cache: 'no-store' });
+const sep = targetUrl.includes('?') ? '&' : '?';
+const res = await fetch(targetUrl + sep + 'v=' + Date.now(), { cache: 'no-store' });
 if (!res.ok) return this.state;
 const data = await res.json();
 this.state = {
@@ -429,6 +529,9 @@ this.state.withdrawnQuotes.length);
 console.warn('[ContentGuard] Could not check content status:', e.message);
 }
 return this.state;
+}
+async refreshRemoteStatus(url = null) {
+return this.refresh(url);
 }
 isContentEnabled() {
 return this.state.disabled !== true;
@@ -1082,8 +1185,11 @@ loadState() {
 try {
 if (typeof localStorage !== 'undefined') {
 const savedMode = localStorage.getItem(ModeManager.STORAGE_KEY);
-if (savedMode === ModeManager.MODE_B) {
-this.currentMode = ModeManager.MODE_B;
+const legacyMode = localStorage.getItem('vak_active_mode');
+if (savedMode === ModeManager.MODE_B || legacyMode === ModeManager.MODE_B || legacyMode === 'MODE_B') {
+this.currentMode = ModeManager.MODE_A;
+localStorage.setItem(ModeManager.STORAGE_KEY, ModeManager.MODE_A);
+if (legacyMode !== null) localStorage.setItem('vak_active_mode', ModeManager.MODE_A);
 }
 const savedProg = localStorage.getItem(ModeManager.PROGRESS_KEY_4PICS);
 if (savedProg) {
@@ -1107,6 +1213,25 @@ activePuzzleIndex: this.activePuzzleIndex
 console.warn('ModeManager: storage save error', e);
 }
 }
+isModeBAvailable() {
+return Array.isArray(this.puzzles) && this.puzzles.length > 0;
+}
+updateModeToggleAvailabilityUI() {
+if (typeof document === 'undefined') return;
+const btn = document.getElementById('btn-mode-toggle');
+if (!btn) return;
+const available = this.isModeBAvailable();
+btn.setAttribute('data-mode-b-available', available ? 'true' : 'false');
+if (!available) {
+btn.setAttribute('aria-disabled', 'true');
+btn.title = '4 Pics 1 Word mode is currently unavailable — the visual clue registry is not included in this edition.';
+btn.classList.add('mode-b-unavailable');
+} else {
+btn.removeAttribute('aria-disabled');
+btn.title = 'Toggle Game Mode';
+btn.classList.remove('mode-b-unavailable');
+}
+}
 setFourPicsRegistry(registry) {
 if (Array.isArray(registry)) {
 this.puzzles = registry;
@@ -1114,12 +1239,43 @@ if (this.activePuzzleIndex >= this.puzzles.length) {
 this.activePuzzleIndex = 0;
 }
 }
+if (!this.isModeBAvailable()) {
+if (this.currentMode === ModeManager.MODE_B) {
+this.currentMode = ModeManager.MODE_A;
+this.saveState();
+this.applyModeVisibility();
+}
+try {
+if (typeof localStorage !== 'undefined') {
+if (localStorage.getItem(ModeManager.STORAGE_KEY) === ModeManager.MODE_B) {
+localStorage.setItem(ModeManager.STORAGE_KEY, ModeManager.MODE_A);
+}
+const legacyMode = localStorage.getItem('vak_active_mode');
+if (legacyMode === ModeManager.MODE_B || legacyMode === 'MODE_B') {
+localStorage.setItem('vak_active_mode', ModeManager.MODE_A);
+}
+}
+} catch (e) {}
+}
+this.updateModeToggleAvailabilityUI();
 }
 switchMode(newMode) {
 if (newMode !== ModeManager.MODE_A && newMode !== ModeManager.MODE_B && newMode !== ModeManager.MODE_C && newMode !== ModeManager.MODE_D) {
-return;
+return false;
 }
-if (this.currentMode === newMode) return;
+if (newMode === ModeManager.MODE_B && !this.isModeBAvailable()) {
+if (this.currentMode === ModeManager.MODE_B) {
+this.currentMode = ModeManager.MODE_A;
+this.saveState();
+}
+this.applyModeVisibility();
+this.updateModeToggleAvailabilityUI();
+if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
+window.showToast('4 Pics 1 Word mode is currently unavailable — the visual clue registry is not included in this edition.', 'info');
+}
+return false;
+}
+if (this.currentMode === newMode) return true;
 this.currentMode = newMode;
 this.saveState();
 if (typeof window !== 'undefined') {
@@ -1127,7 +1283,9 @@ if (window.Haptics) window.Haptics.letterSnap();
 if (window.VakEvents) window.VakEvents.emit('MODE_CHANGED', { mode: this.currentMode });
 }
 this.applyModeVisibility();
+this.updateModeToggleAvailabilityUI();
 this.onModeChange(this.currentMode);
+return true;
 }
 toggleMode() {
 const next = this.currentMode === ModeManager.MODE_A ? ModeManager.MODE_B : ModeManager.MODE_A;
@@ -2662,24 +2820,14 @@ async initEventsRegistry() {
 if (typeof localStorage === 'undefined') return this.fallbackEvents;
 let cached = localStorage.getItem(this.eventsKey);
 if (!cached) {
-try {
-if (typeof fetch !== 'undefined') {
-const res = await fetch('data/ashram_events.json?v=' + Date.now());
-if (res.ok) {
-const data = await res.json();
-localStorage.setItem(this.eventsKey, JSON.stringify(data.events));
-return data.events;
-}
-}
-} catch (e) {
-console.warn('Fetch fallback to embedded event defaults');
-}
 localStorage.setItem(this.eventsKey, JSON.stringify(this.fallbackEvents));
 return this.fallbackEvents;
 }
 try {
-return JSON.parse(cached);
+const parsed = JSON.parse(cached);
+return (Array.isArray(parsed) && parsed.length > 0) ? parsed : this.fallbackEvents;
 } catch (e) {
+localStorage.setItem(this.eventsKey, JSON.stringify(this.fallbackEvents));
 return this.fallbackEvents;
 }
 }
@@ -4090,6 +4238,10 @@ this.worlds = dataPayload.worlds || [];
 }
 async initLevels() {
 if (this.levelsData && this.levelsData.length > 0) return;
+if (typeof window !== 'undefined' && window.__EMBEDDED_COSMOS_LEVELS__) {
+this.init(window.__EMBEDDED_COSMOS_LEVELS__);
+return;
+}
 try {
 if (typeof fetch !== 'undefined') {
 const res = await fetch('data/cosmos_levels.json?v=' + Date.now());
@@ -4100,9 +4252,6 @@ return;
 }
 }
 } catch (e) {
-}
-if (typeof window !== 'undefined' && window.__EMBEDDED_COSMOS_LEVELS__) {
-this.init(window.__EMBEDDED_COSMOS_LEVELS__);
 }
 }
 loadProgress() {
@@ -5214,15 +5363,6 @@ this.wisdomData = window.levelsSourceDb;
 this.wisdomData = window.levelsSource;
 } else if (typeof window !== 'undefined' && window.__EMBEDDED_TEACHINGS_DB__ && Array.isArray(window.__EMBEDDED_TEACHINGS_DB__.levels)) {
 this.wisdomData = window.__EMBEDDED_TEACHINGS_DB__;
-} else {
-try {
-const res = await fetch('data/levels_source.json?v=' + Date.now());
-if (res.ok) {
-this.wisdomData = await res.json();
-}
-} catch (e) {
-console.warn('[ReflectionArchive] Failed to fetch levels_source.json', e);
-}
 }
 }
 if (!this.mandalasData || !Array.isArray(this.mandalasData.gardens) || !Array.isArray(this.mandalasData.levels)) {
@@ -5231,15 +5371,12 @@ this.mandalasData = {
 gardens: window.matrimandirOverworldController.gardens,
 levels: window.matrimandirOverworldController.levelsData
 };
-} else {
-try {
-const res = await fetch('data/matrimandir_levels.json');
-if (res.ok) {
-this.mandalasData = await res.json();
-}
-} catch (e) {
-console.warn('[ReflectionArchive] Failed to fetch matrimandir_levels.json', e);
-}
+} else if (typeof window !== 'undefined' && Array.isArray(window.__EMBEDDED_MATRIMANDIR_LEVELS__)) {
+const ctrl = window.matrimandirOverworldController;
+this.mandalasData = {
+gardens: (ctrl && ctrl.gardens) ? ctrl.gardens : [],
+levels: window.__EMBEDDED_MATRIMANDIR_LEVELS__
+};
 }
 }
 if (!this.cosmosData || !Array.isArray(this.cosmosData.worlds) || !Array.isArray(this.cosmosData.levels)) {
@@ -5248,15 +5385,11 @@ this.cosmosData = {
 worlds: window.cosmosController.worlds,
 levels: window.cosmosController.levelsData
 };
-} else {
-try {
-const res = await fetch('data/cosmos_levels.json?v=' + Date.now());
-if (res.ok) {
-this.cosmosData = await res.json();
-}
-} catch (e) {
-console.warn('[ReflectionArchive] Failed to fetch cosmos_levels.json', e);
-}
+} else if (typeof window !== 'undefined' && window.__EMBEDDED_COSMOS_LEVELS__ && Array.isArray(window.__EMBEDDED_COSMOS_LEVELS__.levels)) {
+this.cosmosData = {
+worlds: window.__EMBEDDED_COSMOS_LEVELS__.worlds || [],
+levels: window.__EMBEDDED_COSMOS_LEVELS__.levels
+};
 }
 }
 },
@@ -7131,9 +7264,21 @@ class ScriptureCardRenderer {
 constructor() {
 this.teachingsDb = null;
 }
+ensureQuotesIndex(db = null) {
+const target = db || this.teachingsDb || (typeof window !== 'undefined' ? window.__EMBEDDED_TEACHINGS_DB__ : null);
+if (!target) return null;
+if (!this.teachingsDb) this.teachingsDb = target;
+if (typeof window !== 'undefined' && typeof window.__VAK_BUILD_QUOTES_INDEX__ === 'function') {
+window.__VAK_BUILD_QUOTES_INDEX__(target);
+} else if (!target.quotes || typeof target.quotes !== 'object') {
+target.quotes = {};
+}
+return target.quotes;
+}
 async loadTeachingsDatabase() {
 if (typeof window !== 'undefined' && window.__EMBEDDED_TEACHINGS_DB__) {
 this.teachingsDb = window.__EMBEDDED_TEACHINGS_DB__;
+this.ensureQuotesIndex(this.teachingsDb);
 return this.teachingsDb;
 }
 if (typeof localStorage !== 'undefined') {
@@ -7144,21 +7289,8 @@ if (cached) this.teachingsDb = JSON.parse(cached);
 console.warn('Cached teachings database unreadable:', err.message);
 }
 }
-try {
-if (typeof fetch !== 'undefined') {
-const res = await fetch('doc/teachings_repository.json?v=' + Date.now());
-if (res.ok) {
-const fresh = await res.json();
-if (fresh && fresh.quotes) {
-this.teachingsDb = fresh;
-if (typeof localStorage !== 'undefined') {
-localStorage.setItem('auro_vak_teachings_db', JSON.stringify(fresh));
-}
-}
-}
-}
-} catch (e) {
-console.warn('Teachings database not fetched, using cache:', e.message);
+if (this.teachingsDb) {
+this.ensureQuotesIndex(this.teachingsDb);
 }
 return this.teachingsDb;
 }
@@ -7169,6 +7301,7 @@ if (typeof window !== 'undefined' && window.contentGuardController &&
 !window.contentGuardController.mayDisplayQuote(wordUpper)) {
 return null;
 }
+this.ensureQuotesIndex();
 if (typeof window !== 'undefined' && window.currentLevelObj) {
 const cur = window.currentLevelObj;
 if (cur.targetWord === wordUpper || (cur.targetWords || []).includes(wordUpper)) {
@@ -7246,6 +7379,20 @@ ${note}
 `;
 }
 buildEmptyMarkup(wordLabel) {
+const guardDisabled = (typeof window !== 'undefined' && window.contentGuardController && !window.contentGuardController.isContentEnabled());
+if (guardDisabled) {
+const noticeText = this.escape(window.contentGuardController.getNotice());
+return `
+<span class="micro-label" style="color: var(--accent-gold); font-weight: 700;">SANCTUARY NOTICE</span>
+<h2 style="margin: 0;">${this.escape(wordLabel)}</h2>
+<p id="content-guard-notice-msg" style="margin: 0.75rem 0 0; color: var(--text-secondary); line-height: 1.55; font-size: 0.95rem;">
+${noticeText}
+</p>
+<div style="display: flex; gap: 0.5rem; margin-top: 1.1rem; justify-content: center; width: 100%;">
+<button id="btn-close-quote" class="touch-target btn-primary" style="flex: 1; min-width: 140px;">Continue</button>
+</div>
+`;
+}
 return `
 <span class="micro-label" style="color: var(--accent-gold); font-weight: 700;">REMEMBRANCE</span>
 <h2 style="margin: 0;">${this.escape(wordLabel)}</h2>
@@ -7325,6 +7472,26 @@ this.categories = [
 { raw: "Spiritual Figures & Sacred Terms", label: "Sacred Terms", type: "theme", icon: "🔱" },
 { raw: "Ignorance, Mortality & Obstacles", label: "Overcoming Obstacles", type: "theme", icon: "🛡️" }
 ];
+}
+resolveThemeForLevel(lvl) {
+if (!lvl) return null;
+if (lvl.theme) return lvl.theme;
+const domainMap = (typeof window !== 'undefined' && window.__VAK_DOMAIN_TO_THEME_MAP__) ? window.__VAK_DOMAIN_TO_THEME_MAP__ : null;
+if (lvl.domain && domainMap && domainMap[lvl.domain]) {
+return domainMap[lvl.domain];
+}
+return lvl.category || null;
+}
+getLevelsForTheme(themeName, sourceLevels = null) {
+const levels = Array.isArray(sourceLevels)
+? sourceLevels
+: ((typeof window !== 'undefined' && window.scriptureCardRenderer && window.scriptureCardRenderer.teachingsDb && Array.isArray(window.scriptureCardRenderer.teachingsDb.levels))
+? window.scriptureCardRenderer.teachingsDb.levels
+: ((typeof window !== 'undefined' && window.__EMBEDDED_TEACHINGS_DB__ && Array.isArray(window.__EMBEDDED_TEACHINGS_DB__.levels))
+? window.__EMBEDDED_TEACHINGS_DB__.levels
+: []));
+if (!themeName || themeName === 'Infinite Meditative Mode') return levels;
+return levels.filter(lvl => this.resolveThemeForLevel(lvl) === themeName);
 }
 initThemeSelectorListeners(userProfile) {
 if (typeof document === 'undefined') return;
@@ -7437,14 +7604,17 @@ renderThemeGrid(userProfile) {
 const container = document.getElementById('theme-grid-container');
 if (!container) return;
 container.innerHTML = '';
-const db = window.scriptureCardRenderer ? window.scriptureCardRenderer.teachingsDb : null;
+const db = (window.scriptureCardRenderer && window.scriptureCardRenderer.teachingsDb)
+? window.scriptureCardRenderer.teachingsDb
+: (typeof window !== 'undefined' ? window.__EMBEDDED_TEACHINGS_DB__ : null);
 const levelCounts = {};
 if (db && Array.isArray(db.levels)) {
 db.levels.forEach(lvl => {
-const key = lvl.theme || lvl.category;
+const key = this.resolveThemeForLevel(lvl);
 if (key) levelCounts[key] = (levelCounts[key] || 0) + 1;
 });
 }
+const activeTheme = userProfile && userProfile.settings ? userProfile.settings.selectedTheme : null;
 const filtered = this.categories.filter(t =>
 t.label.toLowerCase().includes(this.searchQuery) ||
 t.raw.toLowerCase().includes(this.searchQuery)
@@ -7456,7 +7626,14 @@ return;
 filtered.forEach(t => {
 const card = document.createElement('div');
 const count = levelCounts[t.raw] || 0;
-card.className = `glass-panel ${t.type === 'virtue' ? 'grid-card-virtue' : 'grid-card-theme'}`;
+const isActive = activeTheme === t.raw;
+card.className = `glass-panel ${t.type === 'virtue' ? 'grid-card-virtue' : 'grid-card-theme'}${isActive ? ' active' : ''}`;
+card.dataset.themeRaw = t.raw;
+card.dataset.themeCount = String(count);
+if (isActive) {
+card.style.borderColor = '#fbbf24';
+card.style.boxShadow = '0 0 18px rgba(251, 191, 36, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25)';
+}
 card.innerHTML = `
 <span style="font-size: 1.15rem; line-height: 1;">${t.icon}</span>
 <h4 class="grid-card-title">${t.label}</h4>
@@ -7469,21 +7646,20 @@ container.appendChild(card);
 });
 }
 async selectTheme(userProfile, themeName, displayLabel) {
-if (!userProfile) return;
+const adapter = (typeof window !== 'undefined' && window.storageAdapter)
+? window.storageAdapter
+: (typeof storageAdapter !== 'undefined' ? storageAdapter : null);
+let targetProfile = userProfile || (adapter && typeof adapter.getProfileSync === 'function' ? adapter.getProfileSync() : null) || { player: { currentLevel: 1, sparks: 100 }, settings: {} };
 if (window.settingsController && typeof window.settingsController.updateSettings === 'function') {
-await window.settingsController.updateSettings(userProfile, {
+await window.settingsController.updateSettings(targetProfile, {
 selectedAuthor: this.selectedAuthor,
 selectedTheme: themeName
 });
 } else {
-userProfile.settings = userProfile.settings || {};
-userProfile.settings.selectedAuthor = this.selectedAuthor;
-userProfile.settings.selectedTheme = themeName;
+targetProfile.settings = targetProfile.settings || {};
+targetProfile.settings.selectedAuthor = this.selectedAuthor;
+targetProfile.settings.selectedTheme = themeName;
 }
-const adapter = (typeof window !== 'undefined' && window.storageAdapter)
-? window.storageAdapter
-: (typeof storageAdapter !== 'undefined' ? storageAdapter : null);
-let targetProfile = userProfile;
 if (adapter && typeof adapter.getProfile === 'function') {
 try {
 const fresh = await adapter.getProfile();
@@ -7493,12 +7669,22 @@ if (fresh) targetProfile = fresh;
 targetProfile.settings = targetProfile.settings || {};
 targetProfile.settings.selectedAuthor = this.selectedAuthor;
 targetProfile.settings.selectedTheme = themeName;
-targetProfile.levelIndex = 0;
+const matchingLevels = this.getLevelsForTheme(themeName);
+const firstLevelId = (matchingLevels.length > 0 && matchingLevels[0].id) ? matchingLevels[0].id : 1;
+targetProfile.levelIndex = Math.max(0, firstLevelId - 1);
 if (targetProfile.player) {
-targetProfile.player.currentLevel = 1;
+targetProfile.player.currentLevel = firstLevelId;
 }
-userProfile.levelIndex = 0;
-if (userProfile.player) userProfile.player.currentLevel = 1;
+if (userProfile) {
+userProfile.levelIndex = targetProfile.levelIndex;
+if (userProfile.player) userProfile.player.currentLevel = firstLevelId;
+userProfile.settings = userProfile.settings || {};
+userProfile.settings.selectedAuthor = this.selectedAuthor;
+userProfile.settings.selectedTheme = themeName;
+}
+if (typeof window !== 'undefined') {
+window.userProfile = targetProfile;
+}
 if (adapter) {
 if (!adapter.isPurgeActive()) {
 await adapter.saveProfile(targetProfile);
@@ -7517,14 +7703,21 @@ localStorage.setItem('auro_vak_user', JSON.stringify(targetProfile));
 }
 } catch (e) {}
 }
+this.renderThemeGrid(targetProfile);
 if (window.showToast) {
 const authorText = this.selectedAuthor === 'sri_aurobindo' ? 'Sri Aurobindo' : 'Sri Maa';
 const label = displayLabel || themeName;
 window.showToast(`Selected ${label} path by ${authorText}!`, 'success');
 }
-setTimeout(() => {
+if (typeof window !== 'undefined' && typeof window.buildPuzzleScreen === 'function') {
+window.activeCosmosLevel = null;
+if (typeof window.updateThemeHeaderButton === 'function') {
+window.updateThemeHeaderButton('wisdom');
+}
+window.buildPuzzleScreen(targetProfile);
+} else if (typeof window !== 'undefined') {
 window.location.reload();
-}, 750);
+}
 }
 }
 const themeSelectorController = new ThemeSelectorController();
@@ -9785,16 +9978,6 @@ hasValidLicense() {
 if (!this.isCommercialGateActive()) {
 return true;
 }
-try {
-const raw = localStorage.getItem(EntitlementConfig.STORAGE_KEY);
-if (!raw) return false;
-const license = JSON.parse(raw);
-if (license && license.status === 'active' && (license.gameId === 'vak' || license.gameId === 'auromind_all_access')) {
-return true;
-}
-} catch (e) {
-console.warn('[Entitlement] Failed to read license:', e);
-}
 return false;
 }
 canAccessRealm(realm) {
@@ -9839,7 +10022,6 @@ return false;
 }
 requestPurchase(levelNumber, realm) {
 const activeRealm = normalizeRealm(realm) || 'mandalas';
-console.log(`[Entitlement] Realm "${activeRealm}" requires Sanctuary Lifetime Pass.`);
 if (window.parent && window.parent !== window) {
 window.parent.postMessage({
 type: 'AUROMIND_REQUEST_PURCHASE',
@@ -9847,30 +10029,13 @@ gameId: 'vak',
 realm: activeRealm,
 levelNumber: levelNumber || null,
 title: 'VAK — The Control of Speech'
-}, '*');
+}, window.location.origin);
 }
 this.openEntitlementModal(levelNumber, activeRealm);
 }
-applyLicense(tokenOrData) {
-try {
-let licenseObj = {
-gameId: 'vak',
-status: 'active',
-unlockedAt: new Date().toISOString(),
-token: typeof tokenOrData === 'string' ? tokenOrData : (tokenOrData.token || 'AUROMIND-OFFLINE-TOKEN')
-};
-localStorage.setItem(EntitlementConfig.STORAGE_KEY, JSON.stringify(licenseObj));
-console.log('[Entitlement] License successfully applied and stored locally.');
+applyLicense() {
 this.closeEntitlementModal();
-if (typeof window.showToast === 'function') {
-window.showToast('✨ Sanctuary Lifetime Pass Activated: All Sacred Realms Unlocked!', 'success');
-}
-window.dispatchEvent(new CustomEvent('vak:license-activated', { detail: licenseObj }));
-return true;
-} catch (e) {
-console.error('[Entitlement] Error applying license:', e);
 return false;
-}
 }
 revokeLicense() {
 try {
@@ -9879,14 +10044,6 @@ console.log('[Entitlement] License removed.');
 } catch (e) {}
 }
 initMessageBridge() {
-window.addEventListener('message', (event) => {
-if (!event.data) return;
-if (event.data.type === 'AUROMIND_LICENSE_GRANTED') {
-if (event.data.gameId === 'vak' || event.data.gameId === 'auromind_all_access') {
-this.applyLicense(event.data.token || 'AUROMIND_TOKEN');
-}
-}
-});
 }
 openEntitlementModal(levelNumber, realm) {
 let modal = document.getElementById('entitlement-modal');
@@ -9908,22 +10065,18 @@ createEntitlementModalDOM() {
 const modalHtml = `
 <div id="entitlement-modal" class="glass-panel" style="display: none; position: absolute; inset: 0; margin: auto; width: calc(100% - 2rem); max-width: 440px; height: fit-content; max-height: 85dvh; z-index: 6000; flex-direction: column; align-items: center; justify-content: flex-start; gap: 0.85rem; padding: 1.5rem; border-radius: 28px; box-sizing: border-box; text-align: center; border: 1.5px solid rgba(251, 191, 36, 0.45); background: rgba(15, 23, 42, 0.95); box-shadow: 0 10px 30px rgba(0,0,0,0.85);">
 <div style="font-size: 2.2rem; margin-bottom: -0.2rem;">✨</div>
-<h3 style="margin: 0; font-family: 'Cinzel', serif; font-size: 1.35rem; color: #fbbf24;">Sanctuary Lifetime Pass</h3>
+<h3 style="margin: 0; font-family: 'Cinzel', serif; font-size: 1.35rem; color: #fbbf24;">Sanctuary Lifetime Pass (Planned)</h3>
 <p id="entitlement-modal-desc" style="font-size: 0.85rem; color: var(--text-secondary, #cbd5e1); line-height: 1.5; margin: 0;">
-All 407 levels of the Wisdom realm are permanently free. The one-time Sanctuary Lifetime Pass unlocks the complete journey across Mandalas (361 levels), Cosmos (600 levels), Savitri when available, and all future approved realms.
+All 407 Wisdom levels, Mandalas (361 levels), and Cosmos (600 levels) are currently unlocked for beta play. Online checkout for the planned one-time Sanctuary Lifetime Pass is not yet enabled.
 </p>
 <div style="width: 100%; background: rgba(251, 191, 36, 0.08); border: 1px solid rgba(251, 191, 36, 0.25); border-radius: 14px; padding: 0.75rem; text-align: left; font-size: 0.8rem; color: #e2e8f0; display: flex; flex-direction: column; gap: 0.35rem;">
-<div>✓ All 407 Wisdom Levels Permanently Free</div>
-<div>✓ Full Access to Mandalas (361 Levels) & Cosmos (600 Levels)</div>
-<div>✓ Includes Savitri (Upon Release) & Future Approved Realms</div>
-<div>✓ One-Time Lifetime Unlock — No Subscriptions or Recurring Fees</div>
-<div>✓ 100% Offline & Private — Zero Advertisements or Tracking</div>
+<div>✓ All 407 Wisdom Levels Unlocked for Beta Play</div>
+<div>✓ Full Beta Access to Mandalas (361 Levels) & Cosmos (600 Levels)</div>
+<div>✓ Planned One-Time Sanctuary Pass — No Subscriptions or Recurring Fees</div>
+<div>✓ 100% Offline-Ready — Zero Advertisements</div>
 </div>
-<button id="btn-entitlement-purchase" class="touch-target 3d-pill-btn" onclick="window.entitlementManager.requestPurchase()" style="width: 100%; background: linear-gradient(135deg, #f59e0b, #d97706); color: #ffffff; border: none; font-weight: 700; font-size: 0.95rem; padding: 0.7rem; border-radius: 9999px; cursor: pointer; margin-top: 0.2rem;">
-Unlock Complete Journey
-</button>
-<button class="touch-target" onclick="window.entitlementManager.closeEntitlementModal()" style="background: transparent; border: none; color: var(--text-secondary, #94a3b8); font-size: 0.8rem; cursor: pointer; text-decoration: underline;">
-Return to Sanctuary
+<button id="btn-entitlement-purchase" class="touch-target 3d-pill-btn" onclick="window.entitlementManager.closeEntitlementModal()" style="width: 100%; background: linear-gradient(135deg, #f59e0b, #d97706); color: #ffffff; border: none; font-weight: 700; font-size: 0.95rem; padding: 0.7rem; border-radius: 9999px; cursor: pointer; margin-top: 0.2rem;">
+Continue Beta Sanctuary Play
 </button>
 </div>`;
 const container = document.getElementById('app-container') || document.body;
@@ -10014,7 +10167,7 @@ dismissToast();
 };
 window.addEventListener('DOMContentLoaded', async () => {
 if ('serviceWorker' in navigator) {
-navigator.serviceWorker.register('sw.js').then((reg) => {
+navigator.serviceWorker.register('./sw.js', { scope: './' }).then((reg) => {
 console.log('[PWA] ServiceWorker registered with scope:', reg.scope);
 }).catch((err) => {
 console.warn('[PWA] ServiceWorker registration failed:', err);
@@ -10042,6 +10195,10 @@ if (window.contentGuardController) {
 await window.contentGuardController.refresh();
 }
 let levelsSourceDb = null;
+if (typeof window !== 'undefined' && window.__EMBEDDED_TEACHINGS_DB__) {
+levelsSourceDb = window.__EMBEDDED_TEACHINGS_DB__;
+window.levelsSourceDb = levelsSourceDb;
+} else {
 try {
 const levelsRes = await fetch('data/levels_source.json?v=' + Date.now());
 if (levelsRes.ok) {
@@ -10050,6 +10207,7 @@ window.levelsSourceDb = levelsSourceDb;
 }
 } catch (err) {
 console.warn('levels_source.json fetch fallback:', err);
+}
 }
 if (window.scriptureCardRenderer) {
 await window.scriptureCardRenderer.loadTeachingsDatabase();
@@ -10586,11 +10744,20 @@ levelsToPlay = window.__EMBEDDED_TEACHINGS_DB__.levels;
 } else {
 levelsToPlay = [{ id: 1, targetWord: 'CALM', letters: ['C','A','L','M'], targetWords: ['CALM'], bonusWords: ['CAM','MAC'], hint: 'Remaining peaceful inside.', domain: 'Peace' }];
 }
+const selectedTheme = profile && profile.settings ? profile.settings.selectedTheme : null;
+const themeLevels = (selectedTheme && selectedTheme !== 'Infinite Meditative Mode' && window.themeSelectorController && typeof window.themeSelectorController.getLevelsForTheme === 'function')
+? window.themeSelectorController.getLevelsForTheme(selectedTheme, levelsToPlay)
+: [];
 currentLvlNum = (profile && profile.player && profile.player.currentLevel)
 ? profile.player.currentLevel
 : (((userProfile && userProfile.levelIndex) || 0) + 1);
+if (themeLevels.length > 0) {
+rawLevelObj = themeLevels.find(l => l.id === currentLvlNum) || themeLevels[0];
+currentLvlNum = rawLevelObj.id;
+} else {
 const currentLevelIndex = Math.max(0, (currentLvlNum - 1) % levelsToPlay.length);
 rawLevelObj = levelsToPlay[currentLevelIndex];
+}
 }
 const activeRealm = (cosmosLevelOverride || (window.activeTheme === 'cosmos' && window.activeCosmosLevel))
 ? 'cosmos'
@@ -11016,7 +11183,25 @@ return;
 }
 const activeProfile = window.storageAdapter ? (await window.storageAdapter.getProfile()) : null;
 if (activeProfile && activeProfile.player) {
+const selectedTheme = activeProfile.settings ? activeProfile.settings.selectedTheme : null;
+const themeLevels = (selectedTheme && selectedTheme !== 'Infinite Meditative Mode' && window.themeSelectorController && typeof window.themeSelectorController.getLevelsForTheme === 'function')
+? window.themeSelectorController.getLevelsForTheme(selectedTheme)
+: [];
 const current = activeProfile.player.currentLevel || 1;
+if (themeLevels.length > 0) {
+const refId = (typeof fromLevelNumber === 'number' && fromLevelNumber > 0) ? fromLevelNumber : current;
+const curIdx = themeLevels.findIndex(l => l.id === refId);
+const nextThemeLvl = themeLevels[(curIdx >= 0 ? (curIdx + 1) : 0) % themeLevels.length];
+const nextLvlId = nextThemeLvl.id;
+activeProfile.player.currentLevel = nextLvlId;
+activeProfile.player.maxLevelUnlocked = Math.max(activeProfile.player.maxLevelUnlocked || 1, nextLvlId);
+const rankObj = window.levelManagerController.getRankForLevel(nextLvlId);
+if (rankObj) {
+activeProfile.player.currentRank = rankObj.name;
+activeProfile.player.rankIndex = rankObj.index;
+}
+if (window.storageAdapter) await window.storageAdapter.saveProfile(activeProfile);
+} else {
 if (current >= 407) {
 window.levelManagerController.handleEndgameLevel407(activeProfile);
 return;
@@ -11035,6 +11220,7 @@ activeProfile.player.currentRank = rankObj.name;
 activeProfile.player.rankIndex = rankObj.index;
 }
 if (window.storageAdapter) await window.storageAdapter.saveProfile(activeProfile);
+}
 }
 userProfile.levelIndex = activeProfile.player.currentLevel - 1;
 window.userProfile = activeProfile;
@@ -11395,9 +11581,9 @@ if (settingsModal) settingsModal.style.display = 'none';
 const threeDotsMenu = document.getElementById('three-dots-dropdown');
 if (threeDotsMenu) threeDotsMenu.style.display = 'none';
 if (window.parent && window.parent !== window) {
-window.parent.postMessage({ type: 'AUROMIND_CLOSE_THEATER' }, '*');
+window.parent.postMessage({ type: 'AUROMIND_CLOSE_THEATER' }, window.location.origin);
 } else {
-window.location.href = 'https://gapskris.github.io/AuroMind/';
+window.location.href = new URL('../../index.html', window.location.href).href;
 }
 };
 window.toggleSeniorViewMode = () => {

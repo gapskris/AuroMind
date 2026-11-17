@@ -3,31 +3,43 @@
 const CACHE_NAME = 'auroblocks-v1.5.1';
 
 const PRECACHE_ASSETS = [
-  '/',
-  '/index.html',
-  '/icon.svg',
-  '/apple-touch-icon.png',
-  '/pwa-192x192.png',
-  '/pwa-512x512.png',
-  '/pwa-maskable-512x512.png',
-  '/manifest.webmanifest',
-  '/assets/artwork/hero-sacred-geometry.webp',
-  '/assets/artwork/mode-classic-flow.webp',
-  '/assets/artwork/mode-sacred-sudoku.webp',
-  '/assets/artwork/mode-sacred-journey.webp',
-  '/assets/fonts/cinzel-latin.woff2',
-  '/assets/fonts/plus-jakarta-sans-latin.woff2',
-  '/assets/fonts/jetbrains-mono-latin.woff2',
+  './',
+  './index.html',
+  './icon.svg',
+  './apple-touch-icon.png',
+  './pwa-192x192.png',
+  './pwa-512x512.png',
+  './pwa-maskable-512x512.png',
+  './manifest.webmanifest',
+  './assets/artwork/hero-sacred-geometry.webp',
+  './assets/artwork/mode-classic-flow.webp',
+  './assets/artwork/mode-sacred-sudoku.webp',
+  './assets/artwork/mode-sacred-journey.webp',
+  './assets/fonts/cinzel-latin.woff2',
+  './assets/fonts/plus-jakarta-sans-latin.woff2',
+  './assets/fonts/jetbrains-mono-latin.woff2',
 ];
+
+function toScopeRelative(candidate) {
+  if (typeof candidate !== 'string') return null;
+  const trimmed = candidate.trim();
+  if (!trimmed || trimmed.startsWith('//') || /^[a-z]+:/i.test(trimmed)) {
+    return null;
+  }
+  const clean = trimmed.split('#')[0].split('?')[0];
+  if (clean.startsWith('./')) return clean;
+  if (clean.startsWith('/')) return './' + clean.slice(1);
+  return './' + clean;
+}
 
 function extractHtmlAssetUrls(htmlText) {
   const urls = new Set();
-  const attrRegex = /(?:src|href)=["'](\/[^"'?#]+)["']/gi;
+  const attrRegex = /(?:src|href)=["']((?:\.\/|\/)[^"'?#]+)["']/gi;
   let match;
   while ((match = attrRegex.exec(htmlText)) !== null) {
-    const candidate = match[1];
-    if (candidate && !candidate.startsWith('//')) {
-      urls.add(candidate);
+    const normalized = toScopeRelative(match[1]);
+    if (normalized) {
+      urls.add(normalized);
     }
   }
   return Array.from(urls);
@@ -41,15 +53,16 @@ self.addEventListener('install', (event) => {
 
       const allAssetsToCache = new Set(PRECACHE_ASSETS);
 
-      // A. Discover hashed build bundles from build-generated /precache-manifest.json
+      // A. Discover hashed build bundles from build-generated ./precache-manifest.json
       try {
-        const manifestRes = await fetch('/precache-manifest.json', { cache: 'no-cache' });
+        const manifestRes = await fetch('./precache-manifest.json', { cache: 'no-cache' });
         if (manifestRes.ok) {
           const manifestData = await manifestRes.json();
           if (manifestData && Array.isArray(manifestData.assets)) {
             for (const assetPath of manifestData.assets) {
-              if (typeof assetPath === 'string' && assetPath.startsWith('/')) {
-                allAssetsToCache.add(assetPath);
+              const normalized = toScopeRelative(assetPath);
+              if (normalized) {
+                allAssetsToCache.add(normalized);
               }
             }
           }
@@ -58,9 +71,9 @@ self.addEventListener('install', (event) => {
         // Ignore in dev mode where precache-manifest.json is not emitted
       }
 
-      // B. Also inspect /index.html for any referenced hashed JS/CSS bundle URLs
+      // B. Also inspect ./index.html for any referenced hashed JS/CSS bundle URLs
       try {
-        const indexRes = await fetch('/index.html', { cache: 'no-cache' });
+        const indexRes = await fetch('./index.html', { cache: 'no-cache' });
         if (indexRes.ok) {
           const html = await indexRes.text();
           for (const url of extractHtmlAssetUrls(html)) {
@@ -73,10 +86,11 @@ self.addEventListener('install', (event) => {
 
       await Promise.allSettled(
         Array.from(allAssetsToCache).map(async (assetUrl) => {
-          const req = new Request(assetUrl, { cache: 'reload' });
+          const resolvedUrl = new URL(assetUrl, self.location.href).href;
+          const req = new Request(resolvedUrl, { cache: 'reload' });
           const res = await fetch(req);
           if (res.ok) {
-            await cache.put(assetUrl, res);
+            await cache.put(resolvedUrl, res);
           }
         })
       );
@@ -99,14 +113,17 @@ function isViteDevModulePath(pathname) {
   );
 }
 
-// 2. Activate Phase: Clean up previous cache generations and scrub any dev-server module entries
+// 2. Activate Phase: Clean up previous AuroBlocks caches only (strict prefix isolation)
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
       const cacheNames = await caches.keys();
       await Promise.all(
         cacheNames.map(async (name) => {
-          if (name.startsWith('auroblocks-') && name !== CACHE_NAME) {
+          if (!name.startsWith('auroblocks-')) {
+            return;
+          }
+          if (name !== CACHE_NAME) {
             await caches.delete(name);
             return;
           }
@@ -137,15 +154,20 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
   const url = new URL(event.request.url);
+  const scopeBase = new URL('./', self.location.href);
 
-  // Cross-origin requests bypass SW cache
+  // Cross-origin or out-of-scope requests bypass AuroBlocks SW cache
   if (url.origin !== self.location.origin) return;
+  if (!url.href.startsWith(scopeBase.href)) return;
 
   // Never intercept or cache Vite dev-server module transform or pre-bundled dependency requests
   if (isViteDevModulePath(url.pathname)) return;
 
+  const indexCacheUrl = new URL('./index.html', self.location.href).href;
+  const rootCacheUrl = scopeBase.href;
+
   // A. Navigation requests (HTML documents):
-  // NetworkFirst with offline cache fallback to /index.html or /
+  // NetworkFirst with offline cache fallback to ./index.html or ./
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request)
@@ -154,7 +176,7 @@ self.addEventListener('fetch', (event) => {
             const copy = networkResponse.clone();
             caches.open(CACHE_NAME).then((cache) => {
               cache.put(event.request, copy.clone());
-              cache.put('/index.html', copy);
+              cache.put(indexCacheUrl, copy);
             });
           }
           return networkResponse;
@@ -162,17 +184,17 @@ self.addEventListener('fetch', (event) => {
         .catch(async () => {
           const exactMatch = await caches.match(event.request);
           if (exactMatch) return exactMatch;
-          const indexMatch = await caches.match('/index.html');
+          const indexMatch = await caches.match(indexCacheUrl);
           if (indexMatch) return indexMatch;
-          return caches.match('/');
+          return caches.match(rootCacheUrl);
         })
     );
     return;
   }
 
-  // B. Hashed or static immutable assets (/assets/*, icons): CacheFirst
+  // B. Hashed or static immutable assets (./assets/*, icons): CacheFirst
   const isStaticOrHashed =
-    url.pathname.startsWith('/assets/') ||
+    url.pathname.startsWith(scopeBase.pathname + 'assets/') ||
     url.pathname.endsWith('.woff2') ||
     url.pathname.endsWith('.js') ||
     url.pathname.endsWith('.css') ||
@@ -185,8 +207,9 @@ self.addEventListener('fetch', (event) => {
   if (isStaticOrHashed) {
     event.respondWith(
       (async () => {
+        const cleanHref = url.origin + url.pathname;
         const cachedResponse =
-          (await caches.match(event.request)) || (await caches.match(url.pathname));
+          (await caches.match(event.request)) || (await caches.match(cleanHref));
         if (cachedResponse) {
           return cachedResponse;
         }
@@ -194,7 +217,7 @@ self.addEventListener('fetch', (event) => {
         const networkResponse = await fetch(event.request);
         if (networkResponse && networkResponse.status === 200) {
           const copy = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(url.pathname, copy));
+          caches.open(CACHE_NAME).then((cache) => cache.put(cleanHref, copy));
         }
         return networkResponse;
       })()
@@ -205,13 +228,14 @@ self.addEventListener('fetch', (event) => {
   // C. General app assets: StaleWhileRevalidate
   event.respondWith(
     (async () => {
+      const cleanHref = url.origin + url.pathname;
       const cachedResponse =
-        (await caches.match(event.request)) || (await caches.match(url.pathname));
+        (await caches.match(event.request)) || (await caches.match(cleanHref));
       const fetchPromise = fetch(event.request)
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
             const copy = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(url.pathname, copy));
+            caches.open(CACHE_NAME).then((cache) => cache.put(cleanHref, copy));
           }
           return networkResponse;
         })
@@ -228,4 +252,3 @@ self.addEventListener('message', (event) => {
     self.skipWaiting();
   }
 });
-

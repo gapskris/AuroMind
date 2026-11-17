@@ -1028,7 +1028,7 @@ window.addEventListener('load', async () => {
         if (window.parent && window.parent !== window) {
             window.parent.postMessage({ type: 'AUROMIND_CLOSE_THEATER' }, '*');
         } else {
-            window.location.href = 'https://gapskris.github.io/AuroMind/';
+            window.location.href = new URL('../../index.html', window.location.href).href;
         }
     };
 

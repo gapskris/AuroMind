@@ -3,6 +3,7 @@
   "short_name": "AuroMind",
   "description": "Mindful and intergenerational casual gaming sanctuary",
   "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#070a13",
   "theme_color": "#070a13",

@@ -59,6 +59,17 @@
         } catch (e) {}
       })();
     </script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        const origRegister = navigator.serviceWorker.register.bind(navigator.serviceWorker);
+        navigator.serviceWorker.register = function(scriptURL, options) {
+          if (scriptURL === '/sw.js' || scriptURL === 'sw.js') {
+            return origRegister('./sw.js', Object.assign({}, options, { scope: './', updateViaCache: 'none' }));
+          }
+          return origRegister(scriptURL, options);
+        };
+      }
+    </script>
     <script type="module" crossorigin src="./assets/index-BLt2QrTp.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-Ccfp-y1N.css">
   </head>
