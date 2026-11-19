@@ -166,16 +166,31 @@ function initTheaterMode() {
   // Listen to HTML5 PostMessage from same-origin child game iframes (Vak, AuroMatch, etc.)
   window.addEventListener('message', (event) => {
     if (event.origin !== window.location.origin) return;
+    if (!theaterIframe || event.source !== theaterIframe.contentWindow) return;
 
-    if (event.data && (event.data.type === 'AUROMIND_CLOSE_THEATER' || event.data.action === 'EXIT_GAME')) {
+    const data = event.data;
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return;
+
+    const activeGameId = history.state?.inGame ? history.state.gameId : null;
+    if (!activeGameId || !gameUrls[activeGameId]) return;
+
+    if (data.type === 'AUROMIND_CLOSE_THEATER' || data.action === 'EXIT_GAME') {
       closeTheater();
+      return;
     }
 
-    // Handle commercial license purchase request from child game iframe (ENT-001)
-    if (event.data && event.data.type === 'AUROMIND_REQUEST_PURCHASE') {
-      if (typeof window.openPurchaseModal === 'function') {
-        window.openPurchaseModal(event.data.gameId, event.data.title);
-      }
+    if (data.type !== 'AUROMIND_REQUEST_PURCHASE') return;
+
+    const purchaseTitles = {
+      vak: 'VAK — The Control of Speech',
+      auromatch: 'AuroMatch — Zen Tile Solitaire'
+    };
+
+    if (!Object.prototype.hasOwnProperty.call(purchaseTitles, activeGameId)) return;
+    if (data.gameId !== activeGameId) return;
+
+    if (typeof window.openPurchaseModal === 'function') {
+      window.openPurchaseModal(activeGameId, purchaseTitles[activeGameId]);
     }
   });
 

@@ -83,7 +83,7 @@ self.addEventListener('activate', (event) => {
     const validCaches = new Set([CACHE_NAME, ARTWORK_CACHE_NAME, FONT_CACHE_NAME]);
     await Promise.all(
       keys.map((key) => {
-        const isMatchCache = key.startsWith('auro-match-') || key.startsWith('match-');
+        const isMatchCache = key.startsWith('auro-match-');
         if (isMatchCache && !validCaches.has(key)) {
           return caches.delete(key);
         }

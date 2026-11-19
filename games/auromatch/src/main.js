@@ -1026,7 +1026,7 @@ window.addEventListener('load', async () => {
     
     window.exitToAuroMindPortal = () => {
         if (window.parent && window.parent !== window) {
-            window.parent.postMessage({ type: 'AUROMIND_CLOSE_THEATER' }, '*');
+            window.parent.postMessage({ type: 'AUROMIND_CLOSE_THEATER' }, window.location.origin);
         } else {
             window.location.href = new URL('../../index.html', window.location.href).href;
         }
