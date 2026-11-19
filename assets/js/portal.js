@@ -4,6 +4,7 @@
  */
 
 document.addEventListener('DOMContentLoaded', () => {
+  initPortalServiceWorker();
   initTheaterMode();
   initSidebarAndNavigation();
   initSearch();
@@ -16,6 +17,22 @@ document.addEventListener('DOMContentLoaded', () => {
   initFeedbackModal();
   initPurchaseBridge();
 });
+
+// ==========================================================================
+// 0. ROOT PORTAL SERVICE WORKER REGISTRATION
+// ==========================================================================
+function initPortalServiceWorker() {
+  if ('serviceWorker' in navigator) {
+    const registerSw = () => {
+      navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(() => {});
+    };
+    if (document.readyState === 'complete') {
+      registerSw();
+    } else {
+      window.addEventListener('load', registerSw);
+    }
+  }
+}
 
 // ==========================================================================
 // 1. IN-PORTAL GAME THEATER VIEW (KEEPS USERS INSIDE AUROMIND)
@@ -275,18 +292,43 @@ function initSearch() {
 function initSeniorMode() {
   const seniorBtn = document.getElementById('senior-mode-btn');
   const sidebarSeniorBtn = document.getElementById('sidebar-senior-btn');
+  const seniorToggle = document.getElementById('settings-senior-toggle');
 
-  function toggleSeniorMode() {
-    document.body.classList.toggle('senior-mode');
-    const isActive = document.body.classList.contains('senior-mode');
-    
+  function applySeniorMode(isActive, persist = true) {
+    document.body.classList.toggle('senior-mode', isActive);
+
     if (seniorBtn) {
       seniorBtn.classList.toggle('active', isActive);
-      seniorBtn.querySelector('span:last-child').textContent = isActive ? 'Senior: ON' : 'Senior View';
+      const labelSpan = seniorBtn.querySelector('span:last-child');
+      if (labelSpan) {
+        labelSpan.textContent = isActive ? 'Senior: ON' : 'Senior View';
+      }
     }
     if (sidebarSeniorBtn) {
       sidebarSeniorBtn.classList.toggle('active', isActive);
     }
+    if (seniorToggle) {
+      seniorToggle.checked = isActive;
+    }
+
+    if (persist) {
+      try {
+        localStorage.setItem('auromind_senior_mode', isActive ? 'true' : 'false');
+      } catch (err) {}
+    }
+  }
+
+  window.applySeniorMode = applySeniorMode;
+
+  // Restore saved Senior Mode preference on load
+  try {
+    const savedSenior = localStorage.getItem('auromind_senior_mode') === 'true';
+    applySeniorMode(savedSenior, false);
+  } catch (err) {}
+
+  function toggleSeniorMode() {
+    const nextState = !document.body.classList.contains('senior-mode');
+    applySeniorMode(nextState, true);
   }
 
   if (seniorBtn) seniorBtn.addEventListener('click', toggleSeniorMode);
@@ -330,11 +372,32 @@ function initAmbientAudio() {
   window.suspendAmbientAudio = stopAmbientAudio;
 
   window.setAmbientVolume = (volRatio) => {
-    currentVolume = volRatio * 0.07;
+    const clampedRatio = Math.max(0, Math.min(1, Number.isFinite(volRatio) ? volRatio : 0.5));
+    currentVolume = clampedRatio * 0.07;
+    document.body.dataset.ambientVolume = String(Math.round(clampedRatio * 100));
+    document.body.classList.toggle('ambient-muted', clampedRatio === 0);
     if (gainNode && audioCtx && isPlaying) {
-      gainNode.gain.setValueAtTime(Math.max(0.001, currentVolume), audioCtx.currentTime);
+      gainNode.gain.setValueAtTime(Math.max(0.0001, currentVolume), audioCtx.currentTime);
     }
   };
+
+  // Restore saved Ambient Volume preference on load
+  try {
+    const rawSavedVolume = localStorage.getItem('auromind_ambient_volume');
+    if (rawSavedVolume !== null) {
+      const parsedVol = parseFloat(rawSavedVolume);
+      if (Number.isFinite(parsedVol)) {
+        const clampedVol = Math.max(0, Math.min(100, parsedVol));
+        window.setAmbientVolume(clampedVol / 100);
+        const volumeSlider = document.getElementById('settings-volume-slider');
+        if (volumeSlider) {
+          volumeSlider.value = String(clampedVol);
+        }
+      }
+    } else {
+      document.body.dataset.ambientVolume = '50';
+    }
+  } catch (err) {}
 
   audioBtn.addEventListener('click', () => {
     if (!audioCtx) {
@@ -352,7 +415,7 @@ function initAmbientAudio() {
       oscillator.frequency.setValueAtTime(432, audioCtx.currentTime);
 
       gainNode.gain.setValueAtTime(0.001, audioCtx.currentTime);
-      gainNode.gain.linearRampToValueAtTime(currentVolume, audioCtx.currentTime + 1);
+      gainNode.gain.linearRampToValueAtTime(Math.max(0.0001, currentVolume), audioCtx.currentTime + 1);
 
       oscillator.connect(gainNode);
       gainNode.connect(audioCtx.destination);
@@ -402,6 +465,37 @@ function initSettingsModal() {
   const motionToggle = document.getElementById('settings-motion-toggle');
   const resetBtn = document.getElementById('settings-reset-btn');
 
+  function applyReducedMotion(isReduced, persist = true) {
+    document.documentElement.classList.toggle('reduced-motion', isReduced);
+    document.body.classList.toggle('reduced-motion', isReduced);
+    if (motionToggle) {
+      motionToggle.checked = isReduced;
+    }
+    if (persist) {
+      try {
+        localStorage.setItem('auromind_reduced_motion', isReduced ? 'true' : 'false');
+      } catch (err) {}
+    }
+  }
+
+  // Restore saved Reduced Motion and Ambient Volume controls on load
+  try {
+    const savedMotion = localStorage.getItem('auromind_reduced_motion') === 'true';
+    applyReducedMotion(savedMotion, false);
+
+    const rawSavedVolume = localStorage.getItem('auromind_ambient_volume');
+    if (rawSavedVolume !== null && volumeSlider) {
+      const parsedVol = parseFloat(rawSavedVolume);
+      if (Number.isFinite(parsedVol)) {
+        const clampedVol = Math.max(0, Math.min(100, parsedVol));
+        volumeSlider.value = String(clampedVol);
+        if (window.setAmbientVolume) {
+          window.setAmbientVolume(clampedVol / 100);
+        }
+      }
+    }
+  } catch (err) {}
+
   if (!settingsBtn || !modal) return;
 
   const openModal = () => {
@@ -411,7 +505,9 @@ function initSettingsModal() {
     }
     // Sync reduced motion
     if (motionToggle) {
-      motionToggle.checked = document.documentElement.classList.contains('reduced-motion');
+      motionToggle.checked =
+        document.documentElement.classList.contains('reduced-motion') ||
+        document.body.classList.contains('reduced-motion');
     }
     modal.classList.add('open');
     if (window.innerWidth < 680 && sidebar) {
@@ -436,15 +532,13 @@ function initSettingsModal() {
   // Senior Mode Toggle inside Settings
   if (seniorToggle) {
     seniorToggle.addEventListener('change', () => {
-      const seniorBtn = document.getElementById('senior-mode-btn');
-      const sidebarSeniorBtn = document.getElementById('sidebar-senior-btn');
-      document.body.classList.toggle('senior-mode', seniorToggle.checked);
-      if (seniorBtn) {
-        seniorBtn.classList.toggle('active', seniorToggle.checked);
-        seniorBtn.querySelector('span:last-child').textContent = seniorToggle.checked ? 'Senior: ON' : 'Senior View';
-      }
-      if (sidebarSeniorBtn) {
-        sidebarSeniorBtn.classList.toggle('active', seniorToggle.checked);
+      if (typeof window.applySeniorMode === 'function') {
+        window.applySeniorMode(seniorToggle.checked, true);
+      } else {
+        document.body.classList.toggle('senior-mode', seniorToggle.checked);
+        try {
+          localStorage.setItem('auromind_senior_mode', seniorToggle.checked ? 'true' : 'false');
+        } catch (err) {}
       }
     });
   }
@@ -452,21 +546,24 @@ function initSettingsModal() {
   // Reduced Motion Toggle
   if (motionToggle) {
     motionToggle.addEventListener('change', () => {
-      document.documentElement.classList.toggle('reduced-motion', motionToggle.checked);
-      try {
-        localStorage.setItem('auromind_reduced_motion', motionToggle.checked ? 'true' : 'false');
-      } catch (err) {}
+      applyReducedMotion(motionToggle.checked, true);
     });
   }
 
   // Volume slider
   if (volumeSlider) {
-    volumeSlider.addEventListener('input', (e) => {
-      const vol = parseFloat(e.target.value) / 100;
+    const handleVolumeChange = (e) => {
+      const rawVal = parseFloat(e.target.value);
+      const clampedVal = Number.isFinite(rawVal) ? Math.max(0, Math.min(100, rawVal)) : 50;
       if (window.setAmbientVolume) {
-        window.setAmbientVolume(vol);
+        window.setAmbientVolume(clampedVal / 100);
       }
-    });
+      try {
+        localStorage.setItem('auromind_ambient_volume', String(clampedVal));
+      } catch (err) {}
+    };
+    volumeSlider.addEventListener('input', handleVolumeChange);
+    volumeSlider.addEventListener('change', handleVolumeChange);
   }
 
   // Reset Cache / Local Storage
@@ -476,6 +573,8 @@ function initSettingsModal() {
         try {
           // Explicitly remove known AuroMind keys
           localStorage.removeItem('auromind_reduced_motion');
+          localStorage.removeItem('auromind_senior_mode');
+          localStorage.removeItem('auromind_ambient_volume');
           localStorage.removeItem('auromind_guide_seen');
 
           // Defensively remove any current or future AuroMind-owned keys
@@ -483,6 +582,19 @@ function initSettingsModal() {
             .filter(key => key.startsWith('auromind_'))
             .forEach(key => localStorage.removeItem(key));
         } catch (err) {}
+
+        // Reset active UI state to defaults
+        if (typeof window.applySeniorMode === 'function') {
+          window.applySeniorMode(false, false);
+        }
+        applyReducedMotion(false, false);
+        if (volumeSlider) {
+          volumeSlider.value = '50';
+        }
+        if (window.setAmbientVolume) {
+          window.setAmbientVolume(0.5);
+        }
+
         resetBtn.textContent = 'Cache Cleared ✓';
         resetBtn.style.color = '#059669';
         setTimeout(() => {

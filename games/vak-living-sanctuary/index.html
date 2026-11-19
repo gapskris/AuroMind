@@ -22,6 +22,199 @@
       href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <script>
+      (function () {
+        var MISSING_BUNDLE_IMAGES = {
+          '/src/assets/images/vak_hero_sanctuary_banner_1793902827257.jpg':
+            './assets/images/vak_hero_sanctuary_banner_1793902827257.jpg',
+          '/src/assets/images/vak_realm1_words_of_light_1793902828626.jpg':
+            './assets/images/vak_realm1_words_of_light_1793902828626.jpg',
+          '/src/assets/images/vak_realm2_matrimandir_mandala_1793902831238.jpg':
+            './assets/images/vak_realm2_matrimandir_mandala_1793902831238.jpg',
+          '/src/assets/images/vak_realm3_cosmos_prakriti_1793902832690.jpg':
+            './assets/images/vak_realm3_cosmos_prakriti_1793902832690.jpg',
+          '/src/assets/images/vak_sanctuary_chambers_art_1793902831676.jpg':
+            './assets/images/vak_sanctuary_chambers_art_1793902831676.jpg'
+        };
+
+        var CORPUS_SLICE_ENDPOINTS = [
+          '/api/corpus/overview',
+          '/api/corpus/theme1/levels',
+          '/api/corpus/theme1/lexicons',
+          '/api/corpus/theme2/gardens',
+          '/api/corpus/theme3/cosmos',
+          '/api/corpus/wisdom-sanctuary',
+          '/api/corpus/speech-chamber',
+          '/api/corpus/ashram-calendar',
+          '/api/corpus/classified-lexicon',
+          '/api/corpus/scrabble-list'
+        ];
+        var CORPUS_VALIDATE_ENDPOINT = '/api/corpus/validate-scrabble';
+
+        window.__VAK_COMPAT_STATE__ = {
+          interceptedCorpusRequests: [],
+          interceptedImageRequests: [],
+          missingLocalArtworkAssets: Object.keys(MISSING_BUNDLE_IMAGES)
+        };
+
+        function resolveMissingImagePath(rawVal) {
+          if (typeof rawVal !== 'string' || !rawVal) return null;
+          if (MISSING_BUNDLE_IMAGES[rawVal]) return MISSING_BUNDLE_IMAGES[rawVal];
+          try {
+            var parsed = new URL(rawVal, window.location.href);
+            if (parsed.origin !== window.location.origin) return null;
+            if (MISSING_BUNDLE_IMAGES[parsed.pathname]) {
+              return MISSING_BUNDLE_IMAGES[parsed.pathname];
+            }
+            for (var key in MISSING_BUNDLE_IMAGES) {
+              var relTarget = MISSING_BUNDLE_IMAGES[key].slice(1);
+              if (parsed.pathname.endsWith(relTarget)) {
+                return MISSING_BUNDLE_IMAGES[key];
+              }
+            }
+          } catch (e) {}
+          return null;
+        }
+
+        function matchCorpusEndpoint(rawUrl) {
+          try {
+            var parsed = new URL(rawUrl, window.location.href);
+            if (parsed.origin !== window.location.origin) return null;
+            var pathname = parsed.pathname;
+            if (
+              pathname === CORPUS_VALIDATE_ENDPOINT ||
+              pathname.endsWith('/games/vak-living-sanctuary' + CORPUS_VALIDATE_ENDPOINT)
+            ) {
+              return { type: 'validate-scrabble', pathname: pathname, url: parsed.href };
+            }
+            for (var i = 0; i < CORPUS_SLICE_ENDPOINTS.length; i++) {
+              var ep = CORPUS_SLICE_ENDPOINTS[i];
+              if (
+                pathname === ep ||
+                pathname.endsWith('/games/vak-living-sanctuary' + ep)
+              ) {
+                return { type: 'corpus-slice', endpoint: ep, pathname: pathname, url: parsed.href };
+              }
+            }
+          } catch (e) {}
+          return null;
+        }
+
+        // 1. Narrow fetch wrapper for /api/corpus/* (AURO-25) and missing bundle image pre-checks (AURO-24)
+        // Note: /api/beta-auth/* and all unrelated endpoints are intentionally NOT intercepted (AURO-26).
+        if (typeof window.fetch === 'function') {
+          var nativeFetch = window.fetch.bind(window);
+          window.fetch = function (input, init) {
+            var rawUrl =
+              typeof input === 'string'
+                ? input
+                : input && typeof input.url === 'string'
+                  ? input.url
+                  : '';
+
+            var mappedImg = resolveMissingImagePath(rawUrl);
+            if (mappedImg) {
+              var resolvedInScope = new URL(mappedImg, window.location.href).href;
+              window.__VAK_COMPAT_STATE__.interceptedImageRequests.push({
+                requested: rawUrl,
+                inScopeUrl: resolvedInScope,
+                source: 'fetch'
+              });
+              return Promise.resolve(
+                new Response(null, {
+                  status: 204,
+                  statusText: 'No Local Artwork Equivalent — Use Embedded SVG Fallback'
+                })
+              );
+            }
+
+            var corpusMatch = matchCorpusEndpoint(rawUrl);
+            if (corpusMatch) {
+              window.__VAK_COMPAT_STATE__.interceptedCorpusRequests.push(corpusMatch);
+              if (corpusMatch.type === 'validate-scrabble') {
+                return Promise.resolve(
+                  new Response(
+                    JSON.stringify({ isValidScrabbleWord: false, source: 'embedded-fallback' }),
+                    {
+                      status: 200,
+                      headers: { 'Content-Type': 'application/json; charset=utf-8' }
+                    }
+                  )
+                );
+              }
+              return Promise.resolve(
+                new Response(null, {
+                  status: 204,
+                  statusText: 'Use Embedded Corpus Fallback'
+                })
+              );
+            }
+
+            return nativeFetch(input, init);
+          };
+        }
+
+        // 2. Pre-module HTMLImageElement compatibility for missing /src/assets/images/vak_*.jpg (AURO-24)
+        // Keeps URLs inside VAK service-worker scope and triggers Yt's built-in sacred lotus SVG fallback
+        // without fabricating replacement artwork or firing out-of-scope /src/assets/images/* 404 requests.
+        try {
+          var imgProto = window.HTMLImageElement && window.HTMLImageElement.prototype;
+          var srcDesc = imgProto && Object.getOwnPropertyDescriptor(imgProto, 'src');
+          var origSetAttribute = Element.prototype.setAttribute;
+
+          function triggerBuiltInArtworkFallback(imgEl, rawVal, inScopeRel) {
+            var resolvedInScope = new URL(inScopeRel, window.location.href).href;
+            imgEl.setAttribute('data-vak-in-scope-src', inScopeRel);
+            imgEl.setAttribute('data-vak-resolved-src', resolvedInScope);
+            window.__VAK_COMPAT_STATE__.interceptedImageRequests.push({
+              requested: rawVal,
+              inScopeUrl: resolvedInScope,
+              source: 'img'
+            });
+            setTimeout(function () {
+              try {
+                imgEl.dispatchEvent(new Event('error', { bubbles: false, cancelable: false }));
+              } catch (e) {}
+            }, 0);
+          }
+
+          if (srcDesc && srcDesc.set && srcDesc.get) {
+            Object.defineProperty(imgProto, 'src', {
+              configurable: true,
+              enumerable: srcDesc.enumerable,
+              get: function () {
+                var scoped = this.getAttribute('data-vak-resolved-src');
+                if (scoped) return scoped;
+                return srcDesc.get.call(this);
+              },
+              set: function (val) {
+                var mapped = resolveMissingImagePath(val);
+                if (mapped) {
+                  triggerBuiltInArtworkFallback(this, val, mapped);
+                  return;
+                }
+                return srcDesc.set.call(this, val);
+              }
+            });
+          }
+
+          Element.prototype.setAttribute = function (name, value) {
+            if (
+              this.tagName === 'IMG' &&
+              typeof name === 'string' &&
+              name.toLowerCase() === 'src'
+            ) {
+              var mapped = resolveMissingImagePath(value);
+              if (mapped) {
+                triggerBuiltInArtworkFallback(this, value, mapped);
+                return;
+              }
+            }
+            return origSetAttribute.call(this, name, value);
+          };
+        } catch (e) {}
+      })();
+    </script>
     <script type="module" crossorigin src="./assets/index-CUrzyYgb.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-Dw9BQKWO.css">
   <link rel="manifest" href="./manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="./registerSW.js"></script></head>

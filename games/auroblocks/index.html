@@ -70,6 +70,81 @@
         };
       }
     </script>
+    <script>
+      (function () {
+        var ARTWORK_PREFIX = '/assets/artwork/';
+        var RELATIVE_ARTWORK_PREFIX = './assets/artwork/';
+        function rewriteArtworkUrl(value) {
+          if (typeof value !== 'string') return value;
+          if (value.indexOf(ARTWORK_PREFIX) === 0) {
+            return RELATIVE_ARTWORK_PREFIX + value.slice(ARTWORK_PREFIX.length);
+          }
+          var originPrefix = window.location.origin + ARTWORK_PREFIX;
+          if (value.indexOf(originPrefix) === 0) {
+            return RELATIVE_ARTWORK_PREFIX + value.slice(originPrefix.length);
+          }
+          return value;
+        }
+        try {
+          var imgProto = window.HTMLImageElement && window.HTMLImageElement.prototype;
+          var srcDesc = imgProto && Object.getOwnPropertyDescriptor(imgProto, 'src');
+          if (srcDesc && srcDesc.set && srcDesc.get) {
+            Object.defineProperty(imgProto, 'src', {
+              configurable: true,
+              enumerable: srcDesc.enumerable,
+              get: function () {
+                return srcDesc.get.call(this);
+              },
+              set: function (val) {
+                return srcDesc.set.call(this, rewriteArtworkUrl(val));
+              }
+            });
+          }
+          var origSetAttribute = Element.prototype.setAttribute;
+          Element.prototype.setAttribute = function (name, value) {
+            if (typeof name === 'string' && name.toLowerCase() === 'src') {
+              value = rewriteArtworkUrl(value);
+            }
+            return origSetAttribute.call(this, name, value);
+          };
+          if (typeof MutationObserver !== 'undefined') {
+            var observer = new MutationObserver(function (mutations) {
+              for (var i = 0; i < mutations.length; i++) {
+                var m = mutations[i];
+                if (m.type === 'attributes' && m.target && m.target.tagName === 'IMG') {
+                  var raw = m.target.getAttribute('src');
+                  var fixed = rewriteArtworkUrl(raw);
+                  if (fixed !== raw) origSetAttribute.call(m.target, 'src', fixed);
+                } else if (m.type === 'childList' && m.addedNodes) {
+                  for (var j = 0; j < m.addedNodes.length; j++) {
+                    var node = m.addedNodes[j];
+                    if (node && node.nodeType === 1) {
+                      if (node.tagName === 'IMG') {
+                        var r = node.getAttribute('src');
+                        var f = rewriteArtworkUrl(r);
+                        if (f !== r) origSetAttribute.call(node, 'src', f);
+                      } else if (node.querySelectorAll) {
+                        var imgs = node.querySelectorAll('img[src^="/assets/artwork/"]');
+                        for (var k = 0; k < imgs.length; k++) {
+                          var ir = imgs[k].getAttribute('src');
+                          origSetAttribute.call(imgs[k], 'src', rewriteArtworkUrl(ir));
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            });
+            observer.observe(document.documentElement, {
+              childList: true,
+              subtree: true,
+              attributes: true,
+              attributeFilter: ['src']
+            });
+          }
+        } catch (e) {}
+      })();
+    </script>
     <script type="module" crossorigin src="./assets/index-BLt2QrTp.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-Ccfp-y1N.css">
   </head>

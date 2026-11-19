@@ -9,3 +9,8 @@ package-lock.json
 # OS / Editor
 .DS_Store
 Thumbs.db
+
+# AI Studio & Browser Verification Tooling
+.aistudio/
+.playwright-cli/
+
