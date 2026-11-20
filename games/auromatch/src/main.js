@@ -8,7 +8,7 @@ try {
     if (document.body) document.body.setAttribute('data-theme', initialTheme);
   }
 } catch (e) {}
-import { loadProfileState, saveProfileState, encryptAndExportBackup, decryptAndImportBackup, executeAbsolutePurge, profileState, isPurgeActive, autoHealFromIndexedDB, setItemAsync } from './controllers/storageAdapter.js';
+import { loadProfileState, saveProfileState, encryptAndExportBackup, decryptAndImportBackup, executeAbsolutePurge, profileState, isPurgeActive, autoHealFromIndexedDB, setItemAsync, createAuroMatchGameAdapter } from './controllers/storageAdapter.js';
 import { initAudioEngine, playAshramMeditationGong, play432HzBowlChime } from './audio/synthesizer.js';
 import { updateVolumeSetting, updateVoicePreference, updateSanctuaryMode, toggleSecularTerminology, updateExperienceMode } from './controllers/settings.js';
 import { triggerReflectionDissolve } from './ui/particles.js';
@@ -35,6 +35,66 @@ window.addEventListener('load', async () => {
 
     // Load local state
     loadProfileState();
+
+    // AuroMind Shared Platform SDK Integration (B3)
+    try {
+        let sdk = window.AuroMind || (window.parent && window.parent.AuroMind);
+        if (!sdk || typeof sdk.init !== 'function') {
+            try {
+                const mod = await import('../../assets/sdk/auromind-sdk.js');
+                sdk = (mod && (mod.AuroMind || mod.default)) || window.AuroMind;
+            } catch (_importErr) {
+                try {
+                    const mod = await import('/assets/sdk/auromind-sdk.js');
+                    sdk = (mod && (mod.AuroMind || mod.default)) || window.AuroMind;
+                } catch (_importErr2) {
+                    sdk = window.AuroMind;
+                }
+            }
+        }
+
+        if (sdk && typeof sdk.init === 'function') {
+            const ctx = await sdk.init({
+                gameId: 'auromatch',
+                appVersion: '4.0.0'
+            });
+
+            const matchAdapter = createAuroMatchGameAdapter();
+            if (sdk.adapters && typeof sdk.adapters.register === 'function') {
+                sdk.adapters.register(matchAdapter, { replace: true });
+                if (!sdk.adapters.get('auromatch')?.initialized && typeof sdk.adapters.init === 'function') {
+                    await sdk.adapters.init('auromatch');
+                }
+            }
+
+            const guestId = (sdk.identity && typeof sdk.identity.getGuestId === 'function')
+                ? sdk.identity.getGuestId()
+                : (ctx && ctx.identity ? ctx.identity.guestId : null);
+
+            if (guestId) {
+                window.__AUROMIND_GUEST_ID__ = guestId;
+                if (profileState && profileState.profile) {
+                    profileState.profile.platformGuestId = guestId;
+                }
+                console.info('[AuroMatch] AuroMind shared platform guest identity established:', guestId);
+            }
+
+            if (sdk.telemetry && typeof sdk.telemetry.track === 'function') {
+                sdk.telemetry.track('game_session_start', {
+                    gameId: 'auromatch',
+                    appVersion: '4.0.0',
+                    mode: 'native'
+                }, { category: 'lifecycle', gameId: 'auromatch' });
+            }
+            if (sdk.logging && typeof sdk.logging.info === 'function') {
+                sdk.logging.info('auromatch', 'AuroMatch Zen Solitaire initialized with shared platform SDK', {
+                    guestId
+                });
+            }
+        }
+    } catch (sdkErr) {
+        console.warn('[AuroMatch] AuroMind SDK initialization non-fatal warning:', sdkErr && sdkErr.message ? sdkErr.message : sdkErr);
+    }
     
     // Apply time-of-day clock gradients
     applySanctuaryModeTheme();

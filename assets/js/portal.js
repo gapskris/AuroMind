@@ -3,8 +3,270 @@
  * Manages in-portal game theater, search, filters, senior mode, audio, and modals.
  */
 
-document.addEventListener('DOMContentLoaded', () => {
+const PORTAL_SDK_APP_VERSION = '2.5.0';
+const PORTAL_PROTECTED_STORAGE_KEYS = new Set([
+  'auromind.platform.v1.guest',
+  'auromind.platform'
+]);
+const PORTAL_PROTECTED_STORAGE_PREFIX = 'auromind.platform.';
+
+let portalBootstrapped = false;
+let portalSdkInitPromise = null;
+let portalSdkInitCount = 0;
+let portalSdkContext = null;
+let portalSdkError = null;
+
+function isProtectedPlatformStorageKey(key) {
+  if (typeof key !== 'string' || !key) return false;
+  if (
+    PORTAL_PROTECTED_STORAGE_KEYS.has(key) ||
+    key.startsWith(PORTAL_PROTECTED_STORAGE_PREFIX)
+  ) {
+    return true;
+  }
+  try {
+    if (
+      window.AuroMind &&
+      window.AuroMind.storage &&
+      typeof window.AuroMind.storage.isProtectedKey === 'function' &&
+      window.AuroMind.storage.isProtectedKey(key)
+    ) {
+      return true;
+    }
+  } catch (_err) {}
+  return false;
+}
+
+function clearPortalPreferencesOnly(storage) {
+  const store = storage || window.localStorage;
+  if (!store) return [];
+
+  const knownPortalPreferenceKeys = [
+    'auromind_reduced_motion',
+    'auromind_senior_mode',
+    'auromind_ambient_volume',
+    'auromind_guide_seen'
+  ];
+
+  const keysToRemove = new Set(knownPortalPreferenceKeys);
+  try {
+    for (let i = 0; i < store.length; i += 1) {
+      const k = store.key(i);
+      if (typeof k === 'string' && k.startsWith('auromind_')) {
+        keysToRemove.add(k);
+      }
+    }
+  } catch (_err) {}
+
+  const removed = [];
+  keysToRemove.forEach((key) => {
+    // Strictly preserve shared platform identity keys (e.g. auromind.platform.v1.guest)
+    // and never delete AuroMindPlatformDB or any game-owned IndexedDB/localStorage data.
+    if (isProtectedPlatformStorageKey(key)) {
+      return;
+    }
+    try {
+      if (store.getItem(key) !== null) {
+        removed.push(key);
+      }
+      store.removeItem(key);
+    } catch (_err) {}
+  });
+  return removed;
+}
+
+function initPortalSDK() {
+  if (portalSdkInitPromise) {
+    return portalSdkInitPromise;
+  }
+
+  portalSdkInitPromise = (async () => {
+    try {
+      let sdk = window.AuroMind;
+      if (!sdk || typeof sdk.init !== 'function') {
+        try {
+          const mod = await import('./assets/sdk/auromind-sdk.js');
+          sdk = (mod && (mod.AuroMind || mod.default)) || window.AuroMind;
+        } catch (_importErr) {
+          sdk = window.AuroMind;
+        }
+      }
+
+      if (!sdk || typeof sdk.init !== 'function') {
+        portalSdkError = new Error('AuroMind Shared SDK is unavailable');
+        return null;
+      }
+
+      portalSdkInitCount += 1;
+      let customProviders = {};
+      try {
+        const { createConfiguredProviders } = await import('./assets/sdk/config/backend-config.js');
+        const resolved = await createConfiguredProviders();
+        if (resolved) {
+          customProviders = resolved;
+        }
+      } catch {
+        const sbConfig = window.__AUROMIND_SUPABASE_CONFIG__ || {
+          supabaseUrl: window.AUROMIND_SUPABASE_URL || null,
+          supabaseAnonKey: window.AUROMIND_SUPABASE_ANON_KEY || null
+        };
+        if (sbConfig.supabaseUrl && sbConfig.supabaseAnonKey) {
+          const mod = await import('./assets/sdk/providers/supabase/index.js');
+          if (mod && mod.createSupabaseProviders) {
+            customProviders = mod.createSupabaseProviders(sbConfig);
+          }
+        }
+      }
+
+      const ctx = await sdk.init({
+        gameId: 'portal',
+        appVersion: PORTAL_SDK_APP_VERSION,
+        capabilities: {
+          authEnabled: true,
+          cloudSyncEnabled: true,
+          entitlementsEnabled: true,
+          analyticsEnabled: true,
+          remoteConfigEnabled: true
+        },
+        providers: customProviders
+      });
+      portalSdkContext = ctx;
+      portalSdkError = null;
+
+      try {
+        if (typeof trackWebsiteVisit === 'function') {
+          trackWebsiteVisit();
+        }
+        if (sdk.logging && typeof sdk.logging.info === 'function') {
+          sdk.logging.info('portal', 'Portal bootstrap complete', {
+            appVersion: PORTAL_SDK_APP_VERSION,
+            initCount: portalSdkInitCount
+          });
+        }
+      } catch (_tErr) {}
+
+      return ctx;
+    } catch (err) {
+      portalSdkContext = null;
+      portalSdkError = err;
+      if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+        console.warn(
+          '[AuroMind Portal] Shared SDK initialization could not complete:',
+          err && err.message ? err.message : err
+        );
+      }
+      return null;
+    }
+  })();
+
+  return portalSdkInitPromise;
+}
+
+(function exposePortalBridge() {
+  if (typeof window === 'undefined' || window.AuroMindPortal) return;
+  const portalBridge = Object.freeze({
+    ready: () => initPortalSDK(),
+    isInitialized: () =>
+      Boolean(
+        window.AuroMind &&
+          typeof window.AuroMind.isInitialized === 'function' &&
+          window.AuroMind.isInitialized()
+      ),
+    getIdentity: () => {
+      if (
+        window.AuroMind &&
+        window.AuroMind.identity &&
+        typeof window.AuroMind.identity.get === 'function'
+      ) {
+        return window.AuroMind.identity.get();
+      }
+      return null;
+    },
+    getGuestId: () => {
+      if (
+        window.AuroMind &&
+        window.AuroMind.identity &&
+        typeof window.AuroMind.identity.getGuestId === 'function'
+      ) {
+        return window.AuroMind.identity.getGuestId();
+      }
+      return null;
+    },
+    getInitCount: () => portalSdkInitCount,
+    getLastError: () => portalSdkError,
+    isProtectedStorageKey: (key) => isProtectedPlatformStorageKey(key)
+  });
+
+  Object.defineProperty(window, 'AuroMindPortal', {
+    value: portalBridge,
+    writable: false,
+    configurable: false,
+    enumerable: true
+  });
+})();
+
+// ==========================================================================
+// WEBSITE ATTRIBUTION & CENTRALIZED ANALYTICS HELPERS
+// ==========================================================================
+function extractAttribution() {
+  const params = new URLSearchParams((typeof window !== 'undefined' && window.location.search) || '');
+  const utm = {};
+  const utmKeys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
+  for (const key of utmKeys) {
+    const val = params.get(key);
+    if (val) utm[key] = val.slice(0, 100);
+  }
+  let referrerDomain = null;
+  if (typeof document !== 'undefined' && document.referrer) {
+    try {
+      const refUrl = new URL(document.referrer);
+      // Strictly isolate domain; strip path, query, hash for privacy & zero credential leakage
+      referrerDomain = refUrl.hostname || 'external';
+    } catch {
+      referrerDomain = 'external';
+    }
+  }
+  return { utm, referrerDomain };
+}
+
+function trackWebsiteVisit() {
+  if (!window.AuroMind || !window.AuroMind.telemetry) return;
+  if (!window.AuroMind.telemetry.getConsent()) return;
+
+  const { utm, referrerDomain } = extractAttribution();
+  const resolution = typeof window !== 'undefined' ? `${window.innerWidth}x${window.innerHeight}` : 'unknown';
+
+  try {
+    window.AuroMind.telemetry.track(
+      'page_view',
+      {
+        path: (typeof window !== 'undefined' && window.location.pathname) || '/',
+        title: (typeof document !== 'undefined' && document.title) || 'AuroMind',
+        referrerDomain,
+        ...utm
+      },
+      { category: 'ui', gameId: 'portal' }
+    );
+
+    window.AuroMind.telemetry.track(
+      'portal_visit',
+      {
+        referrer: referrerDomain,
+        screenResolution: resolution,
+        hasCampaign: Object.keys(utm).length > 0,
+        ...utm
+      },
+      { category: 'lifecycle', gameId: 'portal' }
+    );
+  } catch (_tErr) {}
+}
+
+function bootstrapPortal() {
+  if (portalBootstrapped) return;
+  portalBootstrapped = true;
+
   initPortalServiceWorker();
+  initPortalSDK();
   initTheaterMode();
   initSidebarAndNavigation();
   initSearch();
@@ -16,7 +278,11 @@ document.addEventListener('DOMContentLoaded', () => {
   initSanctuaryGuide();
   initFeedbackModal();
   initPurchaseBridge();
-});
+  initAnalyticsConsentBanner();
+  initExitTracking();
+}
+
+document.addEventListener('DOMContentLoaded', bootstrapPortal);
 
 // ==========================================================================
 // 0. ROOT PORTAL SERVICE WORKER REGISTRATION
@@ -72,9 +338,15 @@ function initTheaterMode() {
     'auroblocks': 'games/auroblocks/index.html'
   };
 
+  let activeGameStartTime = null;
+  let currentActiveGame = null;
+
   function openGameInTheater(gameId, title, icon) {
     const url = gameUrls[gameId];
     if (!url) return;
+
+    activeGameStartTime = Date.now();
+    currentActiveGame = gameId;
 
     // Suspend portal 432 Hz ambient audio so it does not collide with child game audio
     if (typeof window.suspendAmbientAudio === 'function') {
@@ -98,6 +370,34 @@ function initTheaterMode() {
 
     // Update browser history state without leaving page or exposing sub-url
     history.pushState({ inGame: true, gameId }, title, `#play-${gameId}`);
+
+    try {
+      if (window.AuroMind && window.AuroMind.telemetry) {
+        window.AuroMind.telemetry.track(
+          'game_launch',
+          {
+            gameId,
+            title: title || gameId,
+            launchContext: 'theater'
+          },
+          { category: 'engagement', gameId }
+        );
+        window.AuroMind.telemetry.track(
+          'game_session_start',
+          {
+            gameId,
+            title: title || gameId
+          },
+          { category: 'engagement', gameId }
+        );
+      }
+      if (window.AuroMind && window.AuroMind.logging) {
+        window.AuroMind.logging.info('portal', `Launching game in theater: ${gameId}`, {
+          gameId,
+          title
+        });
+      }
+    } catch (_tErr) {}
   }
 
   function closeTheater() {
@@ -114,6 +414,37 @@ function initTheaterMode() {
     if (window.location.hash.startsWith('#play-')) {
       history.pushState({ inGame: false }, 'AuroMind', window.location.pathname);
     }
+
+    try {
+      if (activeGameStartTime && currentActiveGame) {
+        const durationSeconds = Math.max(1, Math.round((Date.now() - activeGameStartTime) / 1000));
+        if (window.AuroMind && window.AuroMind.telemetry) {
+          window.AuroMind.telemetry.track(
+            'game_session_end',
+            {
+              gameId: currentActiveGame,
+              durationSeconds
+            },
+            { category: 'engagement', gameId: currentActiveGame }
+          );
+        }
+        activeGameStartTime = null;
+        currentActiveGame = null;
+      }
+
+      if (window.AuroMind && window.AuroMind.telemetry) {
+        window.AuroMind.telemetry.track(
+          'theater_close',
+          {
+            action: 'back_to_catalog'
+          },
+          { category: 'engagement', gameId: 'portal' }
+        );
+      }
+      if (window.AuroMind && window.AuroMind.logging) {
+        window.AuroMind.logging.info('portal', 'Closed game theater, returned to catalog');
+      }
+    } catch (_tErr) {}
   }
 
   // Play button click handlers
@@ -123,6 +454,19 @@ function initTheaterMode() {
       const gameId = btn.dataset.gameId;
       const title = btn.dataset.title;
       const icon = btn.dataset.icon;
+      try {
+        if (window.AuroMind && window.AuroMind.telemetry) {
+          window.AuroMind.telemetry.track(
+            'game_select',
+            {
+              gameId,
+              title: title || gameId,
+              source: 'catalog_grid'
+            },
+            { category: 'engagement', gameId }
+          );
+        }
+      } catch (_tErr) {}
       openGameInTheater(gameId, title, icon);
     });
   });
@@ -163,6 +507,24 @@ function initTheaterMode() {
     });
   }
 
+  // Track child game load error if iframe fails
+  if (theaterIframe) {
+    theaterIframe.addEventListener('error', () => {
+      try {
+        if (window.AuroMind && window.AuroMind.telemetry && currentActiveGame) {
+          window.AuroMind.telemetry.track(
+            'game_load_error',
+            {
+              gameId: currentActiveGame,
+              errorType: 'iframe_load_failure'
+            },
+            { category: 'error', gameId: currentActiveGame }
+          );
+        }
+      } catch (_tErr) {}
+    });
+  }
+
   // Listen to HTML5 PostMessage from same-origin child game iframes (Vak, AuroMatch, etc.)
   window.addEventListener('message', (event) => {
     if (event.origin !== window.location.origin) return;
@@ -176,6 +538,79 @@ function initTheaterMode() {
 
     if (data.type === 'AUROMIND_CLOSE_THEATER' || data.action === 'EXIT_GAME') {
       closeTheater();
+      return;
+    }
+
+    // Telemetry and gameplay event relay from child game iframes
+    if (data.type === 'AUROMIND_TELEMETRY_TRACK' && data.eventName) {
+      if (window.AuroMind && window.AuroMind.telemetry) {
+        window.AuroMind.telemetry.track(
+          data.eventName,
+          { ...(data.payload || {}), gameId: data.gameId || activeGameId },
+          { category: data.category || 'engagement', gameId: data.gameId || activeGameId }
+        );
+      }
+      return;
+    }
+
+    if (data.type === 'AUROMIND_LEVEL_ATTEMPT') {
+      if (window.AuroMind && window.AuroMind.telemetry) {
+        window.AuroMind.telemetry.track(
+          'level_attempt',
+          {
+            gameId: data.gameId || activeGameId,
+            levelId: data.levelId ?? data.level ?? 1,
+            attemptNumber: data.attemptNumber || 1
+          },
+          { category: 'progression', gameId: data.gameId || activeGameId }
+        );
+      }
+      return;
+    }
+
+    if (data.type === 'AUROMIND_LEVEL_COMPLETED') {
+      if (window.AuroMind && window.AuroMind.telemetry) {
+        window.AuroMind.telemetry.track(
+          'level_completed',
+          {
+            gameId: data.gameId || activeGameId,
+            levelId: data.levelId ?? data.level ?? 1,
+            score: data.score || 0,
+            durationSeconds: data.durationSeconds || 0
+          },
+          { category: 'progression', gameId: data.gameId || activeGameId }
+        );
+      }
+      return;
+    }
+
+    if (data.type === 'AUROMIND_LEVEL_FAILED') {
+      if (window.AuroMind && window.AuroMind.telemetry) {
+        window.AuroMind.telemetry.track(
+          'level_failed',
+          {
+            gameId: data.gameId || activeGameId,
+            levelId: data.levelId ?? data.level ?? 1,
+            reason: data.reason || 'timeout_or_mistake'
+          },
+          { category: 'progression', gameId: data.gameId || activeGameId }
+        );
+      }
+      return;
+    }
+
+    if (data.type === 'AUROMIND_GAME_ERROR' || data.type === 'AUROMIND_TELEMETRY_ERROR') {
+      if (window.AuroMind && window.AuroMind.telemetry) {
+        window.AuroMind.telemetry.track(
+          'game_runtime_error',
+          {
+            gameId: data.gameId || activeGameId,
+            errorMessage: String(data.errorMessage || data.message || 'Unknown runtime error').slice(0, 200),
+            errorCategory: data.errorCategory || 'runtime'
+          },
+          { category: 'error', gameId: data.gameId || activeGameId }
+        );
+      }
       return;
     }
 
@@ -244,6 +679,16 @@ function initSidebarAndNavigation() {
 
       const filterCategory = item.dataset.category;
 
+      try {
+        if (window.AuroMind && window.AuroMind.telemetry && window.AuroMind.telemetry.getConsent()) {
+          window.AuroMind.telemetry.track(
+            'catalog_filter',
+            { category: filterCategory },
+            { category: 'ui', gameId: 'portal' }
+          );
+        }
+      } catch (_tErr) {}
+
       cards.forEach(card => {
         const cardCategory = (card.dataset.category || '').toLowerCase();
         if (filterCategory === 'all' || cardCategory.includes(filterCategory)) {
@@ -276,11 +721,27 @@ function initSidebarAndNavigation() {
 function initSearch() {
   const searchInput = document.getElementById('search-input');
   const cards = document.querySelectorAll('.game-card');
+  let searchDebounceTimer = null;
 
   if (!searchInput) return;
 
   searchInput.addEventListener('input', (e) => {
     const q = e.target.value.trim().toLowerCase();
+
+    clearTimeout(searchDebounceTimer);
+    if (q.length >= 2) {
+      searchDebounceTimer = setTimeout(() => {
+        try {
+          if (window.AuroMind && window.AuroMind.telemetry && window.AuroMind.telemetry.getConsent()) {
+            window.AuroMind.telemetry.track(
+              'catalog_search',
+              { queryLength: q.length },
+              { category: 'ui', gameId: 'portal' }
+            );
+          }
+        } catch (_tErr) {}
+      }, 500);
+    }
 
     cards.forEach(card => {
       const title = (card.dataset.title || '').toLowerCase();
@@ -443,7 +904,7 @@ function initAmbientAudio() {
 }
 
 // ==========================================================================
-// 6. AUTH & ACCOUNT MODAL (ROADMAP TEASER)
+// 6. AUTH & ACCOUNT MODAL (B5 SUPABASE INTEGRATION)
 // ==========================================================================
 function initAuthModal() {
   const authBtn = document.getElementById('auth-btn');
@@ -451,9 +912,115 @@ function initAuthModal() {
   const closeBtn = document.getElementById('modal-close-btn');
   const confirmBtn = document.getElementById('modal-confirm-btn');
 
+  const modeBadge = document.getElementById('auth-mode-badge');
+  const userIdentity = document.getElementById('auth-user-identity');
+  const userEmail = document.getElementById('auth-user-email');
+  const formContainer = document.getElementById('auth-form-container');
+  const emailInput = document.getElementById('auth-email-input');
+  const passwordInput = document.getElementById('auth-password-input');
+  const signInBtn = document.getElementById('auth-signin-btn');
+  const signUpBtn = document.getElementById('auth-signup-btn');
+  const upgradeBtn = document.getElementById('auth-upgrade-btn');
+  const syncToggle = document.getElementById('auth-sync-toggle');
+  const syncNowBtn = document.getElementById('auth-sync-now-btn');
+  const syncStatusMsg = document.getElementById('auth-sync-status-msg');
+  const signedInActions = document.getElementById('auth-signed-in-actions');
+  const signOutBtn = document.getElementById('auth-signout-btn');
+  const notificationMsg = document.getElementById('auth-notification-msg');
+
   if (!authBtn || !modal) return;
 
-  const openModal = () => modal.classList.add('open');
+  function showNotification(message, isError = false) {
+    if (!notificationMsg) return;
+    notificationMsg.textContent = message;
+    notificationMsg.style.display = 'block';
+    if (isError) {
+      notificationMsg.style.background = 'rgba(239, 68, 68, 0.12)';
+      notificationMsg.style.color = '#dc2626';
+      notificationMsg.style.border = '1px solid rgba(239, 68, 68, 0.25)';
+    } else {
+      notificationMsg.style.background = 'rgba(16, 185, 129, 0.12)';
+      notificationMsg.style.color = '#059669';
+      notificationMsg.style.border = '1px solid rgba(16, 185, 129, 0.25)';
+    }
+  }
+
+  function clearNotification() {
+    if (notificationMsg) {
+      notificationMsg.textContent = '';
+      notificationMsg.style.display = 'none';
+    }
+  }
+
+  function updateAuthUI() {
+    const sdk = window.AuroMind;
+    const account = sdk && sdk.auth && typeof sdk.auth.getAccount === 'function' ? sdk.auth.getAccount() : null;
+    const guestId = sdk && sdk.identity && typeof sdk.identity.getGuestId === 'function' ? sdk.identity.getGuestId() : null;
+
+    if (account && account.userId) {
+      // Authenticated Mode
+      if (modeBadge) {
+        modeBadge.textContent = 'Authenticated';
+        modeBadge.style.background = 'rgba(16, 185, 129, 0.15)';
+        modeBadge.style.color = '#059669';
+      }
+      if (userIdentity) userIdentity.textContent = `User ID: ${account.userId}`;
+      if (userEmail) {
+        userEmail.textContent = account.email ? `Signed in as: ${account.email}` : '';
+        userEmail.style.display = account.email ? 'block' : 'none';
+      }
+      if (formContainer) formContainer.style.display = 'none';
+      if (signedInActions) signedInActions.style.display = 'block';
+
+      const shortName = account.email ? account.email.split('@')[0] : 'Account';
+      authBtn.textContent = '';
+      const iconSpan = document.createElement('span');
+      iconSpan.textContent = '👤';
+      const labelSpan = document.createElement('span');
+      labelSpan.textContent = shortName;
+      authBtn.appendChild(iconSpan);
+      authBtn.appendChild(labelSpan);
+    } else {
+      // Guest Mode
+      if (modeBadge) {
+        modeBadge.textContent = 'Guest Mode';
+        modeBadge.style.background = 'rgba(245, 158, 11, 0.15)';
+        modeBadge.style.color = '#d97706';
+      }
+      if (userIdentity) userIdentity.textContent = guestId ? `Guest ID: ${guestId}` : 'Guest ID: initializing...';
+      if (userEmail) userEmail.style.display = 'none';
+      if (formContainer) formContainer.style.display = 'block';
+      if (signedInActions) signedInActions.style.display = 'none';
+
+      authBtn.textContent = '';
+      const iconSpan = document.createElement('span');
+      iconSpan.textContent = '👤';
+      const labelSpan = document.createElement('span');
+      labelSpan.textContent = 'Account';
+      authBtn.appendChild(iconSpan);
+      authBtn.appendChild(labelSpan);
+    }
+
+    if (syncToggle && sdk && sdk.sync) {
+      syncToggle.checked = Boolean(sdk.sync.hasConsent && sdk.sync.hasConsent());
+    }
+
+    if (syncStatusMsg && sdk && sdk.sync) {
+      const status = typeof sdk.sync.getSyncStatus === 'function' ? sdk.sync.getSyncStatus() : null;
+      if (status && status.lastSyncAt) {
+        const d = new Date(status.lastSyncAt);
+        syncStatusMsg.textContent = `Last sync: ${d.toLocaleTimeString()}`;
+      } else {
+        syncStatusMsg.textContent = 'Sync idle';
+      }
+    }
+  }
+
+  const openModal = () => {
+    clearNotification();
+    updateAuthUI();
+    modal.classList.add('open');
+  };
   const closeModal = () => modal.classList.remove('open');
 
   authBtn.addEventListener('click', openModal);
@@ -463,6 +1030,171 @@ function initAuthModal() {
   modal.addEventListener('click', (e) => {
     if (e.target === modal) closeModal();
   });
+
+  // Wire Sign In
+  if (signInBtn) {
+    signInBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      clearNotification();
+      const email = emailInput ? emailInput.value.trim() : '';
+      const password = passwordInput ? passwordInput.value : '';
+      if (!email || !password) {
+        showNotification('Please enter both email and password.', true);
+        return;
+      }
+      signInBtn.disabled = true;
+      signInBtn.textContent = 'Signing in...';
+      try {
+        const sdk = window.AuroMind;
+        if (!sdk || !sdk.auth) throw new Error('AuroMind Auth is unavailable.');
+        const res = await sdk.auth.signInWithEmail(email, password);
+        if (res && res.ok) {
+          showNotification('Successfully signed in!');
+          updateAuthUI();
+        } else {
+          showNotification(res?.message || 'Sign in failed.', true);
+        }
+      } catch (err) {
+        showNotification(err.message || 'Network error occurred.', true);
+      } finally {
+        signInBtn.disabled = false;
+        signInBtn.textContent = 'Sign In';
+      }
+    });
+  }
+
+  // Wire Sign Up
+  if (signUpBtn) {
+    signUpBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      clearNotification();
+      const email = emailInput ? emailInput.value.trim() : '';
+      const password = passwordInput ? passwordInput.value : '';
+      if (!email || !password) {
+        showNotification('Please enter both email and password.', true);
+        return;
+      }
+      signUpBtn.disabled = true;
+      signUpBtn.textContent = 'Creating...';
+      try {
+        const sdk = window.AuroMind;
+        if (!sdk || !sdk.auth) throw new Error('AuroMind Auth is unavailable.');
+        const res = await sdk.auth.signUp({ email, password });
+        if (res && res.ok) {
+          showNotification('Account created successfully! Check email for confirmation if required.');
+          updateAuthUI();
+        } else {
+          showNotification(res?.message || 'Account creation failed.', true);
+        }
+      } catch (err) {
+        showNotification(err.message || 'Error creating account.', true);
+      } finally {
+        signUpBtn.disabled = false;
+        signUpBtn.textContent = 'Create Account';
+      }
+    });
+  }
+
+  // Wire Upgrade Guest to Account
+  if (upgradeBtn) {
+    upgradeBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      clearNotification();
+      const email = emailInput ? emailInput.value.trim() : '';
+      const password = passwordInput ? passwordInput.value : '';
+      if (!email || !password) {
+        showNotification('Enter email and password to link your current guest progress.', true);
+        return;
+      }
+      upgradeBtn.disabled = true;
+      upgradeBtn.textContent = 'Linking guest progress...';
+      try {
+        const sdk = window.AuroMind;
+        if (!sdk || !sdk.auth) throw new Error('AuroMind Auth is unavailable.');
+        const res = await sdk.auth.upgradeGuestToAccount(
+          { email, password },
+          { enableCloudSync: syncToggle ? syncToggle.checked : false }
+        );
+        if (res && res.ok) {
+          showNotification('Guest progress successfully linked to your new account!');
+          updateAuthUI();
+        } else {
+          showNotification(res?.message || 'Guest upgrade failed.', true);
+        }
+      } catch (err) {
+        showNotification(err.message || 'Error linking guest progress.', true);
+      } finally {
+        upgradeBtn.disabled = false;
+        upgradeBtn.textContent = '⭐ Link Current Guest Progress to New Account';
+      }
+    });
+  }
+
+  // Wire Sign Out
+  if (signOutBtn) {
+    signOutBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      clearNotification();
+      signOutBtn.disabled = true;
+      try {
+        const sdk = window.AuroMind;
+        if (sdk && sdk.auth) {
+          await sdk.auth.signOut();
+        }
+        showNotification('Signed out. Local guest progress preserved.');
+        updateAuthUI();
+      } catch (err) {
+        showNotification(err.message || 'Sign out failed.', true);
+      } finally {
+        signOutBtn.disabled = false;
+      }
+    });
+  }
+
+  // Wire Cloud Sync Toggle
+  if (syncToggle) {
+    syncToggle.addEventListener('change', () => {
+      const sdk = window.AuroMind;
+      if (sdk && sdk.sync && typeof sdk.sync.setConsent === 'function') {
+        sdk.sync.setConsent(syncToggle.checked);
+        showNotification(`Cloud sync ${syncToggle.checked ? 'enabled' : 'disabled'}.`);
+        updateAuthUI();
+      }
+    });
+  }
+
+  // Wire Sync Now
+  if (syncNowBtn) {
+    syncNowBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      clearNotification();
+      syncNowBtn.disabled = true;
+      syncNowBtn.textContent = 'Syncing...';
+      try {
+        const sdk = window.AuroMind;
+        if (!sdk || !sdk.sync) throw new Error('AuroMind Sync is unavailable.');
+        const res = await sdk.sync.syncNow();
+        if (res && res.status === 'success') {
+          showNotification('Cloud save synchronization completed successfully!');
+        } else if (res && res.status === 'skipped') {
+          showNotification(`Sync skipped: ${res.reason}`, true);
+        } else {
+          showNotification('Sync completed with warnings. Check diagnostics for details.', true);
+        }
+        updateAuthUI();
+      } catch (err) {
+        showNotification(err.message || 'Sync failed.', true);
+      } finally {
+        syncNowBtn.disabled = false;
+        syncNowBtn.textContent = 'Sync Now 🔄';
+      }
+    });
+  }
+
+  // Subscribe to identity changes
+  if (window.AuroMind && window.AuroMind.identity && typeof window.AuroMind.identity.subscribe === 'function') {
+    window.AuroMind.identity.subscribe(updateAuthUI);
+  }
 }
 
 // ==========================================================================
@@ -478,6 +1210,7 @@ function initSettingsModal() {
   const volumeSlider = document.getElementById('settings-volume-slider');
   const seniorToggle = document.getElementById('settings-senior-toggle');
   const motionToggle = document.getElementById('settings-motion-toggle');
+  const telemetryToggle = document.getElementById('settings-telemetry-toggle');
   const resetBtn = document.getElementById('settings-reset-btn');
 
   function applyReducedMotion(isReduced, persist = true) {
@@ -524,6 +1257,12 @@ function initSettingsModal() {
         document.documentElement.classList.contains('reduced-motion') ||
         document.body.classList.contains('reduced-motion');
     }
+    // Sync telemetry consent state
+    if (telemetryToggle && window.AuroMind && window.AuroMind.telemetry) {
+      try {
+        telemetryToggle.checked = window.AuroMind.telemetry.getConsent();
+      } catch (_tErr) {}
+    }
     modal.classList.add('open');
     if (window.innerWidth < 680 && sidebar) {
       sidebar.classList.remove('open');
@@ -555,6 +1294,11 @@ function initSettingsModal() {
           localStorage.setItem('auromind_senior_mode', seniorToggle.checked ? 'true' : 'false');
         } catch (err) {}
       }
+      try {
+        if (window.AuroMind && window.AuroMind.player) {
+          window.AuroMind.player.updatePreferences({ seniorMode: seniorToggle.checked });
+        }
+      } catch (_pErr) {}
     });
   }
 
@@ -562,6 +1306,22 @@ function initSettingsModal() {
   if (motionToggle) {
     motionToggle.addEventListener('change', () => {
       applyReducedMotion(motionToggle.checked, true);
+      try {
+        if (window.AuroMind && window.AuroMind.player) {
+          window.AuroMind.player.updatePreferences({ reducedMotion: motionToggle.checked });
+        }
+      } catch (_pErr) {}
+    });
+  }
+
+  // Anonymous Telemetry Toggle
+  if (telemetryToggle) {
+    telemetryToggle.addEventListener('change', () => {
+      try {
+        if (window.AuroMind && window.AuroMind.telemetry) {
+          window.AuroMind.telemetry.setConsent(telemetryToggle.checked);
+        }
+      } catch (_tErr) {}
     });
   }
 
@@ -576,26 +1336,26 @@ function initSettingsModal() {
       try {
         localStorage.setItem('auromind_ambient_volume', String(clampedVal));
       } catch (err) {}
+      try {
+        if (window.AuroMind && window.AuroMind.player) {
+          window.AuroMind.player.updatePreferences({ ambientVolume: clampedVal / 100 });
+        }
+      } catch (_pErr) {}
     };
     volumeSlider.addEventListener('input', handleVolumeChange);
     volumeSlider.addEventListener('change', handleVolumeChange);
   }
 
-  // Reset Cache / Local Storage
+  // Reset Cache / Local Preferences (strictly preserves shared platform identity & game data)
   if (resetBtn) {
     resetBtn.addEventListener('click', () => {
-      if (confirm('Clear local AuroMind cache and preferences?')) {
+      if (
+        confirm(
+          'Clear local AuroMind cache and preferences? Your guest identity and game progress will be preserved.'
+        )
+      ) {
         try {
-          // Explicitly remove known AuroMind keys
-          localStorage.removeItem('auromind_reduced_motion');
-          localStorage.removeItem('auromind_senior_mode');
-          localStorage.removeItem('auromind_ambient_volume');
-          localStorage.removeItem('auromind_guide_seen');
-
-          // Defensively remove any current or future AuroMind-owned keys
-          Object.keys(localStorage)
-            .filter(key => key.startsWith('auromind_'))
-            .forEach(key => localStorage.removeItem(key));
+          clearPortalPreferencesOnly(window.localStorage);
         } catch (err) {}
 
         // Reset active UI state to defaults
@@ -912,4 +1672,92 @@ function initPurchaseBridge() {
       closeModal();
     });
   }
+}
+
+// ==========================================================================
+// 11. VISITOR-FACING ANALYTICS CONSENT BANNER (JANUARY 1 RELEASE)
+// ==========================================================================
+function initAnalyticsConsentBanner() {
+  const consentBanner = document.getElementById('analytics-consent-banner');
+  const consentAcceptBtn = document.getElementById('consent-accept-btn');
+  const consentDeclineBtn = document.getElementById('consent-decline-btn');
+  const consentSettingsLink = document.getElementById('consent-settings-link');
+  const telemetryToggle = document.getElementById('settings-telemetry-toggle');
+  const settingsModal = document.getElementById('settings-modal');
+
+  let consentChoice = null;
+  try {
+    consentChoice = localStorage.getItem('auromind.platform.v1.telemetry_consent');
+  } catch {}
+
+  // If visitor hasn't made a decision yet, display the polite, mindful banner
+  if (consentBanner && consentChoice === null) {
+    consentBanner.style.display = 'block';
+  }
+
+  function hideBanner() {
+    if (consentBanner) {
+      consentBanner.style.display = 'none';
+    }
+  }
+
+  if (consentAcceptBtn) {
+    consentAcceptBtn.addEventListener('click', () => {
+      hideBanner();
+      try {
+        if (window.AuroMind && window.AuroMind.telemetry) {
+          window.AuroMind.telemetry.setConsent(true);
+        }
+        if (telemetryToggle) {
+          telemetryToggle.checked = true;
+        }
+        trackWebsiteVisit();
+      } catch (_e) {}
+    });
+  }
+
+  if (consentDeclineBtn) {
+    consentDeclineBtn.addEventListener('click', () => {
+      hideBanner();
+      try {
+        if (window.AuroMind && window.AuroMind.telemetry) {
+          window.AuroMind.telemetry.setConsent(false);
+        }
+        if (telemetryToggle) {
+          telemetryToggle.checked = false;
+        }
+      } catch (_e) {}
+    });
+  }
+
+  if (consentSettingsLink) {
+    consentSettingsLink.addEventListener('click', () => {
+      hideBanner();
+      if (settingsModal) {
+        settingsModal.classList.add('open');
+      }
+    });
+  }
+}
+
+// ==========================================================================
+// 12. EXIT & RETENTION TRACKING
+// ==========================================================================
+function initExitTracking() {
+  const portalStartTime = Date.now();
+  window.addEventListener('pagehide', () => {
+    try {
+      if (window.AuroMind && window.AuroMind.telemetry && window.AuroMind.telemetry.getConsent()) {
+        const portalDuration = Math.max(1, Math.round((Date.now() - portalStartTime) / 1000));
+        window.AuroMind.telemetry.track(
+          'portal_exit',
+          { sessionDurationSeconds: portalDuration },
+          { category: 'lifecycle', gameId: 'portal' }
+        );
+        if (typeof window.AuroMind.telemetry.flush === 'function') {
+          window.AuroMind.telemetry.flush();
+        }
+      }
+    } catch {}
+  });
 }

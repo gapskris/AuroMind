@@ -1,9 +1,17 @@
-import express from 'express';
+import http from 'node:http';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+let expressModule = null;
+try {
+  expressModule = (await import('express')).default;
+} catch {
+  // Graceful fallback for zero-dependency test/production environments without npm node_modules
+}
 
 const BLOCKED_ROOT_SEGMENTS = new Set([
   'server.js',
@@ -13,26 +21,172 @@ const BLOCKED_ROOT_SEGMENTS = new Set([
   'bun.lock',
   'bun.lockb',
   'phase0-audit',
+  'architecture-design',
   'node_modules'
 ]);
 
-export function createApp() {
-  const app = express();
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.webmanifest': 'application/manifest+json'
+};
 
-  // Block public HTTP exposure of internal Studio files, audit reports, and hidden directories (AURO-33)
+function createZeroDepStatic(rootDir, options = {}) {
+  const index = options.index || 'index.html';
+  return (req, res, next) => {
+    let rawPath = decodeURIComponent(req.path || req.url.split('?')[0]);
+    if (rawPath === '/' || rawPath === '') rawPath = '/' + index;
+    const resolvedRoot = path.resolve(rootDir);
+    let fullPath = path.resolve(rootDir, '.' + rawPath);
+
+    if (!fullPath.startsWith(resolvedRoot)) {
+      return next();
+    }
+
+    fs.stat(fullPath, (err, stats) => {
+      if (!err && stats.isDirectory()) {
+        fullPath = path.join(fullPath, index);
+        fs.stat(fullPath, (err2, stats2) => {
+          if (err2 || !stats2.isFile()) return next();
+          serveFile(fullPath, stats2, res);
+        });
+        return;
+      }
+      if (err || !stats.isFile()) {
+        return next();
+      }
+      serveFile(fullPath, stats, res);
+    });
+  };
+}
+
+function serveFile(filePath, stats, res) {
+  const ext = path.extname(filePath).toLowerCase();
+  const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+  if (!res.getHeader('Content-Type')) {
+    res.setHeader('Content-Type', contentType);
+  }
+  if (stats && typeof stats.size === 'number') {
+    res.setHeader('Content-Length', stats.size);
+  }
+  const stream = fs.createReadStream(filePath);
+  stream.pipe(res);
+}
+
+function createZeroDepApp() {
+  const middlewares = [];
+
+  function app(req, res) {
+    let idx = 0;
+    const next = () => {
+      if (idx < middlewares.length) {
+        const fn = middlewares[idx++];
+        fn(req, res, next);
+      } else {
+        res.statusCode = 404;
+        res.end();
+      }
+    };
+    next();
+  }
+
+  app.use = function (routeOrFn, maybeFn) {
+    if (typeof routeOrFn === 'function') {
+      middlewares.push(routeOrFn);
+    } else {
+      const prefix = routeOrFn.endsWith('/') ? routeOrFn.slice(0, -1) : routeOrFn;
+      const fn = maybeFn;
+      middlewares.push((req, res, next) => {
+        const reqPath = req.path || req.url.split('?')[0];
+        if (reqPath === prefix || reqPath.startsWith(prefix + '/')) {
+          const origPath = req.path;
+          req.path = reqPath.slice(prefix.length) || '/';
+          fn(req, res, () => {
+            req.path = origPath;
+            next();
+          });
+        } else {
+          next();
+        }
+      });
+    }
+    return app;
+  };
+
+  app.get = function (route, fn) {
+    middlewares.push((req, res, next) => {
+      const parsedPath = req.path || req.url.split('?')[0];
+      if (req.method === 'GET' && parsedPath === route) {
+        fn(req, res);
+      } else {
+        next();
+      }
+    });
+    return app;
+  };
+
+  app.listen = function (port, hostOrCallback, maybeCallback) {
+    const host = typeof hostOrCallback === 'string' ? hostOrCallback : '0.0.0.0';
+    const callback = typeof hostOrCallback === 'function' ? hostOrCallback : maybeCallback;
+    const server = http.createServer((req, res) => {
+      res.status = (code) => {
+        res.statusCode = code;
+        return res;
+      };
+      res.json = (data) => {
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify(data));
+        return res;
+      };
+      req.path = decodeURIComponent(req.url.split('?')[0]);
+      app(req, res);
+    });
+    return server.listen(port, host, callback);
+  };
+
+  return app;
+}
+
+export function createApp() {
+  const app = expressModule ? expressModule() : createZeroDepApp();
+  const staticHandler = expressModule ? expressModule.static : createZeroDepStatic;
+
+  // 1. Set hardened HTTP security headers on all responses (AUDIT-SEC-04)
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; frame-src 'self'; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co https://api.web3forms.com; frame-ancestors 'self';"
+    );
+    if (req.secure || (req.headers && req.headers['x-forwarded-proto'] === 'https')) {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+    next();
+  });
+
+  // 2. Block public HTTP exposure of internal Studio files, audit reports, and hidden directories (AURO-33)
   app.use((req, res, next) => {
     let decodedPath;
     try {
-      decodedPath = decodeURIComponent(req.path || '/');
+      decodedPath = decodeURIComponent(req.path || req.url.split('?')[0] || '/');
     } catch (_err) {
-      return res.status(404).end();
+      return res.status ? res.status(404).end() : (res.statusCode = 404, res.end());
     }
 
     const segments = decodedPath.split('/').filter(Boolean);
     if (segments.length > 0) {
       // Block any hidden file or directory (.git, .gitignore, .aistudio, .playwright-cli, etc.)
       if (segments.some((seg) => seg.startsWith('.') || seg === '..')) {
-        return res.status(404).end();
+        return res.status ? res.status(404).end() : (res.statusCode = 404, res.end());
       }
 
       const firstSegment = segments[0].toLowerCase();
@@ -43,7 +197,7 @@ export function createApp() {
             firstSegment.endsWith('.lock') ||
             firstSegment.endsWith('.test.js')))
       ) {
-        return res.status(404).end();
+        return res.status ? res.status(404).end() : (res.statusCode = 404, res.end());
       }
     }
 
@@ -55,11 +209,11 @@ export function createApp() {
   });
 
   // Map root-relative AuroBlocks artwork requests to their sub-game directory
-  app.use('/assets/artwork', express.static(path.join(__dirname, 'games/auroblocks/assets/artwork'), {
+  app.use('/assets/artwork', staticHandler(path.join(__dirname, 'games/auroblocks/assets/artwork'), {
     dotfiles: 'ignore'
   }));
 
-  app.use(express.static(__dirname, {
+  app.use(staticHandler(__dirname, {
     index: 'index.html',
     dotfiles: 'ignore'
   }));

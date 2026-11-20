@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AuroMind — Owner Analytics & Sanctuary Intelligence</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+
+  <!-- =========================================================================
+       ADMINISTRATOR AUTHENTICATION GATE (RESTRICTED ACCESS)
+       ========================================================================= -->
+  <div id="admin-auth-overlay" class="auth-overlay">
+    <div class="auth-card">
+      <div class="auth-header">
+        <span class="auth-icon">🕊️</span>
+        <h2 class="auth-title">AuroMind Sanctuary Intelligence</h2>
+        <p class="auth-subtitle">Restricted Access — Owner & Administrator Portal</p>
+      </div>
+
+      <!-- Alert / Status message -->
+      <div id="admin-auth-msg" class="auth-msg" style="display: none;"></div>
+
+      <!-- Sign In Form -->
+      <form id="admin-login-form" class="auth-form" onsubmit="return false;">
+        <div class="form-group">
+          <label for="admin-email" class="form-label">Administrator Email</label>
+          <input type="email" id="admin-email" class="form-input" placeholder="owner@auromind.org" autocomplete="email" required>
+        </div>
+
+        <div class="form-group">
+          <label for="admin-password" class="form-label">Password</label>
+          <input type="password" id="admin-password" class="form-input" placeholder="••••••••••••" autocomplete="current-password" required>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" id="btn-admin-signin" class="btn btn-primary btn-block">
+            <span>🔐</span> Sign In as Owner
+          </button>
+        </div>
+
+        <div class="auth-links">
+          <button type="button" id="btn-toggle-recovery" class="btn-link">Forgot Password?</button>
+          <a href="../index.html" class="btn-link">← Return to Portal</a>
+        </div>
+      </form>
+
+      <!-- Password Recovery Form (hidden by default) -->
+      <form id="admin-recovery-form" class="auth-form" style="display: none;" onsubmit="return false;">
+        <div class="form-group">
+          <label for="admin-recovery-email" class="form-label">Enter Administrator Email for Password Reset</label>
+          <input type="email" id="admin-recovery-email" class="form-input" placeholder="owner@auromind.org" required>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" id="btn-send-recovery" class="btn btn-primary btn-block">
+            <span>✉️</span> Send Recovery Email
+          </button>
+        </div>
+
+        <div class="auth-links">
+          <button type="button" id="btn-cancel-recovery" class="btn-link">← Back to Sign In</button>
+        </div>
+      </form>
+
+      <!-- Unconfigured / Local Developer Mode Info -->
+      <div id="admin-local-mode-box" class="local-mode-box">
+        <p class="local-mode-text">
+          <span id="backend-status-indicator">Connecting to Supabase...</span>
+        </p>
+        <button type="button" id="btn-dev-local-access" class="btn btn-secondary btn-sm" style="display: none;">
+          Inspect Local Engine Diagnostics (Offline Mode)
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       PROTECTED OWNER ANALYTICS DASHBOARD (UNLOCKED AFTER OWNER VERIFICATION)
+       ========================================================================= -->
+  <div id="dashboard-container" class="dashboard-container" style="display: none;">
+    <!-- Developer Mode Warning Banner (shown ONLY during development/synthetic testing) -->
+    <div id="dev-warning-banner-container" style="display: none;"></div>
+
+    <!-- Header -->
+    <header class="dashboard-header">
+      <div class="brand-block">
+        <span class="brand-icon">🕊️</span>
+        <div>
+          <h1 class="brand-title">AuroMind Owner Analytics</h1>
+          <p class="brand-subtitle">Sanctuary Operational Intelligence & Platform Diagnostics</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <!-- Verified Owner Identity Badge -->
+        <div id="owner-identity-badge" class="owner-identity-badge">
+          <span class="status-dot"></span>
+          <span id="owner-email-display">owner@auromind.org</span>
+          <span class="badge-role">OWNER</span>
+        </div>
+
+        <button id="btn-refresh" class="btn">
+          <span>🔄</span> Refresh
+        </button>
+        <button id="btn-export-diagnostics" class="btn btn-primary">
+          <span>📦</span> Export Diagnostics
+        </button>
+        <button id="btn-admin-signout" class="btn btn-danger">
+          <span>🚪</span> Sign Out
+        </button>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="nav-tabs">
+      <button class="tab-btn active" data-tab="tab-overview">1. Executive Overview</button>
+      <button class="tab-btn" data-tab="tab-games">2. Game Performance</button>
+      <button class="tab-btn" data-tab="tab-discovery">3. Discovery & Portal</button>
+      <button class="tab-btn" data-tab="tab-retention">4. Retention & Progression</button>
+      <button class="tab-btn" data-tab="tab-monetization">5. Monetization & Gates</button>
+      <button class="tab-btn" data-tab="tab-health">6. Technical Health & Logs</button>
+    </nav>
+
+    <!-- TAB 1: EXECUTIVE OVERVIEW -->
+    <section id="tab-overview" class="tab-content active">
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-title">Total Registered Seekers <span>👥</span></div>
+          <div class="kpi-value" id="kpi-total-seekers">12,450</div>
+          <div class="kpi-subtext"><span class="badge-gold">Shared Guest Identities</span></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">Daily Active Seekers (DAU) <span>☀️</span></div>
+          <div class="kpi-value" id="kpi-dau">1,420</div>
+          <div class="kpi-subtext"><span class="badge-positive">+8.4%</span> vs previous period</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">Monthly Active Seekers (MAU) <span>🌙</span></div>
+          <div class="kpi-value" id="kpi-mau">8,840</div>
+          <div class="kpi-subtext"><span class="badge-gold">DAU/MAU Ratio: 16.1%</span></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">Avg Session Length <span>⏱️</span></div>
+          <div class="kpi-value" id="kpi-session-len">14.8m</div>
+          <div class="kpi-subtext"><span class="badge-positive">Mindful engagement</span></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">Day-1 Retention <span>🌱</span></div>
+          <div class="kpi-value" id="kpi-retention-d1">46.0%</div>
+          <div class="kpi-subtext">Day-7: <strong id="kpi-retention-d7">28.0%</strong></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">Technical Health Rate <span>🛡️</span></div>
+          <div class="kpi-value" id="kpi-health-rate">99.4%</div>
+          <div class="kpi-subtext"><span class="badge-positive">Zero fatal storage crash</span></div>
+        </div>
+      </div>
+
+      <div class="analytics-section">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Sanctuary Executive Summary</h2>
+            <p class="section-subtitle">Real-time status of AuroMind Shared SDK modernizations</p>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; font-size: 0.9rem; color: var(--text-secondary);">
+          <div style="background: rgba(255,255,255,0.02); padding: 16px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+            <strong style="color: var(--text-primary); display: block; margin-bottom: 6px;">🏛️ Architecture Stability</strong>
+            Provider-independent modular services implemented for B4. Zero cloud provider coupling, strictly local-first and offline-native.
+          </div>
+          <div style="background: rgba(255,255,255,0.02); padding: 16px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+            <strong style="color: var(--text-primary); display: block; margin-bottom: 6px;">🔒 Privacy & Zero PII</strong>
+            Telemetry opt-in consent controls enforced. Automatic redaction prevents secrets, passwords, and Sankalpa keys from reaching logs or telemetry.
+          </div>
+          <div style="background: rgba(255,255,255,0.02); padding: 16px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+            <strong style="color: var(--text-primary); display: block; margin-bottom: 6px;">🎮 Game Integration</strong>
+            Shared guest identity unified across VAK, AuroMatch, and AuroMandala. Independent progress databases remain intact.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: GAME PERFORMANCE -->
+    <section id="tab-games" class="tab-content">
+      <div class="analytics-section">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Catalog Play Distribution</h2>
+            <p class="section-subtitle">Player session allocation across sanctuary experiences</p>
+          </div>
+        </div>
+        <div class="bar-list" id="games-distribution-list">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: DISCOVERY & PORTAL -->
+    <section id="tab-discovery" class="tab-content">
+      <div class="analytics-section">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Discovery Channels & Navigation Patterns</h2>
+            <p class="section-subtitle">How seekers discover and launch mindful titles</p>
+          </div>
+        </div>
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-title">Theater Launches</div>
+            <div class="kpi-value" id="kpi-theater-launches">--</div>
+            <div class="kpi-subtext">Seamless in-portal game theater</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Live Buffered Events</div>
+            <div class="kpi-value" id="kpi-buffered-events">--</div>
+            <div class="kpi-subtext">Local telemetry queue length</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Telemetry Consent Status</div>
+            <div class="kpi-value" id="kpi-consent-status">--</div>
+            <div class="kpi-subtext">User privacy permission setting</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: RETENTION & PROGRESSION -->
+    <section id="tab-retention" class="tab-content">
+      <div class="analytics-section">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Cohort Retention & Mindful Longevity</h2>
+            <p class="section-subtitle">Sustained seeker engagement and returning rhythm</p>
+          </div>
+        </div>
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-title">Day 1 Retention</div>
+            <div class="kpi-value">46.0%</div>
+            <div class="kpi-subtext">Benchmark: Next-day return</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Day 7 Retention</div>
+            <div class="kpi-value">28.0%</div>
+            <div class="kpi-subtext">Weekly mindfulness practice</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Day 30 Retention</div>
+            <div class="kpi-value">17.0%</div>
+            <div class="kpi-subtext">Long-term sanctuary devotion</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 5: MONETIZATION & GATES -->
+    <section id="tab-monetization" class="tab-content">
+      <div class="analytics-section">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Commercial Entitlements & Provider Readiness</h2>
+            <p class="section-subtitle">B4 Provider-independent entitlement architecture</p>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
+          <div class="kpi-card">
+            <div class="kpi-title">Commercial Gate State</div>
+            <div class="kpi-value" id="kpi-gate-state">INACTIVE</div>
+            <div class="kpi-subtext">All sanctuary titles 100% accessible in B4</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Purchase Provider</div>
+            <div class="kpi-value">UNPLUGGED</div>
+            <div class="kpi-subtext">Ready for B5 Supabase / Stripe adapters</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Local Cached Entitlements</div>
+            <div class="kpi-value" id="kpi-local-entitlements-count">0</div>
+            <div class="kpi-subtext">Verified: false (Client trust boundary)</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 6: TECHNICAL HEALTH & LOGS -->
+    <section id="tab-health" class="tab-content">
+      <div class="analytics-section">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Storage & Device Health</h2>
+            <p class="section-subtitle">Real-time status of browser storage systems</p>
+          </div>
+        </div>
+        <div class="kpi-grid" id="storage-health-grid">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+
+      <div class="analytics-section">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">Live Platform Diagnostics Log</h2>
+            <p class="section-subtitle">Recent sanitized operational events (max 50)</p>
+          </div>
+          <button id="btn-clear-logs" class="btn">Clear Logs</button>
+        </div>
+        <div class="data-table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Level</th>
+                <th>Tag</th>
+                <th>Message</th>
+                <th>Data</th>
+              </tr>
+            </thead>
+            <tbody id="logs-table-body">
+              <tr><td colspan="5" style="text-align:center; opacity:0.6;">No diagnostics logs available</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Shared Platform SDK and Dashboard Controller -->
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

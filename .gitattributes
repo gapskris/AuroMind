@@ -1,0 +1,27 @@
+# AuroMind Git Attributes Configuration
+# Standardize line endings to LF cross-platform while protecting binary assets
+
+# Default text normalization
+* text=auto eol=lf
+
+# Image and media formats (strictly binary)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.svg text eol=lf
+
+# Fonts and audio (strictly binary)
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.mp3 binary
+*.wav binary
+*.ogg binary
+
+# Lockfiles and binary data
+*.lock binary
+*.pbtxt text eol=lf

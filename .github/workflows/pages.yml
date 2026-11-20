@@ -1,0 +1,142 @@
+name: Deploy AuroMind Static Site to GitHub Pages (Manual Allowlist)
+
+# ------------------------------------------------------------------------------
+# AuroMind — Controlled GitHub Pages Allowlist Deployment Workflow (B0 Closeout)
+# ------------------------------------------------------------------------------
+# Safety posture:
+# - Manual workflow_dispatch ONLY until explicit Product Owner approval is given
+#   to activate automatic production deployment.
+# - Copies ONLY approved static runtime assets into `_site/`.
+# - Excludes architecture-design/, phase0-audit/, server.js, *.test.js,
+#   package.json, README.md, bun.lock, dotfiles, and development metadata.
+#
+# To activate automatic production deployment later (requires explicit approval):
+# 1. Confirm GitHub Repository Settings -> Pages -> Build and deployment -> Source
+#    is set to "GitHub Actions".
+# 2. Add a `push: branches: [main]` trigger under `on:` in a dedicated approved PR.
+# 3. Verify `https://gapskris.github.io/AuroMind/` serves portal & all 6 games
+#    while `/architecture-design/` and `/phase0-audit/` return 404.
+# ------------------------------------------------------------------------------
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Assemble Allowlisted Static Artifact
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Build strict runtime allowlist artifact
+        run: |
+          set -euo pipefail
+          rm -rf _site
+          mkdir -p _site
+
+          # Approved runtime root files
+          cp index.html _site/index.html
+          cp manifest.json _site/manifest.json
+          cp sw.js _site/sw.js
+
+          # Approved runtime asset, game, and protected owner analytics directories
+          cp -R assets _site/assets
+          cp -R games _site/games
+          cp -R owner-analytics _site/owner-analytics
+
+          # Disable Jekyll processing so static paths are served verbatim
+          touch _site/.nojekyll
+
+      - name: Verify allowlist completeness and documentation exclusion
+        run: |
+          set -euo pipefail
+
+          # Confirm required runtime entry points exist in artifact
+          for required in \
+            "_site/index.html" \
+            "_site/manifest.json" \
+            "_site/sw.js" \
+            "_site/assets/js/portal.js" \
+            "_site/assets/css/portal.css" \
+            "_site/assets/sdk/auromind-sdk.js" \
+            "_site/assets/sdk/auromind-adapters.js" \
+            "_site/owner-analytics/index.html" \
+            "_site/games/vak/index.html" \
+            "_site/games/auromatch/index.html" \
+            "_site/games/word-riddle/index.html" \
+            "_site/games/vak-living-sanctuary/index.html" \
+            "_site/games/auromandala/index.html" \
+            "_site/games/auroblocks/index.html"; do
+            if [ ! -f "$required" ]; then
+              echo "ERROR: Required runtime asset missing from Pages artifact: $required" >&2
+              exit 1
+            fi
+          done
+
+          # Confirm excluded documentation, server, test, and metadata paths are absent
+          for forbidden in \
+            "_site/architecture-design" \
+            "_site/phase0-audit" \
+            "_site/supabase" \
+            "_site/server.js" \
+            "_site/server.test.js" \
+            "_site/auromind-sdk.test.js" \
+            "_site/b3-game-integration.test.js" \
+            "_site/b4-platform-services.test.js" \
+            "_site/b5-supabase.test.js" \
+            "_site/package.json" \
+            "_site/package-lock.json" \
+            "_site/bun.lock" \
+            "_site/README.md" \
+            "_site/.gitignore" \
+            "_site/.git" \
+            "_site/.github" \
+            "_site/.aistudio" \
+            "_site/.playwright-cli" \
+            "_site/node_modules"; do
+            if [ -e "$forbidden" ]; then
+              echo "ERROR: Forbidden non-runtime path leaked into Pages artifact: $forbidden" >&2
+              exit 1
+            fi
+          done
+
+          # Confirm zero Markdown files were copied into the artifact
+          MD_COUNT=$(find _site -type f -name '*.md' | wc -l)
+          if [ "$MD_COUNT" -ne 0 ]; then
+            echo "ERROR: Unexpected Markdown files detected in Pages artifact ($MD_COUNT)" >&2
+            find _site -type f -name '*.md' >&2
+            exit 1
+          fi
+
+          echo "Pages artifact allowlist verification passed."
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

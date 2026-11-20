@@ -4,9 +4,19 @@
  * and strictly excludes /games/* routes so individual game Service Workers remain isolated.
  */
 
-const PORTAL_CACHE_NAME = 'auro-portal-v1.0.0';
+const PORTAL_CACHE_NAME = 'auro-portal-v1.1.0';
 const FONT_CACHE_NAME = 'auro-portal-fonts-v1.0.0';
 const CACHE_PREFIX = 'auro-portal-';
+
+const PORTAL_SDK_ASSETS = [
+  './assets/sdk/auromind-sdk.js',
+  './assets/sdk/auromind-adapters.js'
+];
+
+const PORTAL_SDK_REL_PATHS = new Set([
+  'assets/sdk/auromind-sdk.js',
+  'assets/sdk/auromind-adapters.js'
+]);
 
 const PORTAL_SHELL_ASSETS = [
   './',
@@ -15,7 +25,8 @@ const PORTAL_SHELL_ASSETS = [
   './assets/css/portal.css',
   './assets/css/portal.css?v=2.8',
   './assets/js/portal.js',
-  './assets/js/portal.js?v=3.6',
+  './assets/js/portal.js?v=3.7',
+  ...PORTAL_SDK_ASSETS,
   './assets/icons/auromind-logo.svg',
   './assets/icons/icon-192.png',
   './assets/icons/icon-512.png',
@@ -183,8 +194,50 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Bypass health check and internal non-portal routes
-  if (relPath === 'health' || relPath.startsWith('phase0-audit/')) {
+  // Bypass health check and internal non-portal routes (never cache docs, tests, server code, or owner-analytics)
+  if (
+    relPath === 'health' ||
+    relPath.startsWith('phase0-audit/') ||
+    relPath.startsWith('architecture-design/') ||
+    relPath.startsWith('owner-analytics/') ||
+    relPath === 'server.js' ||
+    relPath.endsWith('.test.js') ||
+    relPath.endsWith('.md')
+  ) {
+    return;
+  }
+
+  // 3b. Narrowly scoped Shared SDK offline caching (strictly after /games/* isolation bypass)
+  if (PORTAL_SDK_REL_PATHS.has(relPath)) {
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open(PORTAL_CACHE_NAME);
+
+        const exactMatch = await cache.match(request);
+        if (exactMatch) {
+          return exactMatch;
+        }
+
+        const cleanMatch = await cache.match(request, { ignoreSearch: true });
+        if (cleanMatch) {
+          return cleanMatch;
+        }
+
+        try {
+          const networkResponse = await fetch(request);
+          if (
+            networkResponse &&
+            networkResponse.status === 200 &&
+            networkResponse.type === 'basic'
+          ) {
+            cache.put(request, networkResponse.clone());
+          }
+          return networkResponse;
+        } catch (_err) {
+          return new Response('', { status: 504, statusText: 'Offline' });
+        }
+      })()
+    );
     return;
   }
 

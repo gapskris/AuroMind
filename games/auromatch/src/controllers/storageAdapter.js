@@ -565,3 +565,94 @@ export async function executeAbsolutePurge(targetGm = null) {
         }, 1200);
     }
 }
+
+/**
+ * Creates the AuroMind Platform Game Adapter for AuroMatch.
+ * Bridges AuroMatch's native storage to the shared SDK identity and sync lifecycle
+ * while strictly preserving game ownership of AuroMatchDB and player state.
+ */
+export function createAuroMatchGameAdapter() {
+    return {
+        gameId: 'auromatch',
+        adapterVersion: '1.0.0',
+        contractVersion: 1,
+        integrationMode: 'native',
+        storage: {
+            kind: 'idb+ls',
+            ownedDatabases: ['AuroMatchDB'],
+            ownedLocalStorageKeys: [
+                'auro_match_user',
+                'auro_match_consecrations',
+                'auro_match_unlocked_tiles',
+                'auro_match_profile',
+                'auro_match_teachings',
+                'auromatch_has_entered_sanctuary',
+                'auromatch_player_profiles',
+                'auromatch_player_state',
+                'auromatch_standard_theme'
+            ],
+            localOnlyVaults: []
+        },
+        capabilities: {
+            offlinePlay: true,
+            localPersistence: true,
+            cloudSyncEligible: true
+        },
+        hasLocalProgress: () => {
+            try {
+                return Boolean(
+                    profileState &&
+                    profileState.progression &&
+                    (profileState.progression.completedLevelsCount > 0 ||
+                     (profileState.progression.completedLevelIds && profileState.progression.completedLevelIds.length > 0))
+                );
+            } catch {
+                return false;
+            }
+        },
+        exportEnvelope: async (guestId) => {
+            const hasProgress = Boolean(
+                profileState &&
+                profileState.progression &&
+                (profileState.progression.completedLevelsCount > 0 ||
+                 (profileState.progression.completedLevelIds && profileState.progression.completedLevelIds.length > 0))
+            );
+            const payload = {
+                schemaVersion: 1,
+                profileState: JSON.parse(JSON.stringify(profileState)),
+                exportedAt: new Date().toISOString()
+            };
+            return {
+                envelopeVersion: 1,
+                gameId: 'auromatch',
+                gameSchemaVersion: 1,
+                guestId,
+                baseRevision: 0,
+                clientUpdatedAt: new Date().toISOString(),
+                isEmpty: !hasProgress,
+                checksum: 'match_' + (profileState?.progression?.completedLevelsCount || 0) + '_' + (profileState?.profile?.lotusPetalCount || 0),
+                payload
+            };
+        },
+        applyEnvelope: async (envelope) => {
+            if (!envelope || !envelope.payload) return false;
+            if (envelope.payload.profileState) {
+                profileState = envelope.payload.profileState;
+                saveProfileState();
+                return true;
+            }
+            return false;
+        },
+        init: async (scopedContext) => {
+            const guestId = scopedContext.getGuestId();
+            if (guestId) {
+                if (typeof window !== 'undefined') {
+                    window.__AUROMIND_GUEST_ID__ = guestId;
+                }
+                if (profileState && profileState.profile) {
+                    profileState.profile.platformGuestId = guestId;
+                }
+            }
+        }
+    };
+}

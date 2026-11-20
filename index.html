@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://gapskris.github.io; img-src 'self' data: https:; connect-src 'self' https://api.web3forms.com;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; frame-src 'self'; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co https://api.web3forms.com;">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>AuroMind — Sanctuary of Mindful Play & Intergenerational Games</title>
   
@@ -1554,29 +1554,82 @@
     </div><!-- /.portal-main-area -->
   </div><!-- /.app-layout -->
 
-  <!-- AUTH MODAL -->
+  <!-- AUTH & CLOUD SYNC MODAL -->
   <div id="auth-modal" class="modal-overlay">
-    <div class="modal-box">
+    <div class="modal-box modal-box-wide">
       <button id="modal-close-btn" class="modal-close-btn" aria-label="Close modal">&times;</button>
-      <img src="assets/icons/auromind-logo.svg" alt="AuroMind" style="width: 44px; height: 44px; margin: 0 auto 0.75rem;">
-      <h3 style="font-size: 1.2rem; color: var(--text-primary); margin-bottom: 0.4rem;">AuroMind Account System</h3>
-      <p style="font-size: 0.82rem; color: var(--text-secondary); line-height: 1.45; margin-bottom: 1.2rem;">
-        Cloud synchronization and purchase entitlements are arriving in the next release!
-      </p>
+      
+      <div class="modal-header-block">
+        <img src="assets/icons/auromind-logo.svg" alt="AuroMind" class="modal-header-icon" style="width: 44px; height: 44px; margin: 0 auto 0.4rem;">
+        <h3 class="modal-title-main" style="font-size: 1.25rem;">AuroMind Account & Cloud Sync</h3>
+        <p class="modal-desc-sub" style="font-size: 0.85rem;">Conscious Casual Play • Cross-Device Sanctuary Sync</p>
+      </div>
 
-      <div style="display: flex; flex-direction: column; gap: 0.5rem; text-align: left;">
-        <div style="background: var(--bg-surface); padding: 0.5rem 0.7rem; border-radius: 6px; font-size: 0.8rem;">
-          ☁️ Cross-Device Cloud Progress Sync
+      <!-- Account / Guest Identity Status Panel -->
+      <div id="auth-status-panel" style="background: var(--bg-surface, #f8fafc); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; text-align: left;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+          <span style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary, #64748b);">Account Status</span>
+          <span id="auth-mode-badge" class="pill-badge" style="font-size: 0.72rem; padding: 2px 8px; background: rgba(245, 158, 11, 0.15); color: #d97706; border-radius: 12px; font-weight: 600;">Guest Mode</span>
         </div>
-        <div style="background: var(--bg-surface); padding: 0.5rem 0.7rem; border-radius: 6px; font-size: 0.8rem;">
-          💳 Universal Game Pass & Lifetime Unlocks
+        <div id="auth-user-identity" style="font-size: 0.82rem; font-family: monospace; color: var(--text-primary, #1e293b); word-break: break-all;">
+          guest_initializing...
         </div>
-        <div style="background: var(--bg-surface); padding: 0.5rem 0.7rem; border-radius: 6px; font-size: 0.8rem;">
-          🌸 Shared Sanctuary Garden Progression
+        <div id="auth-user-email" style="font-size: 0.8rem; color: var(--text-secondary, #64748b); margin-top: 0.25rem; display: none;"></div>
+      </div>
+
+      <!-- Sign In / Sign Up Form (shown when in guest mode) -->
+      <div id="auth-form-container">
+        <div style="display: flex; flex-direction: column; gap: 0.75rem; text-align: left; margin-bottom: 1rem;">
+          <div>
+            <label for="auth-email-input" style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary, #64748b); display: block; margin-bottom: 0.25rem;">Email Address</label>
+            <input type="email" id="auth-email-input" placeholder="player@example.com" class="feedback-input" style="width: 100%; box-sizing: border-box; padding: 0.5rem 0.75rem; border-radius: 6px; border: 1px solid var(--border-color, #cbd5e1); font-size: 0.85rem;" autocomplete="email">
+          </div>
+          <div>
+            <label for="auth-password-input" style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary, #64748b); display: block; margin-bottom: 0.25rem;">Password</label>
+            <input type="password" id="auth-password-input" placeholder="••••••••" class="feedback-input" style="width: 100%; box-sizing: border-box; padding: 0.5rem 0.75rem; border-radius: 6px; border: 1px solid var(--border-color, #cbd5e1); font-size: 0.85rem;" autocomplete="current-password">
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+          <button id="auth-signin-btn" class="modal-confirm-btn" style="flex: 1; margin: 0; padding: 0.6rem; font-size: 0.85rem;">Sign In</button>
+          <button id="auth-signup-btn" class="btn-settings-action" style="flex: 1; padding: 0.6rem; font-size: 0.85rem; border: 1px solid var(--border-color, #cbd5e1);">Create Account</button>
+        </div>
+
+        <button id="auth-upgrade-btn" class="btn-pill-action" style="width: 100%; justify-content: center; padding: 0.5rem; font-size: 0.8rem; margin-bottom: 1rem; border: 1px dashed var(--accent-gold, #f59e0b); color: #d97706; background: rgba(245, 158, 11, 0.05); cursor: pointer;">
+          <span>⭐ Link Current Guest Progress to New Account</span>
+        </button>
+      </div>
+
+      <!-- Cloud Sync & Settings Panel -->
+      <div style="background: var(--bg-surface, #f8fafc); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; text-align: left;">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <div>
+            <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary, #1e293b); display: block;">☁️ Cloud Save Synchronization</span>
+            <span style="font-size: 0.75rem; color: var(--text-secondary, #64748b);">Non-destructive cross-device sync with optimistic locking</span>
+          </div>
+          <label class="switch" style="margin-left: 0.5rem;">
+            <input type="checkbox" id="auth-sync-toggle">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div id="auth-sync-controls" style="margin-top: 0.75rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+          <button id="auth-sync-now-btn" class="btn-settings-action" style="padding: 0.35rem 0.75rem; font-size: 0.78rem;">Sync Now 🔄</button>
+          <span id="auth-sync-status-msg" style="font-size: 0.75rem; color: var(--text-secondary, #64748b);">Sync idle</span>
         </div>
       </div>
 
-      <button id="modal-confirm-btn" class="modal-confirm-btn">Got It</button>
+      <!-- Sign Out button (shown when signed in) -->
+      <div id="auth-signed-in-actions" style="display: none; margin-bottom: 1rem;">
+        <button id="auth-signout-btn" class="btn-settings-action" style="width: 100%; padding: 0.6rem; color: #dc2626; border-color: rgba(220, 38, 38, 0.3);">
+          Sign Out of Account
+        </button>
+      </div>
+
+      <!-- Status / Error Notification Box -->
+      <div id="auth-notification-msg" style="display: none; padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.8rem; margin-bottom: 1rem;"></div>
+
+      <button id="modal-confirm-btn" class="modal-confirm-btn" style="margin-top: 0;">Close Window</button>
     </div>
   </div>
 
@@ -1643,6 +1696,18 @@
           </div>
           <label class="switch">
             <input type="checkbox" id="settings-motion-toggle">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- Anonymous Sanctuary Analytics -->
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <span class="settings-row-title">📊 Anonymous Sanctuary Analytics</span>
+            <span class="settings-row-desc">Share privacy-first, zero-PII operational diagnostics</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="settings-telemetry-toggle">
             <span class="slider"></span>
           </label>
         </div>
@@ -1877,7 +1942,29 @@
     </div>
   </div>
 
+  <!-- PRIVACY & ANALYTICS CONSENT BANNER (January 1 Release) -->
+  <aside id="analytics-consent-banner" class="analytics-consent-banner" style="display: none;" role="region" aria-label="Privacy and Analytics Consent">
+    <div class="consent-banner-content">
+      <div class="consent-banner-text">
+        <span class="consent-icon">🌸</span>
+        <div>
+          <strong>Mindful Analytics & Privacy</strong>
+          <p>AuroMind collects anonymous, privacy-first operational diagnostics to improve game performance and platform health. No personal data, IP addresses, credentials, or Sankalpa notes are ever collected.</p>
+        </div>
+      </div>
+      <div class="consent-banner-actions">
+        <button id="consent-accept-btn" class="consent-btn consent-btn-accept" type="button">Accept & Support</button>
+        <button id="consent-decline-btn" class="consent-btn consent-btn-decline" type="button">Decline (Essential Only)</button>
+        <button id="consent-settings-link" class="consent-link-btn" type="button">Customise in Settings</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- AuroMind Shared Platform SDK (loaded in dependency order) -->
+  <script type="module" src="assets/sdk/auromind-adapters.js"></script>
+  <script type="module" src="assets/sdk/auromind-sdk.js"></script>
+
   <!-- Interactive JavaScript -->
-  <script src="assets/js/portal.js?v=3.6"></script>
+  <script src="assets/js/portal.js?v=3.7"></script>
 </body>
 </html>

@@ -1,0 +1,78 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions for authentication and user isolation
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isServerRole() {
+      // Firebase Admin SDK bypasses rules automatically; client requests never have admin role
+      return request.auth.token.admin == true;
+    }
+
+    // 1. User Profiles: Scoped strictly to the owning user
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // 2. Guest Identity Links: Many guest device IDs -> 1 authenticated account
+    match /users/{userId}/guest_identity_links/{linkId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // 3. Game Cloud Saves: Optimistic concurrency & size guards
+    match /users/{userId}/game_saves/{gameId} {
+      // Sacred Privacy Invariant: Sankalpa vault is local-only and strictly prohibited in Firestore
+      allow read: if isOwner(userId) && gameId != 'auromandala_sankalpa';
+
+      allow create, update: if isOwner(userId)
+        && gameId != 'auromandala_sankalpa'
+        // Bounded payload size guard: maximum 512 KiB (524,288 bytes)
+        && request.resource.data.size() <= 524288
+        // Schema invariants
+        && request.resource.data.gameId == gameId
+        && request.resource.data.checksum is string
+        && request.resource.data.payload is map;
+
+      allow delete: if isOwner(userId);
+    }
+
+    // 4. Save Revision History: Append-only safety net (read-only to user; history retained)
+    match /users/{userId}/game_saves/{gameId}/revisions/{revId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId);
+      allow update, delete: if isServerRole();
+    }
+
+    // 5. Server-Verified Entitlements: Strictly READ-ONLY to browser clients
+    // Premium entitlements must NEVER be granted solely because a client writes a document.
+    match /users/{userId}/entitlements/{entId} {
+      allow read: if isOwner(userId);
+      allow write: if isServerRole(); // Deny-all to client writes; Admin SDK / Cloud Functions only
+    }
+
+    // 6. Telemetry Ingestion: Direct client writes DENIED
+    // Clients must route telemetry through the trusted ingestTelemetry Cloud Function
+    match /telemetry_events/{eventId} {
+      allow read, write: if isServerRole();
+    }
+
+    // 7. Owner Roles: Privilege escalation guard
+    match /owner_roles/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if isServerRole();
+    }
+
+    // 8. Remote Config & Feature Flags: Public READ-ONLY
+    match /remote_config/{configKey} {
+      allow read: if true;
+      allow write: if isServerRole();
+    }
+  }
+}
