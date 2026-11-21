@@ -473,38 +473,40 @@ test('Security Test 9: VAK 1,368-level corpus byte integrity and Sankalpa zero-c
   // the sync service strictly bypasses remote sync.
   const storage = createStorageMock();
   const sdk = createAuroMindSDK({ env: { localStorage: storage } });
+  try {
+    // Dynamic import of AuroMandala adapter contract
+    const bridgeUrl = pathToFileURL(mandalaBridgePath).href;
+    const { createAuroMandalaGameAdapter } = await import(bridgeUrl);
+    const adapter = createAuroMandalaGameAdapter();
+    assert.equal(adapter.capabilities.cloudSyncEligible, false);
+    assert.ok(adapter.capabilities.localOnlyVaults.includes('sankalpa_e2ee_vault'));
 
-  // Dynamic import of AuroMandala adapter contract
-  const bridgeUrl = pathToFileURL(mandalaBridgePath).href;
-  const { createAuroMandalaGameAdapter } = await import(bridgeUrl);
-  const adapter = createAuroMandalaGameAdapter();
-  assert.equal(adapter.capabilities.cloudSyncEligible, false);
-  assert.ok(adapter.capabilities.localOnlyVaults.includes('sankalpa_e2ee_vault'));
+    // Test that exportEnvelope NEVER exposes Sankalpa plaintext secrets
+    const envelope = await adapter.exportEnvelope('guest_test_id');
+    assert.equal(envelope.gameId, 'auromandala');
+    assert.equal(
+      JSON.stringify(envelope).includes('sankalpa_e2ee_vault'),
+      false,
+      'Export envelope must never contain sankalpa_e2ee_vault payload'
+    );
 
-  // Test that exportEnvelope NEVER exposes Sankalpa plaintext secrets
-  const envelope = await adapter.exportEnvelope('guest_test_id');
-  assert.equal(envelope.gameId, 'auromandala');
-  assert.equal(
-    JSON.stringify(envelope).includes('sankalpa_e2ee_vault'),
-    false,
-    'Export envelope must never contain sankalpa_e2ee_vault payload'
-  );
+    // Test that telemetry excludes any sensitive keys including "sankalpa"
+    sdk.telemetry.optIn();
+    const telemetryEvt = sdk.telemetry.track('player_note', {
+      sankalpa_text: 'Sacred intention',
+      normal_data: 'visible'
+    });
+    assert.equal(
+      telemetryEvt.payload.sankalpa_text,
+      undefined,
+      'Telemetry must exclude keys matching "sankalpa"'
+    );
+    assert.equal(telemetryEvt.payload.normal_data, 'visible');
 
-  // Test that telemetry redacts any sensitive keys including "sankalpa"
-  sdk.telemetry.optIn();
-  const telemetryEvt = sdk.telemetry.track('player_note', {
-    sankalpa_text: 'Sacred intention',
-    normal_data: 'visible'
-  });
-  assert.equal(
-    telemetryEvt.payload.sankalpa_text,
-    '[REDACTED]',
-    'Telemetry must redact keys matching "sankalpa"'
-  );
-  assert.equal(telemetryEvt.payload.normal_data, 'visible');
-
-  sdk.telemetry.optOut();
-  sdk.dispose();
+    sdk.telemetry.optOut();
+  } finally {
+    sdk.dispose();
+  }
 
   // -------------------------------------------------------------------------
   // Part C: Service Worker Route Isolation Invariants

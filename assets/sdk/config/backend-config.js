@@ -14,6 +14,8 @@
  */
 
 // Supported provider identifiers
+export const COMMERCIAL_GATE_ENABLED = false;
+
 export const SUPPORTED_PROVIDERS = Object.freeze({
   NULL: 'null',            // Local-first, offline-only fallback
   SUPABASE: 'supabase',    // Production Supabase backend (Auth, Cloud Sync, Telemetry, RLS)
@@ -110,6 +112,7 @@ export function resolveBackendConfig(explicitConfig = null) {
     environment: env,
     provider,
     isConfigured,
+    commercialGateEnabled: COMMERCIAL_GATE_ENABLED,
     supabaseUrl,
     supabaseAnonKey,
     firebaseConfig
@@ -146,6 +149,7 @@ export async function createConfiguredProviders(backendConfig = null) {
 }
 
 export default {
+  COMMERCIAL_GATE_ENABLED,
   SUPPORTED_PROVIDERS,
   detectEnvironment,
   resolveBackendConfig,

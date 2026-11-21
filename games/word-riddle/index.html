@@ -8,6 +8,10 @@
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <title>Word Discovery</title>
+    <!-- AuroMind Shared Platform SDK (dependency order) -->
+    <script type="module" src="../../assets/sdk/auromind-adapters.js"></script>
+    <script type="module" src="../../assets/sdk/auromind-sdk.js"></script>
+    <script type="module" src="./assets/word-riddle-sdk-bridge.js"></script>
     <script type="module" crossorigin src="./assets/index-ClQZWKJi.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/vendor-Bb8JjhAW.js">
     <link rel="modulepreload" crossorigin href="./assets/vendor-react-BohcAXVY.js">
@@ -15,6 +19,51 @@
     <link rel="stylesheet" crossorigin href="./assets/index-w4eIMPyb.css">
   </head>
   <body>
+    <script>
+      (function() {
+        window.exitToAuroMindPortal = function() {
+          try {
+            if (window.parent && window.parent !== window) {
+              window.parent.postMessage({ type: 'AUROMIND_CLOSE_THEATER', gameId: 'wordriddle' }, window.location.origin);
+            } else {
+              window.location.href = '../../index.html';
+            }
+          } catch (_err) {
+            window.location.href = '../../index.html';
+          }
+        };
+
+        window.addEventListener('message', function(event) {
+          if (event.origin !== window.location.origin) return;
+          if (event.data && event.data.type === 'AUROMIND_SET_SENIOR_MODE') {
+            var isSenior = Boolean(event.data.enabled);
+            document.documentElement.classList.toggle('senior-mode', isSenior);
+            document.body.classList.toggle('senior-mode', isSenior);
+          }
+        });
+
+        if (window.parent && window.parent !== window) {
+          var mountBtn = function() {
+            if (document.getElementById('auromind-theater-return-btn')) return;
+            var btn = document.createElement('button');
+            btn.id = 'auromind-theater-return-btn';
+            btn.setAttribute('type', 'button');
+            btn.setAttribute('aria-label', 'Return to AuroMind Portal');
+            btn.textContent = '⌂ Portal';
+            btn.style.cssText = 'position:fixed;top:12px;left:12px;z-index:99999;background:rgba(20,18,16,0.88);backdrop-filter:blur(10px);border:1px solid rgba(212,175,55,0.4);color:#f5efe4;font-family:system-ui,-apple-system,sans-serif;font-size:11px;font-weight:700;letter-spacing:0.04em;padding:6px 14px;border-radius:999px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,0.45);transition:all 0.2s ease;user-select:none;';
+            btn.onmouseenter = function() { btn.style.background = 'rgba(30,27,24,0.98)'; btn.style.borderColor = '#d4af37'; btn.style.transform = 'scale(1.04)'; };
+            btn.onmouseleave = function() { btn.style.background = 'rgba(20,18,16,0.88)'; btn.style.borderColor = 'rgba(212,175,55,0.4)'; btn.style.transform = 'scale(1)'; };
+            btn.onclick = function(e) { e.preventDefault(); e.stopPropagation(); window.exitToAuroMindPortal(); };
+            document.body.appendChild(btn);
+          };
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', mountBtn);
+          } else {
+            mountBtn();
+          }
+        }
+      })();
+    </script>
     <div id="root"></div>
   </body>
 </html>

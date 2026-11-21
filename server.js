@@ -165,7 +165,7 @@ export function createApp() {
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; frame-src 'self'; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co https://api.web3forms.com; frame-ancestors 'self';"
+      "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.web3forms.com https://cdn.jsdelivr.net https://fonts.googleapis.com; frame-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self';"
     );
     if (req.secure || (req.headers && req.headers['x-forwarded-proto'] === 'https')) {
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');

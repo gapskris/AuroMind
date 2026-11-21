@@ -797,6 +797,29 @@ body.in-game-mode .portal-main-area {
   width: 32px;
 }
 
+.edge-tab-trigger:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+}
+
+/* Enhanced mobile touch target (WCAG 44x44px minimum) */
+@media (pointer: coarse), (max-width: 768px) {
+  .edge-tab-trigger {
+    width: 36px;
+    height: 52px;
+    touch-action: manipulation;
+  }
+
+  .edge-tab-trigger::after {
+    content: '';
+    position: absolute;
+    top: -8px;
+    bottom: -8px;
+    left: 0;
+    right: -14px;
+  }
+}
+
 .edge-tab-icon {
   font-size: 0.72rem;
   transition: transform 0.25s ease;
@@ -1787,5 +1810,63 @@ body.senior-mode .sentiment-chip {
   .consent-banner-actions {
     justify-content: flex-end;
   }
+}
+
+/* ==========================================================================
+   AMBER STORAGE WARNING BANNER & BACKUP EXPORT (TASK-ID-03)
+   ========================================================================== */
+.amber-storage-banner {
+  background: #fef3c7;
+  border-bottom: 1.5px solid #f59e0b;
+  color: #92400e;
+  padding: 10px 16px;
+  font-size: 0.875rem;
+  font-family: inherit;
+  z-index: 99999;
+  position: relative;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.amber-banner-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.amber-banner-icon {
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.amber-banner-text {
+  flex: 1 1 auto;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.amber-banner-btn {
+  background: #f59e0b;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 0.825rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+.amber-banner-btn:hover {
+  background: #d97706;
+}
+
+.amber-banner-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 

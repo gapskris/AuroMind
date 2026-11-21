@@ -107,15 +107,47 @@ export async function getItemAsync(key) {
     return null;
 }
 
+export function isValidAuroMatchState(raw) {
+    if (!raw || typeof raw !== 'string') return false;
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed === '{}' || trimmed === 'null' || trimmed === 'undefined') {
+        return false;
+    }
+    try {
+        const parsed = JSON.parse(trimmed);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return false;
+        }
+        // Legitimate new-player saves (empty arrays) or existing progress
+        if (
+            Array.isArray(parsed.completedLevels) ||
+            Array.isArray(parsed.completedLevelIds) ||
+            parsed.progression ||
+            parsed.profile ||
+            typeof parsed.currentLevel !== 'undefined' ||
+            parsed.isEmpty === true
+        ) {
+            return true;
+        }
+        const keys = Object.keys(parsed);
+        return keys.length > 0 && !keys.every((k) => parsed[k] === null || parsed[k] === undefined);
+    } catch {
+        return false;
+    }
+}
+
 export async function autoHealFromIndexedDB() {
     if (typeof localStorage === 'undefined') return false;
     const idb = (typeof window !== 'undefined' && window.indexedDB) ? window.indexedDB : globalThis.indexedDB;
     if (!idb) return false;
 
     try {
-        // If localStorage has player state or user profile, it is already healthy
-        const hasLocal = localStorage.getItem('auromatch_player_state') || localStorage.getItem('auro_match_user');
-        if (hasLocal) return false;
+        const localState = localStorage.getItem('auromatch_player_state');
+        const localUser = localStorage.getItem('auro_match_user');
+
+        const stateHealthy = isValidAuroMatchState(localState);
+        const userHealthy = isValidAuroMatchState(localUser);
+        const hasHealthyLocal = stateHealthy || userHealthy;
 
         const db = await initIndexedDB();
         if (!db) return false;
@@ -131,6 +163,46 @@ export async function autoHealFromIndexedDB() {
             'auro_match_teachings'
         ];
 
+        if (hasHealthyLocal) {
+            // Bidirectional healing: verify IndexedDB is not missing healthy local records
+            let idbHealedCount = 0;
+            for (const key of keysToRestore) {
+                const localVal = localStorage.getItem(key);
+                if (localVal !== null && localVal !== undefined) {
+                    const idbVal = await new Promise((resolve) => {
+                        try {
+                            const tx = db.transaction(STORE_NAME, 'readonly');
+                            const req = tx.objectStore(STORE_NAME).get(key);
+                            req.onsuccess = () => resolve(req.result);
+                            req.onerror = () => resolve(null);
+                        } catch (e) {
+                            resolve(null);
+                        }
+                    });
+                    if (idbVal === null || idbVal === undefined) {
+                        await setItemAsync(key, localVal);
+                        idbHealedCount++;
+                    }
+                }
+            }
+            if (idbHealedCount > 0) {
+                console.info(`[Storage] Bidirectional auto-heal: populated ${idbHealedCount} records from localStorage into IndexedDB.`);
+            }
+            return false;
+        }
+
+        // Local state is corrupt or empty: quarantine corrupt string if present
+        if (localState && !stateHealthy && localState.trim() !== '{}' && localState.trim() !== '') {
+            try {
+                localStorage.setItem(`_corrupt_auromatch_player_state_${Date.now()}`, localState);
+            } catch {}
+        }
+        if (localUser && !userHealthy && localUser.trim() !== '{}' && localUser.trim() !== '') {
+            try {
+                localStorage.setItem(`_corrupt_auro_match_user_${Date.now()}`, localUser);
+            } catch {}
+        }
+
         let restoredCount = 0;
         for (const key of keysToRestore) {
             const val = await new Promise((resolve) => {
@@ -144,7 +216,8 @@ export async function autoHealFromIndexedDB() {
                 }
             });
             if (val !== null && val !== undefined) {
-                localStorage.setItem(key, val);
+                const strVal = typeof val === 'string' ? val : JSON.stringify(val);
+                localStorage.setItem(key, strVal);
                 restoredCount++;
             }
         }

@@ -574,12 +574,19 @@ test('Root service worker precaches shared SDK files, serves them offline, and i
   assert.equal(sdkQueryRes.responded, true);
   assert.equal(sdkQueryRes.response.status, 200);
 
-  // /games/* routes and game-referrer requests MUST be strictly bypassed
+  // SDK files must be served from cache while offline, even when requested by game iframes (B17-GAP-06)
+  const sdkGameReferrerRes = await dispatchFetch('http://localhost:3000/assets/sdk/auromind-sdk.js', {
+    referrer: 'http://localhost:3000/games/vak/index.html'
+  });
+  assert.equal(sdkGameReferrerRes.responded, true);
+  assert.equal(sdkGameReferrerRes.response.status, 200);
+  assert.equal(await sdkGameReferrerRes.response.text(), 'cached:./assets/sdk/auromind-sdk.js');
+
+  // /games/* routes and non-SDK game-referrer requests MUST be strictly bypassed for game SW isolation
   const gameRoutes = [
     { url: 'http://localhost:3000/games/vak/index.html', referrer: 'http://localhost:3000/' },
     { url: 'http://localhost:3000/games/auromatch/index.html', referrer: 'http://localhost:3000/' },
-    { url: 'http://localhost:3000/games/auromandala/assets/index-DhYVrlzX.js', referrer: 'http://localhost:3000/games/auromandala/index.html' },
-    { url: 'http://localhost:3000/assets/sdk/auromind-sdk.js', referrer: 'http://localhost:3000/games/vak/index.html' }
+    { url: 'http://localhost:3000/games/auromandala/assets/index-DhYVrlzX.js', referrer: 'http://localhost:3000/games/auromandala/index.html' }
   ];
   for (const item of gameRoutes) {
     const res = await dispatchFetch(item.url, { referrer: item.referrer });

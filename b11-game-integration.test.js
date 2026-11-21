@@ -337,60 +337,63 @@ test('B11 Suite 5: Theater session start/end duration, progression events, and e
 test('B11 Suite 6: Consent lifecycle, opt-out queue wipe, and strict Sankalpa privacy exclusion', async () => {
   const store = createStorageMock();
   const sdk = createAuroMindSDK({ localStorage: store });
-  await sdk.init({ gameId: 'portal', appVersion: '1.0.0' });
+  try {
+    await sdk.init({ gameId: 'portal', appVersion: '1.0.0' });
 
-  // 1. Initial State: Undecided & Opt-In only
-  assert.equal(sdk.telemetry.getConsent(), false, 'Default consent must be false');
-  assert.equal(sdk.telemetry.getConsentState(), 'undecided');
+    // 1. Initial State: Undecided & Opt-In only
+    assert.equal(sdk.telemetry.getConsent(), false, 'Default consent must be false');
+    assert.equal(sdk.telemetry.getConsentState(), 'undecided');
 
-  // Attempted tracking before consent produces null
-  const dropped = sdk.telemetry.track('page_view', { path: '/' });
-  assert.equal(dropped, null, 'Unconsented tracking must be dropped');
-  assert.equal(sdk.telemetry.getQueueLength(), 0);
+    // Attempted tracking before consent produces null
+    const dropped = sdk.telemetry.track('page_view', { path: '/' });
+    assert.equal(dropped, null, 'Unconsented tracking must be dropped');
+    assert.equal(sdk.telemetry.getQueueLength(), 0);
 
-  // 2. Seeker grants consent
-  sdk.telemetry.setConsent(true);
-  assert.equal(sdk.telemetry.getConsent(), true);
-  assert.equal(sdk.telemetry.getConsentState(), 'granted');
+    // 2. Seeker grants consent
+    sdk.telemetry.setConsent(true);
+    assert.equal(sdk.telemetry.getConsent(), true);
+    assert.equal(sdk.telemetry.getConsentState(), 'granted');
 
-  // 3. Track event containing confidential Sankalpa reflection and credentials
-  const tracked = sdk.telemetry.track('portal_visit', {
-    password: 'sensitive_password_test',
-    token: 'bearer_token_xyz',
-    sankalpa_note: 'My private inner meditation',
-    referrer: 'https://search.partner.org'
-  });
+    // 3. Track event containing confidential Sankalpa reflection and credentials
+    const tracked = sdk.telemetry.track('portal_visit', {
+      password: 'sensitive_password_test',
+      token: 'bearer_token_xyz',
+      sankalpa_note: 'My private inner meditation',
+      referrer: 'https://search.partner.org'
+    });
 
-  assert.ok(tracked);
-  assert.equal(tracked.payload.password, '[REDACTED]');
-  assert.equal(tracked.payload.token, '[REDACTED]');
-  assert.equal(tracked.payload.sankalpa_note, '[REDACTED]');
+    assert.ok(tracked);
+    assert.equal(tracked.payload.password, undefined, 'password must be excluded');
+    assert.equal(tracked.payload.token, undefined, 'token must be excluded');
+    assert.equal(tracked.payload.sankalpa_note, undefined, 'sankalpa_note must be excluded');
+    assert.equal(tracked.payload.referrer, 'https://search.partner.org');
 
-  // Negative inclusion verification
-  const dumped = JSON.stringify(tracked.payload);
-  assert.equal(dumped.includes('sensitive_password_test'), false);
-  assert.equal(dumped.includes('bearer_token_xyz'), false);
-  assert.equal(dumped.includes('My private inner meditation'), false);
+    // Negative inclusion verification
+    const dumped = JSON.stringify(tracked.payload);
+    assert.equal(dumped.includes('sensitive_password_test'), false);
+    assert.equal(dumped.includes('bearer_token_xyz'), false);
+    assert.equal(dumped.includes('My private inner meditation'), false);
 
-  // 4. Seeker revokes consent (Opt-Out)
-  sdk.telemetry.setConsent(false);
-  assert.equal(sdk.telemetry.getConsent(), false);
-  assert.equal(sdk.telemetry.getConsentState(), 'denied');
+    // 4. Seeker revokes consent (Opt-Out)
+    sdk.telemetry.setConsent(false);
+    assert.equal(sdk.telemetry.getConsent(), false);
+    assert.equal(sdk.telemetry.getConsentState(), 'denied');
 
-  // Immediate effect: queue is wiped from memory and local storage
-  assert.equal(sdk.telemetry.getQueueLength(), 0, 'Memory queue must be instantly purged');
-  assert.equal(store.getItem(LS_TELEMETRY_KEY), null, 'Persisted storage queue must be instantly deleted');
+    // Immediate effect: queue is wiped from memory and local storage
+    assert.equal(sdk.telemetry.getQueueLength(), 0, 'Memory queue must be instantly purged');
+    assert.equal(store.getItem(LS_TELEMETRY_KEY), null, 'Persisted storage queue must be instantly deleted');
 
-  // 5. AuroMandala Sankalpa Vault Adapter Invariant
-  const mandalaAdapter = createAuroMandalaGameAdapter();
-  assert.equal(mandalaAdapter.capabilities.cloudSyncEligible, false, 'Sankalpa vault must be strictly local-only');
-  assert.deepEqual(mandalaAdapter.storage.localOnlyVaults, ['sankalpa_e2ee_vault']);
+    // 5. AuroMandala Sankalpa Vault Adapter Invariant
+    const mandalaAdapter = createAuroMandalaGameAdapter();
+    assert.equal(mandalaAdapter.capabilities.cloudSyncEligible, false, 'Sankalpa vault must be strictly local-only');
+    assert.deepEqual(mandalaAdapter.storage.localOnlyVaults, ['sankalpa_e2ee_vault']);
 
-  // Exported envelope never includes Sankalpa secrets
-  const envelope = await mandalaAdapter.exportEnvelope('guest_test_id');
-  const envStr = JSON.stringify(envelope);
-  assert.equal(envStr.includes('sankalpa_e2ee_vault'), false);
-  assert.equal(envelope.capabilities?.cloudSyncEligible, undefined);
-
-  sdk.dispose();
+    // Exported envelope never includes Sankalpa secrets
+    const envelope = await mandalaAdapter.exportEnvelope('guest_test_id');
+    const envStr = JSON.stringify(envelope);
+    assert.equal(envStr.includes('sankalpa_e2ee_vault'), false);
+    assert.equal(envelope.capabilities?.cloudSyncEligible, undefined);
+  } finally {
+    sdk.dispose();
+  }
 });

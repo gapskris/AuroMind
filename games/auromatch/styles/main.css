@@ -4359,470 +4359,300 @@ body {
 
 
 /* ========================================================
-
-   OPTION A: IMMERSIVE FULL-SCREEN SOLITAIRE (Desktop >= 1024px)
-
-   Sidebars are collapsible off-canvas drawers.
-
-   Board fills the entire viewport width.
-
+   FULL-SCREEN PC DESKTOP VIEWPORT (>= 1024px)
+   Immersive 100vw x 100vh 3-Column Panorama
+   Left (310px): Knowledge Field Guide
+   Center (1fr): High-Res Board with Sunken Felt Mat
+   Right (290px): Sanctuary Alignment & Prahar Clock
    ======================================================== */
 
 @media (min-width: 1024px) {
 
-    body {
-        padding: 0;
-        margin: 0;
-        width: 100vw;
-        height: 100vh;
-        overflow: hidden;
+    html, body {
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        overflow: hidden !important;
         display: flex !important;
         justify-content: center !important;
         align-items: center !important;
         background: radial-gradient(circle at center, #1a1423 0%, #0b0914 100%) !important;
     }
 
-    .app-container {
-        width: 100% !important;
-        max-width: 700px !important;
-        height: 96vh !important;
-        height: var(--app-height, 96dvh) !important;
-        max-height: 880px !important;
-        margin: 2vh auto !important;
-        border-radius: 36px !important;
-        border: 2px solid rgba(212, 175, 55, 0.45) !important;
-        box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.18), 0 0 32px rgba(212, 175, 55, 0.25), 0 28px 80px rgba(0, 0, 0, 0.85) !important;
-        background: var(--panel-current) !important;
+    /* Edge-to-edge full screen container */
+    .app-container, #app-wrapper, #app {
+        width: 100vw !important;
+        max-width: 100vw !important;
+        height: 100vh !important;
+        height: 100dvh !important;
+        max-height: none !important;
+        margin: 0 !important;
+        border-radius: 0 !important;
+        border: none !important;
+        box-shadow: none !important;
+        background: transparent !important;
         padding: 0 !important;
         overflow: hidden !important;
         position: relative !important;
+        display: flex !important;
+        flex-direction: column !important;
+    }
+
+    /* Full-width panoramic header */
+    .app-header {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+        padding: 8px 24px !important;
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        gap: 12px !important;
+        overflow: hidden !important;
+        min-height: 56px !important;
+        max-height: 60px !important;
+        flex-wrap: nowrap !important;
+        background: rgba(18, 11, 4, 0.88) !important;
+        backdrop-filter: blur(20px) !important;
+        border-bottom: 1px solid var(--border-current) !important;
+    }
+
+    .header-left-group {
+        display: flex !important;
+        align-items: center !important;
+        gap: 12px !important;
+        flex-shrink: 0 !important;
+    }
+
+    .header-left-group .hdr-btn {
+        padding: 6px 12px !important;
+        font-size: 18px !important;
+        border-radius: 8px !important;
+        background: rgba(255, 255, 255, 0.08) !important;
+        border: 1px solid var(--border-current) !important;
+        cursor: pointer !important;
+    }
+
+    .brand-umbrella-eyebrow {
+        font-size: 0.62rem !important;
+        letter-spacing: 2px !important;
+    }
+
+    .brand-auromatch-title {
+        font-size: 1.35rem !important;
+    }
+
+    .brand-tagline-text {
+        display: inline-block !important;
+        font-size: 0.72rem !important;
+        opacity: 0.75 !important;
+        letter-spacing: 1px !important;
+        margin-left: 6px !important;
+    }
+
+    .header-center-group {
+        flex: 1 1 auto !important;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        gap: 10px !important;
+    }
+
+    .header-realm-dropdown-pill {
+        max-width: 260px !important;
+        padding: 6px 16px !important;
+        font-size: 13px !important;
+        border-radius: 20px !important;
+        gap: 8px !important;
+    }
+
+    #hdr-realm-text {
+        max-width: 180px !important;
+    }
+
+    .hud-progression-bar {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        flex-shrink: 0 !important;
+        margin-left: auto !important;
+    }
+
+    /* Show all progression badges on PC Desktop */
+    #header-player-badge,
+    #header-sparks-count,
+    #header-score-badge,
+    #header-level-indicator,
+    #btn-toggle-senior {
+        display: inline-flex !important;
+        align-items: center !important;
+        font-size: 12px !important;
+        padding: 4px 10px !important;
+        border-radius: 12px !important;
+        white-space: nowrap !important;
     }
 
     .sanctuary-door-stage {
-        max-width: 360px !important;
-        max-height: min(320px, 38dvh) !important;
+        max-width: 440px !important;
+        max-height: min(440px, 46dvh) !important;
         height: auto !important;
         aspect-ratio: 1 / 1.15 !important;
-        margin: 6px auto !important;
+        margin: 12px auto !important;
     }
 
-
-
-    /* Full-width single column — sidebars are drawers, not grid columns */
-
+    /* 3-COLUMN DESKTOP GRID */
     .game-desktop-grid {
-
-        display: flex !important;
-
-        flex-direction: column !important;
-
+        display: grid !important;
+        grid-template-columns: 310px minmax(0, 1fr) 290px !important;
+        grid-template-rows: 1fr !important;
         width: 100% !important;
-
-        height: 100% !important;
-
+        height: calc(100vh - 58px) !important;
         overflow: hidden !important;
-
-        position: relative;
-
-    }
-
-
-
-    /* Center stage takes ALL available width */
-
-    #center-stage-col {
-
-        flex: 1 !important;
-
-        display: flex !important;
-
-        flex-direction: column !important;
-
-        align-items: center !important;
-
-        justify-content: flex-start !important;
-
+        gap: 16px !important;
+        padding: 10px 18px 12px 18px !important;
+        box-sizing: border-box !important;
         position: relative !important;
-
-        overflow: hidden !important;
-
-        width: 100% !important;
-
     }
 
-
-
-    /* OFF-CANVAS LEFT DRAWER: Knowledge Field Guide */
-
+    /* Left Column: Knowledge Field Guide (Permanently Docked Sidebar) */
     #field-guide-col {
-
         display: flex !important;
-
-        flex-direction: column;
-
-        padding: 20px 16px 16px 16px;
-
-        background: var(--panel-current, rgba(22, 13, 7, 0.97));
-
-        backdrop-filter: blur(24px);
-
-        border-right: 1px solid var(--border-current);
-
-        overflow-y: auto;
-
-        gap: 14px;
-
-        position: fixed !important;
-
-        top: 0 !important;
-
-        left: 0 !important;
-
-        width: 340px !important;
-
-        height: 100vh !important;
-
-        z-index: 200 !important;
-
-        transform: translateX(-100%);
-
-        transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
-
-        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.5);
-
-    }
-
-
-
-    #field-guide-col.drawer-open {
-
-        transform: translateX(0);
-
-    }
-
-
-
-    /* OFF-CANVAS RIGHT DRAWER: Sanctuary Alignment */
-
-    #status-prahar-col {
-
-        display: flex !important;
-
-        flex-direction: column;
-
-        padding: 20px 16px 16px 16px;
-
-        background: var(--panel-current, rgba(22, 13, 7, 0.97));
-
-        backdrop-filter: blur(24px);
-
-        border-left: 1px solid var(--border-current);
-
-        overflow-y: auto;
-
-        gap: 18px;
-
-        position: fixed !important;
-
-        top: 0 !important;
-
-        right: 0 !important;
-
-        width: 340px !important;
-
-        height: 100vh !important;
-
-        z-index: 200 !important;
-
-        transform: translateX(100%);
-
-        transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
-
-        box-shadow: -4px 0 24px rgba(0, 0, 0, 0.5);
-
-    }
-
-
-
-    #status-prahar-col.drawer-open {
-
-        transform: translateX(0);
-
-    }
-
-
-
-    /* Semi-transparent backdrop when a drawer is open */
-
-    .drawer-backdrop {
-
-        display: none;
-
-        position: fixed;
-
-        inset: 0;
-
-        background: rgba(0, 0, 0, 0.45);
-
-        z-index: 199;
-
-        backdrop-filter: blur(2px);
-
-        cursor: pointer;
-
-    }
-
-
-
-    .drawer-backdrop.active {
-
-        display: block;
-
-    }
-
-
-
-    /* Board fills the full stage cleanly with flexbox - zero tray collision */
-
-    .board-container {
-
+        flex-direction: column !important;
+        position: static !important;
         width: 100% !important;
-
-        max-width: 100% !important;
-
-        flex: 1 1 0 !important;
-
-        height: auto !important;
-
-        min-height: 0 !important;
-
-        max-height: none !important;
-
-        position: relative !important;
-
-        overflow: hidden !important;
-
-        border-radius: 0 !important;
-
-        border: none !important;
-
-        background: transparent !important;
-
-        box-shadow: none !important;
-
-        padding: 0 !important;
-
-    }
-
-
-
-    /* RC2: #board (.tile-layout) must inherit full parent size.
-
-       The global rule has max-width:980px and min-height:520px -- kill them on desktop. */
-
-    .game-desktop-grid .tile-layout {
-
-        width: 100% !important;
-
-        max-width: none !important;
-
         height: 100% !important;
+        max-height: 100% !important;
+        transform: none !important;
+        visibility: visible !important;
+        border-radius: 20px !important;
+        background: var(--panel-current, rgba(20, 12, 6, 0.82)) !important;
+        backdrop-filter: blur(24px) !important;
+        border: 1px solid var(--border-current) !important;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45) !important;
+        padding: 18px 16px !important;
+        overflow-y: auto !important;
+        z-index: 10 !important;
+        gap: 12px !important;
+        box-sizing: border-box !important;
+    }
 
-        min-height: 0 !important;
+    /* Right Column: Sanctuary Alignment (Permanently Docked Sidebar) */
+    #status-prahar-col {
+        display: flex !important;
+        flex-direction: column !important;
+        position: static !important;
+        width: 100% !important;
+        height: 100% !important;
+        max-height: 100% !important;
+        transform: none !important;
+        visibility: visible !important;
+        border-radius: 20px !important;
+        background: var(--panel-current, rgba(20, 12, 6, 0.82)) !important;
+        backdrop-filter: blur(24px) !important;
+        border: 1px solid var(--border-current) !important;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45) !important;
+        padding: 18px 16px !important;
+        overflow-y: auto !important;
+        z-index: 10 !important;
+        gap: 14px !important;
+        box-sizing: border-box !important;
+    }
 
+    /* Center Stage takes remaining width */
+    #center-stage-col {
+        flex: 1 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: space-between !important;
         position: relative !important;
+        overflow: hidden !important;
+        width: 100% !important;
+        height: 100% !important;
+        padding: 0 !important;
+        box-sizing: border-box !important;
+    }
 
+    /* Dedicated Sunken Board Mat */
+    .board-container {
+        width: 100% !important;
+        max-width: 100% !important;
+        flex: 1 1 auto !important;
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        position: relative !important;
+        overflow: visible !important;
+        border-radius: 24px !important;
+        border: 1.5px solid rgba(255, 215, 0, 0.28) !important;
+        background: radial-gradient(circle at center, rgba(32, 20, 10, 0.72) 0%, rgba(14, 8, 3, 0.9) 100%) !important;
+        box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.8), 0 16px 40px rgba(0, 0, 0, 0.5) !important;
+        backdrop-filter: blur(12px) !important;
+        padding: 10px 16px !important;
+        margin-bottom: 8px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        box-sizing: border-box !important;
+    }
+
+    /* Board Tile Layout */
+    .game-desktop-grid .tile-layout,
+    #board {
+        width: 100% !important;
+        max-width: none !important;
+        height: 100% !important;
+        min-height: 0 !important;
+        position: relative !important;
         display: block !important;
-
     }
 
-
-
-    /* Tray stays full-width center without shrinking or collision */
-
-    .game-desktop-grid .tray-container {
-
-        width: 100%;
-
-        max-width: 680px;
-
-        background: transparent !important;
-
-        border: none !important;
-
+    /* Solitaire Action Bar & Tray */
+    .game-desktop-grid .tray-container,
+    .game-desktop-grid .solitaire-action-bar {
+        width: 100% !important;
+        max-width: 680px !important;
         margin: 2px auto !important;
-
-        padding: 4px 16px !important;
-
         flex-shrink: 0 !important;
-
         z-index: 20;
-
     }
 
-    .game-desktop-grid .gameplay-action-bar {
-
-        flex-shrink: 0 !important;
-
-        margin-top: 2px !important;
-
-        margin-bottom: 4px !important;
-
-        z-index: 20;
-
+    /* Hide drawer buttons and backdrops on PC since sidebars are permanently docked */
+    .drawer-toggle-left,
+    .drawer-toggle-right,
+    .drawer-close-btn,
+    .drawer-backdrop {
+        display: none !important;
     }
 
     /* Hide mobile footer on Desktop */
-
     #game-screen .app-footer,
-
     .app-footer {
-
         display: none !important;
-
     }
 
+    /* Widescreen Hub / Selector */
+    .realms-hub-scroll-container {
+        max-width: 1300px !important;
+        margin: 0 auto !important;
+        width: 100% !important;
+    }
 
+    .realms-hub-card-list {
+        display: grid !important;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)) !important;
+        gap: 16px !important;
+        padding: 12px 20px !important;
+    }
 
-    /* Drawer Toggle Floating Buttons */
-
-    .drawer-toggle-left,
-
-    .drawer-toggle-right {
-
-        position: fixed !important;
-
-        top: 50% !important;
-
-        transform: translateY(-50%) !important;
-
-        z-index: 201 !important;
-
-        background: var(--panel-current, rgba(22, 13, 7, 0.92)) !important;
-
-        border: 1px solid var(--border-current) !important;
-
-        color: var(--accent-current) !important;
-
-        font-size: 11px !important;
-
-        font-weight: 700 !important;
-
-        letter-spacing: 0.5px !important;
-
-        padding: 10px 8px !important;
-
-        cursor: pointer !important;
-
-        transition: all 0.2s ease !important;
-
-        writing-mode: vertical-rl !important;
-
-        text-orientation: mixed !important;
-
-        display: flex !important;
-
+    .welcome-view {
         align-items: center !important;
-
-        gap: 4px !important;
-
-        border-radius: 0 8px 8px 0 !important;
-
-        box-shadow: 2px 0 12px rgba(0,0,0,0.4) !important;
-
-        backdrop-filter: blur(8px) !important;
-
-        line-height: 1.3 !important;
-
-        min-height: 80px !important;
-
+        justify-content: center !important;
     }
-
-
-
-    .drawer-toggle-left {
-
-        left: 0 !important;
-
-        border-radius: 0 8px 8px 0 !important;
-
-        border-left: none !important;
-
-    }
-
-
-
-    .drawer-toggle-right {
-
-        right: 0 !important;
-
-        border-radius: 8px 0 0 8px !important;
-
-        border-right: none !important;
-
-    }
-
-
-
-    .drawer-toggle-left:hover,
-
-    .drawer-toggle-right:hover {
-
-        background: var(--theme-accent, #fbbf24) !important; color: #100a06 !important;
-
-        color: #ffd700 !important;
-
-        box-shadow: 4px 0 20px rgba(0,0,0,0.6) !important;
-
-    }
-
-
-
-    /* Close button inside each drawer panel */
-
-    .drawer-close-btn {
-
-        position: absolute;
-
-        top: 12px;
-
-        right: 12px;
-
-        width: 30px;
-
-        height: 30px;
-
-        border-radius: 50%;
-
-        border: 1px solid rgba(255,255,255,0.2);
-
-        background: rgba(255,255,255,0.08);
-
-        color: #ffffff;
-
-        font-size: 16px;
-
-        cursor: pointer;
-
-        display: flex;
-
-        align-items: center;
-
-        justify-content: center;
-
-        z-index: 10002;
-
-        transition: background 0.2s;
-
-    }
-
-    .drawer-close-btn:hover {
-
-        background: rgba(255,255,255,0.18);
-
-    }
-
 }
+
 
 
 
@@ -7965,7 +7795,7 @@ body:has(.stage-clear-overlay.active) .toast-banner,
    100% Parity with Vak
    Placed at the end of stylesheet to guarantee precedence over all portrait/landscape mobile overrides
    ========================================================================== */
-@media (min-width: 900px) and (min-height: 500px) {
+@media (min-width: 900px) and (max-width: 1023px) and (min-height: 500px) {
     html, body {
         padding: 0 !important;
         margin: 0 !important;
@@ -8290,5 +8120,278 @@ body:has(.stage-clear-overlay.active) .toast-banner,
     .sanctuary-door-stage {
         min-height: 110px !important;
         max-height: 30dvh !important;
+    }
+}
+
+
+/* ==========================================================================
+   MASTER FULL-SCREEN PC DESKTOP VIEWPORT (>= 1024px)
+   Guaranteed Final Precedence: Edge-to-edge 100vw x 100vh 3-Column Immersive Panorama
+   ========================================================================== */
+@media (min-width: 1024px) {
+    html, body {
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        overflow: hidden !important;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        background: radial-gradient(circle at center, #1a1423 0%, #0b0914 100%) !important;
+    }
+
+    .app-container, #app-wrapper, #app {
+        width: 100vw !important;
+        max-width: 100vw !important;
+        height: 100vh !important;
+        height: 100dvh !important;
+        max-height: none !important;
+        margin: 0 !important;
+        border-radius: 0 !important;
+        border: none !important;
+        box-shadow: none !important;
+        background: transparent !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+        position: relative !important;
+        display: flex !important;
+        flex-direction: column !important;
+    }
+
+    .app-header {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+        padding: 8px 24px !important;
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        gap: 12px !important;
+        overflow: hidden !important;
+        min-height: 56px !important;
+        max-height: 60px !important;
+        flex-wrap: nowrap !important;
+        background: rgba(18, 11, 4, 0.88) !important;
+        backdrop-filter: blur(20px) !important;
+        border-bottom: 1px solid var(--border-current) !important;
+    }
+
+    .header-left-group {
+        display: flex !important;
+        align-items: center !important;
+        gap: 12px !important;
+        flex-shrink: 0 !important;
+    }
+
+    .header-left-group .hdr-btn {
+        padding: 6px 12px !important;
+        font-size: 18px !important;
+        border-radius: 8px !important;
+        background: rgba(255, 255, 255, 0.08) !important;
+        border: 1px solid var(--border-current) !important;
+        cursor: pointer !important;
+    }
+
+    .brand-umbrella-eyebrow {
+        font-size: 0.62rem !important;
+        letter-spacing: 2px !important;
+    }
+
+    .brand-auromatch-title {
+        font-size: 1.35rem !important;
+    }
+
+    .brand-tagline-text {
+        display: inline-block !important;
+        font-size: 0.72rem !important;
+        opacity: 0.75 !important;
+        letter-spacing: 1px !important;
+        margin-left: 6px !important;
+    }
+
+    .header-center-group {
+        flex: 1 1 auto !important;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        gap: 10px !important;
+    }
+
+    .header-realm-dropdown-pill {
+        max-width: 260px !important;
+        padding: 6px 16px !important;
+        font-size: 13px !important;
+        border-radius: 20px !important;
+        gap: 8px !important;
+    }
+
+    #hdr-realm-text {
+        max-width: 180px !important;
+    }
+
+    .hud-progression-bar {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        flex-shrink: 0 !important;
+        margin-left: auto !important;
+    }
+
+    #header-player-badge,
+    #header-sparks-count,
+    #header-score-badge,
+    #header-level-indicator,
+    #btn-toggle-senior {
+        display: inline-flex !important;
+        align-items: center !important;
+        font-size: 12px !important;
+        padding: 4px 10px !important;
+        border-radius: 12px !important;
+        white-space: nowrap !important;
+    }
+
+    .sanctuary-door-stage {
+        max-width: 440px !important;
+        max-height: min(440px, 46dvh) !important;
+        height: auto !important;
+        aspect-ratio: 1 / 1.15 !important;
+        margin: 12px auto !important;
+    }
+
+    .game-desktop-grid {
+        display: grid !important;
+        grid-template-columns: 310px minmax(0, 1fr) 290px !important;
+        grid-template-rows: 1fr !important;
+        width: 100% !important;
+        height: calc(100vh - 58px) !important;
+        overflow: hidden !important;
+        gap: 16px !important;
+        padding: 10px 18px 12px 18px !important;
+        box-sizing: border-box !important;
+        position: relative !important;
+    }
+
+    #field-guide-col {
+        display: flex !important;
+        flex-direction: column !important;
+        position: static !important;
+        width: 100% !important;
+        height: 100% !important;
+        max-height: 100% !important;
+        transform: none !important;
+        visibility: visible !important;
+        border-radius: 20px !important;
+        background: var(--panel-current, rgba(20, 12, 6, 0.82)) !important;
+        backdrop-filter: blur(24px) !important;
+        border: 1px solid var(--border-current) !important;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45) !important;
+        padding: 18px 16px !important;
+        overflow-y: auto !important;
+        z-index: 10 !important;
+        gap: 12px !important;
+        box-sizing: border-box !important;
+    }
+
+    #status-prahar-col {
+        display: flex !important;
+        flex-direction: column !important;
+        position: static !important;
+        width: 100% !important;
+        height: 100% !important;
+        max-height: 100% !important;
+        transform: none !important;
+        visibility: visible !important;
+        border-radius: 20px !important;
+        background: var(--panel-current, rgba(20, 12, 6, 0.82)) !important;
+        backdrop-filter: blur(24px) !important;
+        border: 1px solid var(--border-current) !important;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45) !important;
+        padding: 18px 16px !important;
+        overflow-y: auto !important;
+        z-index: 10 !important;
+        gap: 14px !important;
+        box-sizing: border-box !important;
+    }
+
+    #center-stage-col {
+        flex: 1 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        position: relative !important;
+        overflow: hidden !important;
+        width: 100% !important;
+        height: 100% !important;
+        padding: 0 !important;
+        box-sizing: border-box !important;
+    }
+
+    .board-container {
+        width: 100% !important;
+        max-width: 100% !important;
+        flex: 1 1 auto !important;
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        position: relative !important;
+        overflow: visible !important;
+        border-radius: 24px !important;
+        border: 1.5px solid rgba(255, 215, 0, 0.28) !important;
+        background: radial-gradient(circle at center, rgba(32, 20, 10, 0.72) 0%, rgba(14, 8, 3, 0.9) 100%) !important;
+        box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.8), 0 16px 40px rgba(0, 0, 0, 0.5) !important;
+        backdrop-filter: blur(12px) !important;
+        padding: 10px 16px !important;
+        margin-bottom: 8px !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        box-sizing: border-box !important;
+    }
+
+    .game-desktop-grid .tile-layout,
+    #board {
+        width: 100% !important;
+        max-width: none !important;
+        height: 100% !important;
+        min-height: 0 !important;
+        position: relative !important;
+        display: block !important;
+    }
+
+    .game-desktop-grid .tray-container,
+    .game-desktop-grid .solitaire-action-bar {
+        width: 100% !important;
+        max-width: 680px !important;
+        margin: 2px auto !important;
+        flex-shrink: 0 !important;
+        z-index: 20;
+    }
+
+    .drawer-toggle-left,
+    .drawer-toggle-right,
+    .drawer-close-btn,
+    .drawer-backdrop {
+        display: none !important;
+    }
+
+    .realms-hub-scroll-container {
+        max-width: 1300px !important;
+        margin: 0 auto !important;
+        width: 100% !important;
+    }
+
+    .realms-hub-card-list {
+        display: grid !important;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)) !important;
+        gap: 16px !important;
+        padding: 12px 20px !important;
+    }
+
+    .welcome-view {
+        align-items: center !important;
+        justify-content: center !important;
     }
 }

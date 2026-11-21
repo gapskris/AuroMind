@@ -27,6 +27,50 @@ import {
 import { ThemeManager, REALMS } from './controllers/themeManager.js';
 import { reshuffleBoard, renderBoard } from './ui/boardRenderer.js';
 
+// Return to AuroMind Portal action (B17-GAP-05 / B17.4 Remediation)
+window.exitToAuroMindPortal = () => {
+    try {
+        if (window.parent && window.parent !== window) {
+            const targetOrigin = (window.location.origin && window.location.origin !== 'null' && (window.location.origin.startsWith('http:') || window.location.origin.startsWith('https:')))
+                ? window.location.origin
+                : '*';
+            window.parent.postMessage({
+                type: 'AUROMIND_CLOSE_THEATER',
+                gameId: 'auromatch'
+            }, targetOrigin);
+        } else {
+            window.location.href = '../../index.html';
+        }
+    } catch (_err) {
+        window.location.href = '../../index.html';
+    }
+};
+
+// Senior mode listener (B17-GAP-07 / B17.4 Remediation)
+window.addEventListener('message', (event) => {
+    // 1. Mandatory Source Validation: message MUST originate from expected parent window
+    if (!window.parent || event.source !== window.parent) return;
+
+    // 2. Origin Validation: exact match if valid origin available, allow 'null' only for opaque sandboxed origins
+    const currentOrigin = window.location.origin;
+    const isTrustedOrigin = (currentOrigin && currentOrigin !== 'null')
+        ? (event.origin === currentOrigin)
+        : (event.origin === 'null' || event.origin === '');
+    if (!isTrustedOrigin) return;
+
+    // 3. Strict Payload and Type Allowlist Validation
+    if (!event.data || typeof event.data !== 'object' || Array.isArray(event.data)) return;
+    if (event.data.type === 'AUROMIND_SET_SENIOR_MODE') {
+        const isSenior = Boolean(event.data.enabled);
+        if (document.documentElement) {
+            document.documentElement.classList.toggle('senior-mode', isSenior);
+        }
+        if (document.body) {
+            document.body.classList.toggle('senior-mode', isSenior);
+        }
+    }
+});
+
 window.addEventListener('load', async () => {
     // 0. Auto-heal: restore all state from AuroMatchDB if localStorage was wiped (e.g. Safari 7-day ITP)
     try {
@@ -1086,7 +1130,10 @@ window.addEventListener('load', async () => {
     
     window.exitToAuroMindPortal = () => {
         if (window.parent && window.parent !== window) {
-            window.parent.postMessage({ type: 'AUROMIND_CLOSE_THEATER' }, window.location.origin);
+            const targetOrigin = (window.location.origin && window.location.origin !== 'null' && (window.location.origin.startsWith('http:') || window.location.origin.startsWith('https:')))
+                ? window.location.origin
+                : '*';
+            window.parent.postMessage({ type: 'AUROMIND_CLOSE_THEATER' }, targetOrigin);
         } else {
             window.location.href = new URL('../../index.html', window.location.href).href;
         }
@@ -1718,6 +1765,102 @@ window.addEventListener('load', async () => {
         window.updateGatewayUI();
         routeToScreen('gate');
     };
+
+    /**
+     * Return to AuroMind Portal action (B17-GAP-05).
+     */
+    window.exitToAuroMindPortal = () => {
+        try {
+            if (window.parent && window.parent !== window) {
+                const targetOrigin = (window.location.origin && window.location.origin !== 'null' && (window.location.origin.startsWith('http:') || window.location.origin.startsWith('https:')))
+                    ? window.location.origin
+                    : '*';
+                window.parent.postMessage({
+                    type: 'AUROMIND_CLOSE_THEATER',
+                    gameId: 'auromatch'
+                }, targetOrigin);
+            } else {
+                window.location.href = '../../index.html';
+            }
+        } catch (_err) {
+            window.location.href = '../../index.html';
+        }
+    };
+
+    // Senior mode listener (B17-GAP-07 / B17.4 Remediation)
+    window.addEventListener('message', (event) => {
+        // 1. Mandatory Source Validation: message MUST originate from expected parent window
+        if (!window.parent || event.source !== window.parent) return;
+
+        // 2. Origin Validation: exact match if valid origin available, allow 'null' only for opaque sandboxed origins
+        const currentOrigin = window.location.origin;
+        const isTrustedOrigin = (currentOrigin && currentOrigin !== 'null')
+            ? (event.origin === currentOrigin)
+            : (event.origin === 'null' || event.origin === '');
+        if (!isTrustedOrigin) return;
+
+        // 3. Strict Payload and Type Allowlist Validation
+        if (!event.data || typeof event.data !== 'object' || Array.isArray(event.data)) return;
+        if (event.data.type === 'AUROMIND_SET_SENIOR_MODE') {
+            const isSenior = Boolean(event.data.enabled);
+            document.documentElement.classList.toggle('senior-mode', isSenior);
+            document.body.classList.toggle('senior-mode', isSenior);
+        }
+    });
+
+    // Mount floating return pill when embedded in portal theater
+    if (window.parent && window.parent !== window) {
+        const mountPortalBtn = () => {
+            if (document.getElementById('auromind-theater-return-btn')) return;
+            const btn = document.createElement('button');
+            btn.id = 'auromind-theater-return-btn';
+            btn.setAttribute('type', 'button');
+            btn.setAttribute('aria-label', 'Return to AuroMind Portal');
+            btn.textContent = '⌂ Portal';
+            btn.style.cssText = [
+                'position: fixed',
+                'top: 12px',
+                'left: 12px',
+                'z-index: 99999',
+                'background: rgba(16, 10, 6, 0.90)',
+                'backdrop-filter: blur(10px)',
+                '-webkit-backdrop-filter: blur(10px)',
+                'border: 1.5px solid rgba(245, 158, 11, 0.5)',
+                'color: #fef3c7',
+                'font-family: system-ui, -apple-system, sans-serif',
+                'font-size: 11px',
+                'font-weight: 700',
+                'letter-spacing: 0.04em',
+                'padding: 6px 14px',
+                'border-radius: 999px',
+                'cursor: pointer',
+                'box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45)',
+                'transition: all 0.2s ease',
+                'user-select: none'
+            ].join(';');
+            btn.addEventListener('mouseenter', () => {
+                btn.style.background = 'rgba(25, 16, 9, 0.98)';
+                btn.style.borderColor = '#f59e0b';
+                btn.style.transform = 'scale(1.04)';
+            });
+            btn.addEventListener('mouseleave', () => {
+                btn.style.background = 'rgba(16, 10, 6, 0.90)';
+                btn.style.borderColor = 'rgba(245, 158, 11, 0.5)';
+                btn.style.transform = 'scale(1)';
+            });
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                window.exitToAuroMindPortal();
+            });
+            if (document.body) document.body.appendChild(btn);
+        };
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', mountPortalBtn);
+        } else {
+            mountPortalBtn();
+        }
+    }
 
     window.handleHubClose = () => {
         if (activeGameManager && activeGameManager.tiles && activeGameManager.tiles.length > 0) {

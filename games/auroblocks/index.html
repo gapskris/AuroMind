@@ -18,138 +18,14 @@
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="icon" type="image/png" sizes="192x192" href="./pwa-192x192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
-    <script>
-      (function () {
-        try {
-          if ('caches' in window) {
-            caches.keys().then(function (names) {
-              Promise.all(
-                names.map(function (name) {
-                  return caches.open(name).then(function (cache) {
-                    return cache.keys().then(function (reqs) {
-                      var deletions = [];
-                      for (var i = 0; i < reqs.length; i++) {
-                        var url = reqs[i].url || '';
-                        if (
-                          url.indexOf('/node_modules/') !== -1 ||
-                          url.indexOf('/src/') !== -1 ||
-                          url.indexOf('/@vite/') !== -1 ||
-                          url.indexOf('.tsx') !== -1
-                        ) {
-                          deletions.push(cache.delete(reqs[i]));
-                        }
-                      }
-                      return Promise.all(deletions).then(function (res) {
-                        return res.length > 0;
-                      });
-                    });
-                  });
-                })
-              ).then(function (results) {
-                var hadStaleDevCache = results.some(Boolean);
-                if (hadStaleDevCache && !sessionStorage.getItem('auroblocks_dev_cache_purged')) {
-                  sessionStorage.setItem('auroblocks_dev_cache_purged', '1');
-                  window.location.reload();
-                } else if (!hadStaleDevCache) {
-                  sessionStorage.removeItem('auroblocks_dev_cache_purged');
-                }
-              });
-            });
-          }
-        } catch (e) {}
-      })();
-    </script>
-    <script>
-      if ('serviceWorker' in navigator) {
-        const origRegister = navigator.serviceWorker.register.bind(navigator.serviceWorker);
-        navigator.serviceWorker.register = function(scriptURL, options) {
-          if (scriptURL === '/sw.js' || scriptURL === 'sw.js') {
-            return origRegister('./sw.js', Object.assign({}, options, { scope: './', updateViaCache: 'none' }));
-          }
-          return origRegister(scriptURL, options);
-        };
-      }
-    </script>
-    <script>
-      (function () {
-        var ARTWORK_PREFIX = '/assets/artwork/';
-        var RELATIVE_ARTWORK_PREFIX = './assets/artwork/';
-        function rewriteArtworkUrl(value) {
-          if (typeof value !== 'string') return value;
-          if (value.indexOf(ARTWORK_PREFIX) === 0) {
-            return RELATIVE_ARTWORK_PREFIX + value.slice(ARTWORK_PREFIX.length);
-          }
-          var originPrefix = window.location.origin + ARTWORK_PREFIX;
-          if (value.indexOf(originPrefix) === 0) {
-            return RELATIVE_ARTWORK_PREFIX + value.slice(originPrefix.length);
-          }
-          return value;
-        }
-        try {
-          var imgProto = window.HTMLImageElement && window.HTMLImageElement.prototype;
-          var srcDesc = imgProto && Object.getOwnPropertyDescriptor(imgProto, 'src');
-          if (srcDesc && srcDesc.set && srcDesc.get) {
-            Object.defineProperty(imgProto, 'src', {
-              configurable: true,
-              enumerable: srcDesc.enumerable,
-              get: function () {
-                return srcDesc.get.call(this);
-              },
-              set: function (val) {
-                return srcDesc.set.call(this, rewriteArtworkUrl(val));
-              }
-            });
-          }
-          var origSetAttribute = Element.prototype.setAttribute;
-          Element.prototype.setAttribute = function (name, value) {
-            if (typeof name === 'string' && name.toLowerCase() === 'src') {
-              value = rewriteArtworkUrl(value);
-            }
-            return origSetAttribute.call(this, name, value);
-          };
-          if (typeof MutationObserver !== 'undefined') {
-            var observer = new MutationObserver(function (mutations) {
-              for (var i = 0; i < mutations.length; i++) {
-                var m = mutations[i];
-                if (m.type === 'attributes' && m.target && m.target.tagName === 'IMG') {
-                  var raw = m.target.getAttribute('src');
-                  var fixed = rewriteArtworkUrl(raw);
-                  if (fixed !== raw) origSetAttribute.call(m.target, 'src', fixed);
-                } else if (m.type === 'childList' && m.addedNodes) {
-                  for (var j = 0; j < m.addedNodes.length; j++) {
-                    var node = m.addedNodes[j];
-                    if (node && node.nodeType === 1) {
-                      if (node.tagName === 'IMG') {
-                        var r = node.getAttribute('src');
-                        var f = rewriteArtworkUrl(r);
-                        if (f !== r) origSetAttribute.call(node, 'src', f);
-                      } else if (node.querySelectorAll) {
-                        var imgs = node.querySelectorAll('img[src^="/assets/artwork/"]');
-                        for (var k = 0; k < imgs.length; k++) {
-                          var ir = imgs[k].getAttribute('src');
-                          origSetAttribute.call(imgs[k], 'src', rewriteArtworkUrl(ir));
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            });
-            observer.observe(document.documentElement, {
-              childList: true,
-              subtree: true,
-              attributes: true,
-              attributeFilter: ['src']
-            });
-          }
-        } catch (e) {}
-      })();
-    </script>
-    <script type="module" crossorigin src="./assets/index-BLt2QrTp.js"></script>
+    <!-- AuroBlocks Runtime Initialization (B17.4 externalized for strict script-src 'self' CSP compliance) -->
+    <script src="./assets/auroblocks-init.js"></script>
+    <!-- AuroMind Shared Platform SDK Bridge -->
+    <script type="module" src="./assets/auroblocks-sdk-bridge.js"></script>
+    <script type="module" crossorigin src="./assets/index-MzCMqtZT.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-Ccfp-y1N.css">
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"></div>
   </body>
 </html>
-

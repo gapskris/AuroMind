@@ -17,10 +17,27 @@ import {
   GUEST_ID_RE,
   isProtectedPlatformKey,
   PLATFORM_DB_NAME,
-  PLATFORM_LS_PREFIX
+  PLATFORM_LS_PREFIX,
+  canonicalizeJson,
+  canonicalizeObject,
+  computeEnvelopeChecksum,
+  computePayloadChecksum,
+  quarantineCorruptSave,
+  createLocalMockBridge
 } from './auromind-adapters.js';
 
-export { GUEST_ID_RE, isProtectedPlatformKey, PLATFORM_DB_NAME, PLATFORM_LS_PREFIX };
+export {
+  GUEST_ID_RE,
+  isProtectedPlatformKey,
+  PLATFORM_DB_NAME,
+  PLATFORM_LS_PREFIX,
+  canonicalizeJson,
+  canonicalizeObject,
+  computeEnvelopeChecksum,
+  computePayloadChecksum,
+  quarantineCorruptSave,
+  createLocalMockBridge
+};
 
 export const SDK_VERSION = '1.0.0';
 export const IDENTITY_SCHEMA_VERSION = 1;
@@ -226,7 +243,7 @@ export function reconcileGuestRecords(first, second) {
   };
 }
 
-const SENSITIVE_KEY_PATTERN = /(?:password|token|secret|auth|bearer|credential|sankalpa|key|private|cipher|salt|iv|seed)/i;
+const SENSITIVE_KEY_PATTERN = /(?:password|token|secret|auth|bearer|credential|sankalpa|key|private|cipher|salt|iv|seed|intention|reflection|prayer|audio|raw_audio|rawAudio|stroke|strokes|journal|note|personalNotes)/i;
 const SENSITIVE_VALUE_PATTERNS = [
   /eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}/g, // JWT
   /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g // Email
@@ -260,6 +277,226 @@ export function redactSensitive(data, depth = 0) {
     return out;
   }
   return String(data);
+}
+
+/**
+ * Deep pre-queue privacy sanitizer stripping all occurrences of Sankalpa,
+ * raw audio, intentions, and private reflections (TASK-TEL-02 / ADR-09).
+ *
+ * @param {unknown} data
+ * @param {number} [depth=0]
+ * @returns {unknown}
+ */
+export function sanitizeTelemetryPayload(data, depth = 0) {
+  if (depth > 6) return null;
+  if (data === null || data === undefined) return data;
+  if (typeof data !== 'object') {
+    if (typeof data === 'string') {
+      let sanitized = data;
+      for (const pat of SENSITIVE_VALUE_PATTERNS) {
+        sanitized = sanitized.replace(pat, '[REDACTED]');
+      }
+      return sanitized;
+    }
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data
+      .map((item) => sanitizeTelemetryPayload(item, depth + 1))
+      .filter((item) => item !== null && item !== undefined);
+  }
+  const out = {};
+  for (const [key, val] of Object.entries(data)) {
+    if (SENSITIVE_KEY_PATTERN.test(key)) {
+      // Purge completely from telemetry queue (TASK-TEL-02)
+      continue;
+    }
+    const sanitizedVal = sanitizeTelemetryPayload(val, depth + 1);
+    if (sanitizedVal !== null && sanitizedVal !== undefined) {
+      out[key] = sanitizedVal;
+    }
+  }
+  return out;
+}
+
+export function hexToUint8Array(hex) {
+  if (typeof hex !== 'string') return new Uint8Array(0);
+  const cleanHex = hex.replace(/[^0-9a-fA-F]/g, '');
+  const bytes = new Uint8Array(Math.floor(cleanHex.length / 2));
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(cleanHex.substr(i * 2, 2), 16);
+  }
+  return bytes;
+}
+
+export function base64ToUint8Array(base64) {
+  if (typeof base64 !== 'string') return new Uint8Array(0);
+  if (typeof Buffer !== 'undefined') {
+    return new Uint8Array(Buffer.from(base64, 'base64'));
+  }
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
+ * Mock purchase provider for offline testing and simulated store events (TASK-COMM-01 / ADR-08).
+ *
+ * @param {object} [initialConfig={}]
+ */
+export function createMockPurchaseProvider(initialConfig = {}) {
+  let mode = initialConfig.mode || 'success';
+  const transactions = new Map(initialConfig.purchases || []);
+
+  return {
+    providerName: 'mock-purchase-provider',
+    setMode(newMode) {
+      mode = newMode;
+    },
+    getMode() {
+      return mode;
+    },
+    isConfigured: () => true,
+    async purchase(sku, options = {}) {
+      if (mode === 'decline') {
+        return Object.freeze({
+          ok: false,
+          errorCode: 'PAYMENT_DECLINED',
+          message: 'The transaction was declined by the simulated bank.'
+        });
+      }
+      if (mode === 'error') {
+        throw new Error('Simulated network error during payment processing.');
+      }
+      const record = Object.freeze({
+        sku,
+        transactionId: `mock_tx_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        purchasedAt: new Date().toISOString(),
+        status: 'active',
+        metadata: options.metadata || {}
+      });
+      transactions.set(sku, record);
+      return Object.freeze({
+        ok: true,
+        status: 'success',
+        transaction: record
+      });
+    },
+    async refund(sku) {
+      if (transactions.has(sku)) {
+        transactions.delete(sku);
+        return Object.freeze({ ok: true, status: 'refunded', sku });
+      }
+      return Object.freeze({ ok: false, errorCode: 'TRANSACTION_NOT_FOUND' });
+    },
+    async restorePurchases() {
+      return Object.freeze(Array.from(transactions.values()));
+    },
+    hasEntitlement(sku) {
+      return transactions.has(sku);
+    }
+  };
+}
+
+/**
+ * Verifies Ed25519 public-key signature on an entitlement token with clock manipulation defense
+ * and 30-calendar-day offline grace period (TASK-COMM-02 / ADR-08).
+ *
+ * @param {object} params
+ */
+export async function verifyEd25519EntitlementToken({
+  token,
+  publicKey,
+  offlineGraceDays = 30,
+  anchorTimestamp = null,
+  currentTimestamp = Date.now()
+}) {
+  if (!token) {
+    return Object.freeze({ valid: false, reason: 'TOKEN_MISSING' });
+  }
+
+  let parsedToken = token;
+  if (typeof token === 'string') {
+    try {
+      parsedToken = JSON.parse(token);
+    } catch {
+      return Object.freeze({ valid: false, reason: 'INVALID_TOKEN_FORMAT' });
+    }
+  }
+
+  const { payload, signature } = parsedToken;
+  if (!payload || !signature) {
+    return Object.freeze({ valid: false, reason: 'TOKEN_STRUCTURE_INVALID' });
+  }
+
+  // 1. Clock manipulation defense (ADR-08)
+  const lastValidatedMs = Date.parse(payload.lastValidatedAt || payload.issuedAt || '');
+  if (Number.isNaN(lastValidatedMs)) {
+    return Object.freeze({ valid: false, reason: 'INVALID_TOKEN_TIMESTAMP' });
+  }
+
+  if (currentTimestamp < lastValidatedMs - 60000) {
+    return Object.freeze({
+      valid: false,
+      reason: 'CLOCK_ROLLBACK_DETECTED',
+      details: { currentTimestamp, lastValidatedMs }
+    });
+  }
+
+  if (anchorTimestamp && currentTimestamp < anchorTimestamp - 60000) {
+    return Object.freeze({
+      valid: false,
+      reason: 'CLOCK_ROLLBACK_DETECTED',
+      details: { currentTimestamp, anchorTimestamp }
+    });
+  }
+
+  // 2. Offline grace period check (30 calendar days)
+  const gracePeriodMs = offlineGraceDays * 24 * 60 * 60 * 1000;
+  const effectiveAnchor = Math.max(lastValidatedMs, anchorTimestamp || 0);
+  if (currentTimestamp - effectiveAnchor > gracePeriodMs) {
+    return Object.freeze({
+      valid: false,
+      reason: 'OFFLINE_GRACE_EXPIRED',
+      details: { effectiveAnchor, currentTimestamp, gracePeriodMs }
+    });
+  }
+
+  // 3. Cryptographic signature verification using Web Crypto API
+  try {
+    const cryptoObj = typeof crypto !== 'undefined' ? crypto : (typeof globalThis !== 'undefined' ? globalThis.crypto : null);
+    if (cryptoObj && cryptoObj.subtle) {
+      let key = publicKey;
+      if (typeof publicKey === 'string' || publicKey instanceof Uint8Array || ArrayBuffer.isView(publicKey)) {
+        const rawKey = typeof publicKey === 'string'
+          ? (publicKey.startsWith('0x') ? hexToUint8Array(publicKey.slice(2)) : base64ToUint8Array(publicKey))
+          : publicKey;
+        key = await cryptoObj.subtle.importKey('raw', rawKey, { name: 'Ed25519' }, true, ['verify']);
+      }
+
+      const sigBytes = typeof signature === 'string'
+        ? (signature.startsWith('0x') ? hexToUint8Array(signature.slice(2)) : base64ToUint8Array(signature))
+        : signature;
+
+      const payloadBytes = new TextEncoder().encode(typeof payload === 'string' ? payload : JSON.stringify(payload));
+      const isVerified = await cryptoObj.subtle.verify({ name: 'Ed25519' }, key, sigBytes, payloadBytes);
+
+      if (!isVerified) {
+        return Object.freeze({ valid: false, reason: 'SIGNATURE_VERIFICATION_FAILED' });
+      }
+    }
+  } catch (err) {
+    return Object.freeze({ valid: false, reason: 'CRYPTO_VERIFICATION_ERROR', error: err?.message });
+  }
+
+  return Object.freeze({
+    valid: true,
+    payload,
+    entitlements: payload.entitlements || []
+  });
 }
 
 function createNullProviders() {
@@ -371,6 +608,25 @@ function withTimeout(promise, timeoutMs, label) {
       }
     );
   });
+}
+
+/**
+ * Recursively freezes an object and all nested properties for runtime immutability.
+ * @param {unknown} obj
+ * @returns {unknown}
+ */
+export function deepFreeze(obj) {
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+  Object.freeze(obj);
+  for (const key of Object.getOwnPropertyNames(obj)) {
+    const val = obj[key];
+    if (val !== null && typeof val === 'object' && !Object.isFrozen(val)) {
+      deepFreeze(val);
+    }
+  }
+  return obj;
 }
 
 /**
@@ -527,7 +783,9 @@ export function createAuroMindSDK(options = {}) {
     lastRepairedFrom: null,
     lastReconciledFrom: null,
     corruptedStores: [],
-    lastError: null
+    lastError: null,
+    persisted: false,
+    quota: null
   };
 
   // --- Low-level IndexedDB helpers (AuroMindPlatformDB v1 ONLY) ---
@@ -566,6 +824,12 @@ export function createAuroMindSDK(options = {}) {
           const db = event?.target?.result || req.result;
           if (db && !db.objectStoreNames.contains(IDB_STORE_NAME)) {
             db.createObjectStore(IDB_STORE_NAME);
+          }
+          if (db && !db.objectStoreNames.contains('platform_sync_outbox')) {
+            db.createObjectStore('platform_sync_outbox', { keyPath: 'id' });
+          }
+          if (db && !db.objectStoreNames.contains('platform_telemetry')) {
+            db.createObjectStore('platform_telemetry', { keyPath: 'eventId' });
           }
         };
 
@@ -700,6 +964,86 @@ export function createAuroMindSDK(options = {}) {
       try {
         if (db && typeof db.close === 'function') db.close();
       } catch {}
+    }
+  }
+
+  // --- IndexedDB durable sync outbox helpers (TASK-SYNC-02 / ADR-05) ---
+
+  async function idbPutOutbox(record) {
+    let db = null;
+    try {
+      db = await openPlatformDB();
+      if (!db || !db.objectStoreNames || !db.objectStoreNames.contains('platform_sync_outbox')) return false;
+      await new Promise((resolve, reject) => {
+        try {
+          const tx = db.transaction('platform_sync_outbox', 'readwrite');
+          const store = tx.objectStore('platform_sync_outbox');
+          store.put(record);
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => reject(tx.error);
+        } catch (e) {
+          reject(e);
+        }
+      });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      if (db && typeof db.close === 'function') {
+        try { db.close(); } catch {}
+      }
+    }
+  }
+
+  async function idbGetOutbox() {
+    let db = null;
+    try {
+      db = await openPlatformDB();
+      if (!db || !db.objectStoreNames || !db.objectStoreNames.contains('platform_sync_outbox')) return [];
+      const records = await new Promise((resolve, reject) => {
+        try {
+          const tx = db.transaction('platform_sync_outbox', 'readonly');
+          const store = tx.objectStore('platform_sync_outbox');
+          const req = store.getAll();
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => reject(req.error);
+        } catch (e) {
+          reject(e);
+        }
+      });
+      return records;
+    } catch {
+      return [];
+    } finally {
+      if (db && typeof db.close === 'function') {
+        try { db.close(); } catch {}
+      }
+    }
+  }
+
+  async function idbDeleteOutbox(id) {
+    let db = null;
+    try {
+      db = await openPlatformDB();
+      if (!db || !db.objectStoreNames || !db.objectStoreNames.contains('platform_sync_outbox')) return false;
+      await new Promise((resolve, reject) => {
+        try {
+          const tx = db.transaction('platform_sync_outbox', 'readwrite');
+          const store = tx.objectStore('platform_sync_outbox');
+          store.delete(id);
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => reject(tx.error);
+        } catch (e) {
+          reject(e);
+        }
+      });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      if (db && typeof db.close === 'function') {
+        try { db.close(); } catch {}
+      }
     }
   }
 
@@ -866,6 +1210,36 @@ export function createAuroMindSDK(options = {}) {
     const locks = getLocks();
     if (locks && typeof locks.request === 'function') {
       storageHealth.webLocksSupported = true;
+      const AbortCtrl = resolveEnvApi('AbortController', globalThis.AbortController ?? null);
+      if (AbortCtrl) {
+        const controller = new AbortCtrl();
+        let acquired = false;
+        const timer = setTimeout(() => {
+          if (!acquired) {
+            try {
+              controller.abort();
+            } catch {}
+          }
+        }, 3000);
+        try {
+          return await locks.request(
+            WEB_LOCK_NAME,
+            { mode: 'exclusive', signal: controller.signal },
+            async () => {
+              acquired = true;
+              clearTimeout(timer);
+              return await fn();
+            }
+          );
+        } catch (err) {
+          clearTimeout(timer);
+          if (acquired) {
+            throw err;
+          }
+          // Fallback after 3000ms lock timeout so background tabs never hang
+          return await fn();
+        }
+      }
       return locks.request(WEB_LOCK_NAME, { mode: 'exclusive' }, () => fn());
     }
     storageHealth.webLocksSupported = false;
@@ -1589,6 +1963,68 @@ export function createAuroMindSDK(options = {}) {
     });
   }
 
+  async function requestStoragePersistence() {
+    const nav = resolveEnvApi('navigator', globalThis.navigator ?? null);
+    if (!nav || !nav.storage) return false;
+    try {
+      if (typeof nav.storage.persisted === 'function' && typeof nav.storage.persist === 'function') {
+        let isPersisted = await nav.storage.persisted();
+        if (!isPersisted) {
+          isPersisted = await nav.storage.persist();
+        }
+        storageHealth.persisted = Boolean(isPersisted);
+        return Boolean(isPersisted);
+      }
+    } catch (err) {
+      loggingService.debug('storage', 'Storage persistence request non-fatal error', { error: err?.message });
+    }
+    return false;
+  }
+
+  async function checkStorageQuota() {
+    const nav = resolveEnvApi('navigator', globalThis.navigator ?? null);
+    if (!nav || !nav.storage || typeof nav.storage.estimate !== 'function') {
+      return null;
+    }
+    try {
+      const estimate = await nav.storage.estimate();
+      const usage = estimate.usage || 0;
+      const quota = estimate.quota || 1;
+      const ratio = quota > 0 ? usage / quota : 0;
+      const percentage = Math.round(ratio * 100);
+      const isCritical = ratio >= 0.8;
+
+      storageHealth.quota = Object.freeze({
+        usage,
+        quota,
+        percentage,
+        ratio,
+        isCritical
+      });
+
+      if (isCritical) {
+        loggingService.warn('storage', `Storage quota usage critical: ${percentage}% (${usage} / ${quota} bytes)`, {
+          usage,
+          quota,
+          percentage
+        });
+        if (typeof globalThis.dispatchEvent === 'function' && typeof globalThis.CustomEvent === 'function') {
+          try {
+            globalThis.dispatchEvent(
+              new CustomEvent('auromind:storage_quota_warning', {
+                detail: { usage, quota, percentage }
+              })
+            );
+          } catch {}
+        }
+      }
+      return storageHealth.quota;
+    } catch (err) {
+      loggingService.debug('storage', 'Storage quota estimate non-fatal error', { error: err?.message });
+      return null;
+    }
+  }
+
   const storageService = Object.freeze({
     isProtectedKey(localStorageKey) {
       return isProtectedPlatformKey(localStorageKey);
@@ -1649,8 +2085,66 @@ export function createAuroMindSDK(options = {}) {
       return () => {
         offlineListeners.delete(listener);
       };
+    },
+    requestPersistence: () => requestStoragePersistence(),
+    checkQuota: () => checkStorageQuota(),
+    getStorageResilience() {
+      return Object.freeze({
+        idbAvailable: storageHealth.idbAvailable,
+        lsAvailable: storageHealth.lsAvailable,
+        persisted: storageHealth.persisted,
+        quota: storageHealth.quota,
+        storageSource,
+        isEphemeral: ephemeral,
+        webLocksSupported: storageHealth.webLocksSupported,
+        broadcastChannelSupported: storageHealth.broadcastChannelSupported,
+        lastRepairedFrom: storageHealth.lastRepairedFrom,
+        lastReconciledFrom: storageHealth.lastReconciledFrom,
+        corruptedStores: Object.freeze([...storageHealth.corruptedStores]),
+        lastError: storageHealth.lastError
+      });
+    },
+    async exportBackup() {
+      const profile = playerService.getProfile();
+      const identity = buildPlayerIdentity();
+      const entitlements = entitlementsService.getEntitlements();
+      const saves = {};
+      for (const item of adaptersRegistry.list()) {
+        try {
+          const env = await adaptersRegistry.exportLocalEnvelope(item.gameId);
+          if (env) saves[item.gameId] = env;
+        } catch {}
+      }
+      return Object.freeze({
+        backupVersion: 1,
+        exportedAt: getNow().toISOString(),
+        identity,
+        profile,
+        entitlements,
+        saves
+      });
+    },
+    quarantineCorruptSave(gameId, raw) {
+      const result = quarantineCorruptSave(gameId, raw, {
+        localStorage: getLocalStorage(),
+        guestId: currentGuestRecord ? currentGuestRecord.guestId : null
+      });
+      loggingService.error('quarantine', `Corrupted save quarantined for game ${gameId}`, {
+        gameId,
+        raw
+      });
+      try {
+        telemetryService.track(
+          'save_corruption_quarantined',
+          { gameId, reason: 'unparseable_or_corrupted_payload' },
+          { category: 'critical', gameId }
+        );
+      } catch {}
+      return result;
     }
   });
+
+  let activeSyncPromise = null;
 
   const syncService = Object.freeze({
     isAvailable() {
@@ -1675,9 +2169,37 @@ export function createAuroMindSDK(options = {}) {
     },
     async queueLocalChange(gameId) {
       if (typeof gameId === 'string' && gameId.trim().length > 0) {
-        syncOutbox.add(gameId.trim());
+        const gid = gameId.trim();
+        syncOutbox.add(gid);
         persistSyncState();
+
+        const mutation = {
+          id: `${gid}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          gameId: gid,
+          attempts: 0,
+          status: 'pending',
+          queuedAt: getNow().toISOString(),
+          lastAttemptAt: null,
+          error: null
+        };
+        try {
+          await idbPutOutbox(mutation);
+        } catch {}
       }
+    },
+    getBackoffDelay(attempts = 0) {
+      const base = 1000 * Math.pow(2, Math.min(attempts, 10));
+      const jitter = Math.floor(Math.random() * 500);
+      return Math.min(base + jitter, 15 * 60 * 1000);
+    },
+    async drainOutbox() {
+      return this.syncNow();
+    },
+    async onReconnect() {
+      if (!this.isAvailable() || !this.hasConsent()) {
+        return Object.freeze({ status: 'skipped', reason: 'sync_not_ready' });
+      }
+      return this.drainOutbox();
     },
     getPendingOutboxCount() {
       return syncOutbox.size;
@@ -1696,175 +2218,210 @@ export function createAuroMindSDK(options = {}) {
       });
     },
     async syncNow(targetGameId = null) {
-      if (!this.isAvailable()) {
-        return Object.freeze({ status: 'skipped', reason: 'cloud_sync_disabled_or_unconfigured' });
-      }
-      if (!this.hasConsent()) {
-        return Object.freeze({ status: 'skipped', reason: 'consent_not_granted' });
-      }
-      if (!currentAccount || !currentAccount.userId) {
-        return Object.freeze({ status: 'skipped', reason: 'auth_required' });
+      if (activeSyncPromise) {
+        return activeSyncPromise;
       }
 
-      const userId = currentAccount.userId;
-      const gameIds = targetGameId ? [targetGameId] : adaptersRegistry.list();
-      const results = [];
-
-      for (const gid of gameIds) {
+      activeSyncPromise = (async () => {
         try {
-          const caps = adaptersRegistry.discoverCapabilities(gid);
-          if (!caps || !caps.cloudSyncEligible) {
-            loggingService.debug('sync', `Skipping non-sync-eligible game "${gid}"`);
-            continue;
+          if (!this.isAvailable()) {
+            return Object.freeze({ status: 'skipped', reason: 'cloud_sync_disabled_or_unconfigured' });
+          }
+          if (!this.hasConsent()) {
+            return Object.freeze({ status: 'skipped', reason: 'consent_not_granted' });
+          }
+          if (!currentAccount || !currentAccount.userId) {
+            return Object.freeze({ status: 'skipped', reason: 'auth_required' });
           }
 
-          // Strict privacy guarantee: local-only vaults (such as Sankalpa E2EE vault)
-          // must NEVER be uploaded or synchronized to the cloud.
-          if (caps.hasLocalOnlyVaults) {
-            loggingService.warn('sync', `Skipping game "${gid}" with declared local-only vaults`);
-            continue;
-          }
+          const userId = currentAccount.userId;
+          const gameIds = targetGameId
+            ? [targetGameId]
+            : adaptersRegistry.list().map((item) => (typeof item === 'string' ? item : item.gameId));
+          const results = [];
 
-          // Export local envelope
-          let localEnvelope = null;
-          try {
-            localEnvelope = await adaptersRegistry.exportLocalEnvelope(gid);
-          } catch (e) {
-            loggingService.debug('sync', `No local envelope for "${gid}": ${e.message}`);
-          }
+          for (const gid of gameIds) {
+            try {
+              const caps = adaptersRegistry.discoverCapabilities(gid);
+              if (!caps || !caps.cloudSyncEligible) {
+                loggingService.debug('sync', `Skipping non-sync-eligible game "${gid}"`);
+                continue;
+              }
 
-          if (!localEnvelope) {
-            continue;
-          }
+              // Export local envelope
+              let localEnvelope = null;
+              try {
+                localEnvelope = await adaptersRegistry.exportLocalEnvelope(gid);
+              } catch (e) {
+                loggingService.debug('sync', `No local envelope for "${gid}": ${e.message}`);
+              }
 
-          // Pull remote save
-          const remoteRecord = await providers.cloudSync.pullLatest(userId, gid);
+              if (!localEnvelope) {
+                continue;
+              }
 
-          if (!remoteRecord) {
-            // No remote record exists yet
-            if (!localEnvelope.isEmpty) {
-              const pushRes = await providers.cloudSync.pushWithOptimisticLock(
-                localEnvelope,
-                userId,
-                0
-              );
-              if (pushRes && pushRes.status === 'success') {
+              // Strict privacy guarantee: local-only vaults (such as Sankalpa E2EE vault)
+              // must NEVER be uploaded or synchronized to the cloud.
+              if (caps.hasLocalOnlyVaults && Array.isArray(caps.localOnlyVaults)) {
+                const payloadStr = JSON.stringify(localEnvelope.payload || {});
+                let containsForbiddenVault = false;
+                for (const vaultKey of caps.localOnlyVaults) {
+                  if (payloadStr.includes(vaultKey)) {
+                    loggingService.error('sync', `Security violation: local envelope for "${gid}" contains local-only vault "${vaultKey}". Sync aborted for this game.`);
+                    containsForbiddenVault = true;
+                    break;
+                  }
+                }
+                if (containsForbiddenVault) {
+                  continue;
+                }
+              }
+
+              // Pull remote save
+              const remoteRecord = await providers.cloudSync.pullLatest(userId, gid);
+
+              if (!remoteRecord) {
+                // No remote record exists yet
+                if (!localEnvelope.isEmpty) {
+                  const pushRes = await providers.cloudSync.pushWithOptimisticLock(
+                    localEnvelope,
+                    userId,
+                    0
+                  );
+                  if (pushRes && pushRes.status === 'success') {
+                    syncOutbox.delete(gid);
+                    syncMetadata[gid] = {
+                      revision: pushRes.newRevision,
+                      syncedAt: getNow().toISOString()
+                    };
+                    results.push({ gameId: gid, action: 'pushed_initial', revision: pushRes.newRevision });
+                  } else {
+                    results.push({ gameId: gid, action: 'push_failed', error: pushRes?.message });
+                  }
+                }
+                continue;
+              }
+
+              // Remote save exists: construct remote envelope
+              const remoteEnvelope = Object.freeze({
+                envelopeVersion: remoteRecord.envelopeVersion || 1,
+                gameId: gid,
+                gameSchemaVersion: remoteRecord.gameSchemaVersion || 1,
+                guestId:
+                  remoteRecord.sourceGuestId ||
+                  (currentGuestRecord ? currentGuestRecord.guestId : 'guest_00000000-0000-4000-8000-000000000000'),
+                baseRevision: remoteRecord.revision || 1,
+                checksum: remoteRecord.checksum,
+                payload: remoteRecord.payload,
+                clientUpdatedAt:
+                  remoteRecord.clientUpdatedAt || remoteRecord.serverUpdatedAt || getNow().toISOString(),
+                isEmpty: Boolean(remoteRecord.isEmpty)
+              });
+
+              // Idempotent sync: if local and remote checksums match, records are identical
+              if (localEnvelope.checksum && remoteRecord.checksum && localEnvelope.checksum === remoteRecord.checksum) {
                 syncOutbox.delete(gid);
                 syncMetadata[gid] = {
-                  revision: pushRes.newRevision,
+                  revision: remoteRecord.revision || 1,
                   syncedAt: getNow().toISOString()
                 };
-                results.push({ gameId: gid, action: 'pushed_initial', revision: pushRes.newRevision });
-              } else {
-                results.push({ gameId: gid, action: 'push_failed', error: pushRes?.message });
+                results.push({ gameId: gid, action: 'in_sync', revision: remoteRecord.revision || 1 });
+                continue;
               }
-            }
-            continue;
-          }
 
-          // Remote save exists: construct remote envelope
-          const remoteEnvelope = Object.freeze({
-            envelopeVersion: remoteRecord.envelopeVersion || 1,
-            gameId: gid,
-            gameSchemaVersion: remoteRecord.gameSchemaVersion || 1,
-            guestId:
-              remoteRecord.sourceGuestId ||
-              (currentGuestRecord ? currentGuestRecord.guestId : 'guest_00000000-0000-4000-8000-000000000000'),
-            baseRevision: remoteRecord.revision || 1,
-            checksum: remoteRecord.checksum,
-            payload: remoteRecord.payload,
-            clientUpdatedAt:
-              remoteRecord.clientUpdatedAt || remoteRecord.serverUpdatedAt || getNow().toISOString(),
-            isEmpty: Boolean(remoteRecord.isEmpty)
-          });
+              // Resolve merge with game-owned strategy
+              const mergeResolution = adaptersRegistry.resolveMerge(gid, localEnvelope, remoteEnvelope);
 
-          // Resolve merge with game-owned strategy
-          const mergeResolution = adaptersRegistry.resolveMerge(gid, localEnvelope, remoteEnvelope);
+              if (mergeResolution.status === 'use_local') {
+                const expectedRev = remoteRecord.revision || 0;
+                const pushRes = await providers.cloudSync.pushWithOptimisticLock(
+                  localEnvelope,
+                  userId,
+                  expectedRev
+                );
 
-          if (mergeResolution.status === 'use_local') {
-            const expectedRev = remoteRecord.revision || 0;
-            const pushRes = await providers.cloudSync.pushWithOptimisticLock(
-              localEnvelope,
-              userId,
-              expectedRev
-            );
-
-            if (pushRes && pushRes.status === 'success') {
-              syncOutbox.delete(gid);
-              syncMetadata[gid] = {
-                revision: pushRes.newRevision,
-                syncedAt: getNow().toISOString()
-              };
-              results.push({ gameId: gid, action: 'pushed_update', revision: pushRes.newRevision });
-            } else if (pushRes && pushRes.status === 'conflict') {
-              loggingService.warn(
-                'sync',
-                `Optimistic concurrency conflict on "${gid}". Current revision: ${pushRes.currentRevision}`
-              );
-              results.push({
-                gameId: gid,
-                action: 'conflict',
-                currentRevision: pushRes.currentRevision,
-                serverRecord: pushRes.serverRecord
+                if (pushRes && pushRes.status === 'success') {
+                  syncOutbox.delete(gid);
+                  syncMetadata[gid] = {
+                    revision: pushRes.newRevision,
+                    syncedAt: getNow().toISOString()
+                  };
+                  results.push({ gameId: gid, action: 'pushed_update', revision: pushRes.newRevision });
+                } else if (pushRes && pushRes.status === 'conflict') {
+                  loggingService.warn(
+                    'sync',
+                    `Optimistic concurrency conflict on "${gid}". Current revision: ${pushRes.currentRevision}`
+                  );
+                  results.push({
+                    gameId: gid,
+                    action: 'conflict',
+                    currentRevision: pushRes.currentRevision,
+                    serverRecord: pushRes.serverRecord
+                  });
+                } else {
+                  results.push({ gameId: gid, action: 'push_failed', error: pushRes?.message });
+                }
+              } else if (mergeResolution.status === 'use_remote') {
+                await adaptersRegistry.applyRemoteEnvelope(gid, remoteEnvelope);
+                syncOutbox.delete(gid);
+                syncMetadata[gid] = {
+                  revision: remoteRecord.revision,
+                  syncedAt: getNow().toISOString()
+                };
+                results.push({ gameId: gid, action: 'applied_remote', revision: remoteRecord.revision });
+              } else if (mergeResolution.status === 'auto_merged') {
+                const mergedEnvelope = Object.freeze({
+                  ...localEnvelope,
+                  payload: mergeResolution.resolvedPayload,
+                  checksum: `merged_${Date.now()}`,
+                  clientUpdatedAt: getNow().toISOString()
+                });
+                await adaptersRegistry.applyRemoteEnvelope(gid, mergedEnvelope);
+                const expectedRev = remoteRecord.revision || 0;
+                const pushRes = await providers.cloudSync.pushWithOptimisticLock(
+                  mergedEnvelope,
+                  userId,
+                  expectedRev
+                );
+                if (pushRes && pushRes.status === 'success') {
+                  syncOutbox.delete(gid);
+                  syncMetadata[gid] = {
+                    revision: pushRes.newRevision,
+                    syncedAt: getNow().toISOString()
+                  };
+                  results.push({ gameId: gid, action: 'auto_merged_and_pushed', revision: pushRes.newRevision });
+                } else {
+                  results.push({ gameId: gid, action: 'auto_merged_push_failed', error: pushRes?.message });
+                }
+              } else {
+                results.push({
+                  gameId: gid,
+                  action: 'conflict_requires_user_choice',
+                  summary: mergeResolution.conflictSummary
+                });
+              }
+            } catch (err) {
+              loggingService.error('sync', `Sync failed for game "${gid}": ${err.message}`, {
+                error: err.message
               });
-            } else {
-              results.push({ gameId: gid, action: 'push_failed', error: pushRes?.message });
+              results.push({ gameId: gid, action: 'error', error: err.message });
             }
-          } else if (mergeResolution.status === 'use_remote') {
-            await adaptersRegistry.applyRemoteEnvelope(gid, remoteEnvelope);
-            syncOutbox.delete(gid);
-            syncMetadata[gid] = {
-              revision: remoteRecord.revision,
-              syncedAt: getNow().toISOString()
-            };
-            results.push({ gameId: gid, action: 'applied_remote', revision: remoteRecord.revision });
-          } else if (mergeResolution.status === 'auto_merged') {
-            const mergedEnvelope = Object.freeze({
-              ...localEnvelope,
-              payload: mergeResolution.resolvedPayload,
-              checksum: `merged_${Date.now()}`,
-              clientUpdatedAt: getNow().toISOString()
-            });
-            await adaptersRegistry.applyRemoteEnvelope(gid, mergedEnvelope);
-            const expectedRev = remoteRecord.revision || 0;
-            const pushRes = await providers.cloudSync.pushWithOptimisticLock(
-              mergedEnvelope,
-              userId,
-              expectedRev
-            );
-            if (pushRes && pushRes.status === 'success') {
-              syncOutbox.delete(gid);
-              syncMetadata[gid] = {
-                revision: pushRes.newRevision,
-                syncedAt: getNow().toISOString()
-              };
-              results.push({ gameId: gid, action: 'auto_merged_and_pushed', revision: pushRes.newRevision });
-            } else {
-              results.push({ gameId: gid, action: 'auto_merged_push_failed', error: pushRes?.message });
-            }
-          } else {
-            results.push({
-              gameId: gid,
-              action: 'conflict_requires_user_choice',
-              summary: mergeResolution.conflictSummary
-            });
           }
-        } catch (err) {
-          loggingService.error('sync', `Sync failed for game "${gid}": ${err.message}`, {
-            error: err.message
+
+          syncMetadata.lastSyncAt = getNow().toISOString();
+          persistSyncState();
+
+          return Object.freeze({
+            status: 'success',
+            syncedAt: syncMetadata.lastSyncAt,
+            results: Object.freeze(results)
           });
-          results.push({ gameId: gid, action: 'error', error: err.message });
+        } finally {
+          activeSyncPromise = null;
         }
-      }
+      })();
 
-      syncMetadata.lastSyncAt = getNow().toISOString();
-      persistSyncState();
-
-      return Object.freeze({
-        status: 'success',
-        syncedAt: syncMetadata.lastSyncAt,
-        results: Object.freeze(results)
-      });
+      return activeSyncPromise;
     }
   });
 
@@ -2025,6 +2582,14 @@ export function createAuroMindSDK(options = {}) {
     } catch {}
   }
 
+  const TELEMETRY_CAPS = Object.freeze({
+    CRITICAL: 100,
+    ENGAGEMENT: 300,
+    DIAGNOSTIC: 100,
+    TOTAL: 500
+  });
+  let criticalOverflowCounter = 0;
+
   function loadPersistedTelemetry() {
     try {
       const cRes = lsGetRaw(LS_CONSENT_KEY);
@@ -2036,8 +2601,11 @@ export function createAuroMindSDK(options = {}) {
         const parsed = JSON.parse(qRes.raw);
         if (Array.isArray(parsed)) {
           memoryTelemetryQueue.length = 0;
-          for (const item of parsed.slice(-MAX_TELEMETRY_QUEUE)) {
-            memoryTelemetryQueue.push(Object.freeze(item));
+          const cutoff = getNow().getTime() - 30 * 24 * 60 * 60 * 1000;
+          for (const item of parsed) {
+            if (item && item.timestamp && Date.parse(item.timestamp) >= cutoff) {
+              memoryTelemetryQueue.push(Object.freeze(item));
+            }
           }
         }
       }
@@ -2053,29 +2621,79 @@ export function createAuroMindSDK(options = {}) {
       if (telemetryConsent !== true) {
         return null;
       }
-      const category =
-        typeof options.category === 'string' && options.category.trim()
-          ? options.category.trim()
-          : 'engagement';
+      const rawCat = (typeof options.category === 'string' && options.category.trim())
+        ? options.category.trim()
+        : 'engagement';
+      const category = rawCat;
+      const lowerCat = rawCat.toLowerCase();
+      const tier = (lowerCat === 'critical' || lowerCat === 'error')
+        ? 'critical'
+        : (lowerCat === 'diagnostic' || lowerCat === 'debug' ? 'diagnostic' : 'engagement');
+
       const event = Object.freeze({
         eventId: generateUuidV4(getCrypto()),
         schemaVersion: 1,
         timestamp: getNow().toISOString(),
         eventName: eventName.trim(),
         category,
+        tier,
         gameId: options.gameId || activeConfig?.gameId || 'portal',
         sessionId: currentSessionId,
         guestId: currentGuestRecord ? currentGuestRecord.guestId : null,
-        payload: redactSensitive(payload || {}),
+        payload: sanitizeTelemetryPayload(payload || {}),
         appVersion: activeConfig?.appVersion || SDK_VERSION
       });
 
-      memoryTelemetryQueue.push(event);
-      if (memoryTelemetryQueue.length > MAX_TELEMETRY_QUEUE) {
-        memoryTelemetryQueue.shift();
+      // 30-day auto-purge
+      const cutoff = getNow().getTime() - 30 * 24 * 60 * 60 * 1000;
+      let i = memoryTelemetryQueue.length;
+      while (i--) {
+        const ts = Date.parse(memoryTelemetryQueue[i].timestamp);
+        if (!Number.isNaN(ts) && ts < cutoff) {
+          memoryTelemetryQueue.splice(i, 1);
+        }
       }
+
+      // Check tier capacity and total capacity (500)
+      if (tier === 'critical') {
+        const criticalCount = memoryTelemetryQueue.filter(e => e.tier === 'critical' || e.category === 'critical').length;
+        if (criticalCount >= TELEMETRY_CAPS.CRITICAL) {
+          const idx = memoryTelemetryQueue.findIndex(e => e.tier === 'critical' || e.category === 'critical');
+          if (idx !== -1) {
+            memoryTelemetryQueue.splice(idx, 1);
+            criticalOverflowCounter++;
+          }
+        }
+      }
+
+      if (memoryTelemetryQueue.length >= TELEMETRY_CAPS.TOTAL) {
+        let dropIdx = memoryTelemetryQueue.findIndex(e => e.tier === 'diagnostic' || e.category === 'diagnostic');
+        if (dropIdx === -1) {
+          dropIdx = memoryTelemetryQueue.findIndex(e => e.tier === 'engagement' || e.category === 'engagement');
+        }
+        if (dropIdx !== -1) {
+          memoryTelemetryQueue.splice(dropIdx, 1);
+        } else {
+          memoryTelemetryQueue.shift();
+          criticalOverflowCounter++;
+        }
+      }
+
+      memoryTelemetryQueue.push(event);
       persistTelemetryQueue();
       return event;
+    },
+    getCriticalOverflowCount() {
+      return criticalOverflowCounter;
+    },
+    getTierCounts() {
+      let critical = 0, engagement = 0, diagnostic = 0;
+      for (const e of memoryTelemetryQueue) {
+        if (e.tier === 'critical' || e.category === 'critical') critical++;
+        else if (e.tier === 'diagnostic' || e.category === 'diagnostic') diagnostic++;
+        else engagement++;
+      }
+      return Object.freeze({ critical, engagement, diagnostic, total: memoryTelemetryQueue.length });
     },
     getQueue(limit = 100) {
       return Object.freeze(memoryTelemetryQueue.slice(-Math.max(1, limit)));
@@ -2085,6 +2703,7 @@ export function createAuroMindSDK(options = {}) {
     },
     clearQueue() {
       memoryTelemetryQueue.length = 0;
+      criticalOverflowCounter = 0;
       lsRemoveRaw(LS_TELEMETRY_KEY);
     },
     setConsent(consented) {
@@ -2529,12 +3148,288 @@ export function createAuroMindSDK(options = {}) {
     }
   });
 
+  // =========================================================================
+  // B4 Shared Achievements Management Service (F-06 / ADR-03)
+  // =========================================================================
+
+  const LS_ACHIEVEMENTS_KEY = 'auromind.platform.v1.achievements';
+  let localAchievements = new Map();
+  const achievementDefinitions = new Map();
+  const achievementListeners = new Set();
+
+  function loadPersistedAchievements() {
+    try {
+      const res = lsGetRaw(LS_ACHIEVEMENTS_KEY);
+      if (res.ok && res.raw) {
+        const parsed = JSON.parse(res.raw);
+        if (parsed && typeof parsed === 'object') {
+          localAchievements = new Map(Object.entries(parsed));
+        }
+      }
+    } catch {}
+  }
+
+  function persistAchievements() {
+    try {
+      const obj = Object.fromEntries(localAchievements.entries());
+      lsSetRaw(LS_ACHIEVEMENTS_KEY, JSON.stringify(obj));
+    } catch {}
+  }
+
+  const achievementsService = Object.freeze({
+    init(config = {}) {
+      loadPersistedAchievements();
+      return this;
+    },
+    registerDefinitions(definitions = [], defaultGameId = null) {
+      if (Array.isArray(definitions)) {
+        for (const def of definitions) {
+          if (def && typeof def.id === 'string' && def.id.trim().length > 0) {
+            const id = def.id.trim();
+            const defRecord = Object.freeze({
+              ...def,
+              id,
+              gameId: def.gameId || defaultGameId || (activeConfig ? activeConfig.gameId : 'portal'),
+              title: def.title || id,
+              description: def.description || '',
+              maxProgress: Number(def.maxProgress || 100)
+            });
+            achievementDefinitions.set(id, defRecord);
+          }
+        }
+      }
+      return this.listDefinitions();
+    },
+    listDefinitions(filterGameId = null) {
+      const list = [];
+      for (const def of achievementDefinitions.values()) {
+        if (!filterGameId || def.gameId === filterGameId) {
+          list.push(def);
+        }
+      }
+      return Object.freeze(list);
+    },
+    async unlock(achievementId, metadata = {}) {
+      try {
+        if (!achievementId || typeof achievementId !== 'string') {
+          return Object.freeze({ unlocked: false, firstUnlock: false });
+        }
+        const id = achievementId.trim();
+        const existing = localAchievements.get(id);
+        if (existing && existing.unlocked) {
+          return Object.freeze({ unlocked: true, firstUnlock: false, achievement: existing });
+        }
+        const gameId = metadata.gameId || (existing && existing.gameId) || (activeConfig ? activeConfig.gameId : 'portal');
+        const record = Object.freeze({
+          id,
+          gameId,
+          unlocked: true,
+          unlockedAt: (existing && existing.unlockedAt) || getNow().toISOString(),
+          progress: (typeof metadata.progress === 'number') ? metadata.progress : ((existing && typeof existing.progress === 'number') ? existing.progress : 100),
+          maxProgress: (typeof metadata.maxProgress === 'number') ? metadata.maxProgress : ((existing && typeof existing.maxProgress === 'number') ? existing.maxProgress : 100),
+          metadata: redactSensitive(metadata || {})
+        });
+        localAchievements.set(id, record);
+        persistAchievements();
+
+        // Trigger telemetry without throwing
+        try {
+          telemetryService.track(
+            'achievement_unlocked',
+            { achievementId: id, gameId, metadata },
+            { category: 'engagement' }
+          );
+        } catch {}
+
+        for (const listener of achievementListeners) {
+          try {
+            listener(record);
+          } catch {}
+        }
+        return Object.freeze({ unlocked: true, firstUnlock: true, achievement: record });
+      } catch (err) {
+        loggingService.warn('achievements', `Achievement unlock failed non-blockingly: ${err.message}`);
+        return Object.freeze({ unlocked: false, firstUnlock: false, error: err.message });
+      }
+    },
+    async incrementProgress(achievementId, amount = 1, maxProgress = 100, metadata = {}) {
+      try {
+        if (!achievementId || typeof achievementId !== 'string') {
+          return null;
+        }
+        const id = achievementId.trim();
+        const existing = localAchievements.get(id);
+        if (existing && existing.unlocked) {
+          return existing;
+        }
+        const gameId = metadata.gameId || (existing && existing.gameId) || (activeConfig ? activeConfig.gameId : 'portal');
+        const currentProgress = (existing && typeof existing.progress === 'number') ? existing.progress : 0;
+        const targetMax = (existing && typeof existing.maxProgress === 'number') ? existing.maxProgress : maxProgress;
+        const newProgress = Math.min(targetMax, currentProgress + Number(amount || 0));
+
+        if (newProgress >= targetMax) {
+          const res = await this.unlock(id, { ...metadata, gameId, progress: newProgress, maxProgress: targetMax });
+          return res.achievement;
+        }
+
+        const updated = Object.freeze({
+          id,
+          gameId,
+          unlocked: false,
+          unlockedAt: null,
+          progress: newProgress,
+          maxProgress: targetMax,
+          updatedAt: getNow().toISOString(),
+          metadata: redactSensitive(metadata || {})
+        });
+        localAchievements.set(id, updated);
+        persistAchievements();
+
+        for (const listener of achievementListeners) {
+          try {
+            listener(updated);
+          } catch {}
+        }
+        return updated;
+      } catch (err) {
+        loggingService.warn('achievements', `Achievement progress failed non-blockingly: ${err.message}`);
+        return null;
+      }
+    },
+    hasUnlocked(achievementId) {
+      if (!achievementId) return false;
+      const existing = localAchievements.get(achievementId.trim());
+      return Boolean(existing && existing.unlocked);
+    },
+    getProgress(achievementId) {
+      if (!achievementId) return null;
+      return localAchievements.get(achievementId.trim()) || null;
+    },
+    listUnlocked(filterGameId = null) {
+      const list = [];
+      for (const val of localAchievements.values()) {
+        if (val.unlocked && (!filterGameId || val.gameId === filterGameId)) {
+          list.push(val);
+        }
+      }
+      return Object.freeze(list);
+    },
+    getAll(filterGameId = null) {
+      if (!filterGameId) {
+        return Object.freeze(Object.fromEntries(localAchievements.entries()));
+      }
+      const filtered = {};
+      for (const [k, v] of localAchievements.entries()) {
+        if (v.gameId === filterGameId) {
+          filtered[k] = v;
+        }
+      }
+      return Object.freeze(filtered);
+    },
+    getAllAchievements(filterGameId = null) {
+      return this.getAll(filterGameId);
+    },
+    mergeAchievements(remoteAchievements = {}) {
+      const remoteObj = remoteAchievements && typeof remoteAchievements === 'object' ? remoteAchievements : {};
+      for (const [id, remoteAch] of Object.entries(remoteObj)) {
+        if (!remoteAch) continue;
+        const localAch = localAchievements.get(id);
+        if (!localAch) {
+          localAchievements.set(id, Object.freeze({ ...remoteAch }));
+        } else {
+          const unlocked = Boolean(localAch.unlocked || remoteAch.unlocked);
+          const unlockedAt = (localAch.unlocked && remoteAch.unlocked)
+            ? (localAch.unlockedAt < remoteAch.unlockedAt ? localAch.unlockedAt : remoteAch.unlockedAt)
+            : (localAch.unlockedAt || remoteAch.unlockedAt);
+          const progress = Math.max(localAch.progress || 0, remoteAch.progress || 0);
+          const maxProgress = Math.max(localAch.maxProgress || 100, remoteAch.maxProgress || 100);
+
+          localAchievements.set(id, Object.freeze({
+            ...localAch,
+            ...remoteAch,
+            unlocked,
+            unlockedAt,
+            progress,
+            maxProgress
+          }));
+        }
+      }
+      persistAchievements();
+      return this.getAll();
+    },
+    reset() {
+      localAchievements.clear();
+      try {
+        lsRemoveRaw(LS_ACHIEVEMENTS_KEY);
+      } catch {}
+    },
+    subscribe(listener) {
+      if (typeof listener !== 'function') return () => {};
+      achievementListeners.add(listener);
+      return () => achievementListeners.delete(listener);
+    }
+  });
+
+  let activePurchaseProvider = (providers.purchaseProvider && providers.purchaseProvider.providerName !== 'null-purchase')
+    ? providers.purchaseProvider
+    : createMockPurchaseProvider();
+
+  const purchasesService = Object.freeze({
+    isCommercialGateActive() {
+      return false; // Launch invariant: free beta for January 1, 2027 release
+    },
+    hasEntitlement(sku) {
+      if (!this.isCommercialGateActive()) return true;
+      return activePurchaseProvider.hasEntitlement(sku);
+    },
+    hasAccess(skuOrTier) {
+      if (!this.isCommercialGateActive()) return true;
+      return this.hasEntitlement(skuOrTier);
+    },
+    setProvider(provider) {
+      activePurchaseProvider = provider || createMockPurchaseProvider();
+    },
+    getProvider() {
+      return activePurchaseProvider;
+    },
+    async requestPurchase(sku, options = {}) {
+      if (!this.isCommercialGateActive()) {
+        return Object.freeze({
+          ok: true,
+          status: 'granted_free_tier',
+          sku,
+          unlockedAt: getNow().toISOString()
+        });
+      }
+      return activePurchaseProvider.purchase(sku, options);
+    },
+    async purchase(sku, options = {}) {
+      return this.requestPurchase(sku, options);
+    },
+    async refundPurchase(sku) {
+      if (typeof activePurchaseProvider.refund === 'function') {
+        return activePurchaseProvider.refund(sku);
+      }
+      return Object.freeze({ ok: false, errorCode: 'REFUND_NOT_SUPPORTED' });
+    },
+    async restorePurchases() {
+      if (typeof activePurchaseProvider.restorePurchases === 'function') {
+        return activePurchaseProvider.restorePurchases();
+      }
+      return Object.freeze([]);
+    },
+    verifyEntitlementToken(params) {
+      return verifyEd25519EntitlementToken(params);
+    }
+  });
+
   // Prime local stores on creation
   loadPersistedLogs();
   loadPersistedConfig();
   loadPersistedTelemetry();
   loadPersistedEntitlements();
   loadPersistedSyncState();
+  loadPersistedAchievements();
 
   // Adapter registry wired to this SDK instance
   const adaptersRegistry = createAdapterRegistry({
@@ -2600,6 +3495,10 @@ export function createAuroMindSDK(options = {}) {
       throw new AuroMindSDKError('INVALID_CONFIG', 'AuroMind.init(config) expects an object if provided.');
     }
 
+    if (disposed) {
+      disposed = false;
+    }
+
     if (initialized) {
       return buildRuntimeContext();
     }
@@ -2617,15 +3516,17 @@ export function createAuroMindSDK(options = {}) {
     });
 
     const requestedCapabilities = Object.freeze({
-      authEnabled: Boolean(config.capabilities?.authEnabled),
-      cloudSyncEnabled: Boolean(config.capabilities?.cloudSyncEnabled),
-      entitlementsEnabled: Boolean(config.capabilities?.entitlementsEnabled),
-      analyticsEnabled: Boolean(config.capabilities?.analyticsEnabled),
-      remoteConfigEnabled: Boolean(config.capabilities?.remoteConfigEnabled)
+      authEnabled: Boolean(config.capabilities?.authEnabled ?? options?.capabilities?.authEnabled),
+      cloudSyncEnabled: Boolean(config.capabilities?.cloudSyncEnabled ?? options?.capabilities?.cloudSyncEnabled),
+      entitlementsEnabled: Boolean(config.capabilities?.entitlementsEnabled ?? options?.capabilities?.entitlementsEnabled),
+      analyticsEnabled: Boolean(config.capabilities?.analyticsEnabled ?? options?.capabilities?.analyticsEnabled),
+      remoteConfigEnabled: Boolean(config.capabilities?.remoteConfigEnabled ?? options?.capabilities?.remoteConfigEnabled)
     });
 
     if (config.providers) {
       registerProviders(config.providers);
+    } else if (options && options.providers) {
+      registerProviders(options.providers);
     }
 
     initPromise = (async () => {
@@ -2664,6 +3565,10 @@ export function createAuroMindSDK(options = {}) {
           guestId: currentGuestRecord ? currentGuestRecord.guestId : null
         });
 
+        // Non-blocking storage persistence registration and quota check (TASK-ID-02)
+        void requestStoragePersistence();
+        void checkStorageQuota();
+
         // Drain any peer record that arrived right before `initialized` flipped to true
         if (pendingPeerRecord && !disposed) {
           const bufferedPeer = pendingPeerRecord;
@@ -2677,6 +3582,7 @@ export function createAuroMindSDK(options = {}) {
       } catch (err) {
         // Clear in-flight state cleanly so interrupted initialization can be retried
         initialized = false;
+        dispose();
         throw err;
       } finally {
         initPromise = null;
@@ -2688,15 +3594,19 @@ export function createAuroMindSDK(options = {}) {
 
   function dispose() {
     disposed = true;
+    initialized = false;
     pendingPeerRecord = null;
     pendingPeerSource = null;
 
-    if (broadcastChannel && typeof broadcastChannel.close === 'function') {
+    if (broadcastChannel) {
       try {
-        broadcastChannel.close();
+        broadcastChannel.onmessage = null;
+        if (typeof broadcastChannel.close === 'function') {
+          broadcastChannel.close();
+        }
       } catch {}
+      broadcastChannel = null;
     }
-    broadcastChannel = null;
 
     const win = getWindow();
     if (win && typeof win.removeEventListener === 'function') {
@@ -2729,11 +3639,12 @@ export function createAuroMindSDK(options = {}) {
 
     identityListeners.clear();
     offlineListeners.clear();
+    achievementListeners.clear();
     memoryLogBuffer.length = 0;
     memoryTelemetryQueue.length = 0;
   }
 
-  return Object.freeze({
+  const instance = {
     VERSION: SDK_VERSION,
     init,
     isInitialized: () => initialized,
@@ -2754,8 +3665,12 @@ export function createAuroMindSDK(options = {}) {
     config: configService,
     player: playerService,
     profile: playerService,
-    entitlements: entitlementsService
-  });
+    entitlements: entitlementsService,
+    achievements: achievementsService,
+    purchases: purchasesService
+  };
+
+  return deepFreeze(instance);
 }
 
 // Default browser/module singleton

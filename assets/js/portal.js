@@ -85,7 +85,7 @@ function initPortalSDK() {
       let sdk = window.AuroMind;
       if (!sdk || typeof sdk.init !== 'function') {
         try {
-          const mod = await import('./assets/sdk/auromind-sdk.js');
+          const mod = await import('../sdk/auromind-sdk.js');
           sdk = (mod && (mod.AuroMind || mod.default)) || window.AuroMind;
         } catch (_importErr) {
           sdk = window.AuroMind;
@@ -100,7 +100,7 @@ function initPortalSDK() {
       portalSdkInitCount += 1;
       let customProviders = {};
       try {
-        const { createConfiguredProviders } = await import('./assets/sdk/config/backend-config.js');
+        const { createConfiguredProviders } = await import('../sdk/config/backend-config.js');
         const resolved = await createConfiguredProviders();
         if (resolved) {
           customProviders = resolved;
@@ -111,7 +111,7 @@ function initPortalSDK() {
           supabaseAnonKey: window.AUROMIND_SUPABASE_ANON_KEY || null
         };
         if (sbConfig.supabaseUrl && sbConfig.supabaseAnonKey) {
-          const mod = await import('./assets/sdk/providers/supabase/index.js');
+          const mod = await import('../sdk/providers/supabase/index.js');
           if (mod && mod.createSupabaseProviders) {
             customProviders = mod.createSupabaseProviders(sbConfig);
           }
@@ -144,6 +144,14 @@ function initPortalSDK() {
           });
         }
       } catch (_tErr) {}
+
+      // Storage Resilience Amber Warning Banner & Export UI (TASK-ID-03)
+      try {
+        checkAndRenderStorageAmberBanner(sdk);
+        if (sdk.identity && typeof sdk.identity.subscribe === 'function') {
+          sdk.identity.subscribe(() => checkAndRenderStorageAmberBanner(sdk));
+        }
+      } catch (_bannerErr) {}
 
       return ctx;
     } catch (err) {
@@ -340,6 +348,7 @@ function initTheaterMode() {
 
   let activeGameStartTime = null;
   let currentActiveGame = null;
+  let ambientAudioWasPlaying = false;
 
   function openGameInTheater(gameId, title, icon) {
     const url = gameUrls[gameId];
@@ -347,6 +356,8 @@ function initTheaterMode() {
 
     activeGameStartTime = Date.now();
     currentActiveGame = gameId;
+
+    ambientAudioWasPlaying = (typeof window.isAmbientAudioPlaying === 'function') && window.isAmbientAudioPlaying();
 
     // Suspend portal 432 Hz ambient audio so it does not collide with child game audio
     if (typeof window.suspendAmbientAudio === 'function') {
@@ -361,6 +372,16 @@ function initTheaterMode() {
 
     // Load into iframe (mock client-side license pass dispatch disabled)
     if (theaterIframe) {
+      theaterIframe.onload = () => {
+        try {
+          if (theaterIframe.contentWindow) {
+            theaterIframe.contentWindow.postMessage(
+              { type: 'AUROMIND_SET_SENIOR_MODE', enabled: document.body.classList.contains('senior-mode') },
+              '*'
+            );
+          }
+        } catch (e) {}
+      };
       theaterIframe.src = url;
     }
 
@@ -413,6 +434,14 @@ function initTheaterMode() {
 
     if (window.location.hash.startsWith('#play-')) {
       history.pushState({ inGame: false }, 'AuroMind', window.location.pathname);
+    }
+
+    // Resume ambient audio if it was playing prior to entering theater
+    if (ambientAudioWasPlaying) {
+      if (typeof window.resumeAmbientAudio === 'function') {
+        window.resumeAmbientAudio();
+      }
+      ambientAudioWasPlaying = false;
     }
 
     try {
@@ -525,10 +554,15 @@ function initTheaterMode() {
     });
   }
 
-  // Listen to HTML5 PostMessage from same-origin child game iframes (Vak, AuroMatch, etc.)
+  // Listen to HTML5 PostMessage from child game iframes (Vak, AuroMatch, etc.)
   window.addEventListener('message', (event) => {
-    if (event.origin !== window.location.origin) return;
+    // 1. Mandatory Source Validation: message MUST originate from active theater iframe contentWindow
     if (!theaterIframe || event.source !== theaterIframe.contentWindow) return;
+
+    // 2. Origin Validation: exact match for standard origins, permit 'null' for opaque sandboxed contexts
+    const isSameOrigin = (event.origin === window.location.origin);
+    const isOpaqueOrigin = (event.origin === 'null' || event.origin === '');
+    if (!isSameOrigin && !isOpaqueOrigin) return;
 
     const data = event.data;
     if (!data || typeof data !== 'object' || Array.isArray(data)) return;
@@ -656,6 +690,12 @@ function initSidebarAndNavigation() {
   const menuToggle = document.getElementById('menu-toggle-btn');
   const navItems = document.querySelectorAll('.sidebar-nav-item[data-category]');
   const cards = document.querySelectorAll('.game-card');
+
+  // Reconcile sidebar "All Games" count dynamically with actual unique catalogue cards (B17-GAP-02)
+  const allGamesSpan = document.querySelector('.sidebar-nav-item[data-category="all"] span:last-child');
+  if (allGamesSpan && cards.length > 0) {
+    allGamesSpan.textContent = `All Games (${cards.length})`;
+  }
 
   if (menuToggle && sidebar) {
     menuToggle.addEventListener('click', () => {
@@ -792,6 +832,17 @@ function initSeniorMode() {
         localStorage.setItem('auromind_senior_mode', isActive ? 'true' : 'false');
       } catch (err) {}
     }
+
+    // Broadcast Senior Mode state to active theater iframe
+    const activeIframe = document.getElementById('game-viewport-iframe') || document.getElementById('game-theater-iframe');
+    if (activeIframe && activeIframe.contentWindow) {
+      try {
+        activeIframe.contentWindow.postMessage(
+          { type: 'AUROMIND_SET_SENIOR_MODE', enabled: isActive },
+          '*'
+        );
+      } catch (err) {}
+    }
   }
 
   window.applySeniorMode = applySeniorMode;
@@ -845,7 +896,9 @@ function initAmbientAudio() {
     }, 260);
   }
 
+  window.isAmbientAudioPlaying = () => isPlaying;
   window.suspendAmbientAudio = stopAmbientAudio;
+  window.resumeAmbientAudio = startAmbientAudio;
 
   window.setAmbientVolume = (volRatio) => {
     const clampedRatio = Math.max(0, Math.min(1, Number.isFinite(volRatio) ? volRatio : 0.5));
@@ -875,6 +928,33 @@ function initAmbientAudio() {
     }
   } catch (err) {}
 
+  function startAmbientAudio() {
+    if (isPlaying) return;
+    if (!audioCtx) {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AudioContext();
+    }
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+
+    oscillator = audioCtx.createOscillator();
+    gainNode = audioCtx.createGain();
+
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(432, audioCtx.currentTime);
+
+    gainNode.gain.setValueAtTime(0.001, audioCtx.currentTime);
+    gainNode.gain.linearRampToValueAtTime(Math.max(0.0001, currentVolume), audioCtx.currentTime + 1);
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    oscillator.start();
+    isPlaying = true;
+    audioBtn.classList.add('active');
+  }
+
   audioBtn.addEventListener('click', () => {
     if (!audioCtx) {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -884,21 +964,7 @@ function initAmbientAudio() {
     if (isPlaying) {
       stopAmbientAudio();
     } else {
-      oscillator = audioCtx.createOscillator();
-      gainNode = audioCtx.createGain();
-
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(432, audioCtx.currentTime);
-
-      gainNode.gain.setValueAtTime(0.001, audioCtx.currentTime);
-      gainNode.gain.linearRampToValueAtTime(Math.max(0.0001, currentVolume), audioCtx.currentTime + 1);
-
-      oscillator.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-
-      oscillator.start();
-      isPlaying = true;
-      audioBtn.classList.add('active');
+      startAmbientAudio();
     }
   });
 }
@@ -1760,4 +1826,72 @@ function initExitTracking() {
       }
     } catch {}
   });
+}
+
+// ==========================================================================
+// 13. EPHEMERAL STORAGE AMBER BANNER & BACKUP EXPORT (TASK-ID-03)
+// ==========================================================================
+function checkAndRenderStorageAmberBanner(sdk) {
+  const instance = sdk || window.AuroMind;
+  if (!instance) return;
+  const guest = instance.identity?.get()?.guest;
+  const resilience = instance.storage?.getStorageResilience ? instance.storage.getStorageResilience() : null;
+  const isEphemeral = Boolean(guest?.ephemeral || resilience?.isEphemeral || guest?.storageSource === 'memory');
+
+  let banner = document.getElementById('amber-storage-banner');
+  if (isEphemeral) {
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'amber-storage-banner';
+      banner.className = 'amber-storage-banner';
+      banner.innerHTML = `
+        <div class="amber-banner-content">
+          <span class="amber-banner-icon">⚠️</span>
+          <span class="amber-banner-text">Running in temporary in-memory mode (private browsing or storage restricted). Your progress will be lost when this tab is closed.</span>
+          <button id="amber-export-backup-btn" class="amber-banner-btn" title="Download backup of current session">Export Backup (.json)</button>
+        </div>
+      `;
+      const container = document.body;
+      if (container && container.firstChild) {
+        container.insertBefore(banner, container.firstChild);
+      } else if (container) {
+        container.appendChild(banner);
+      }
+
+      const exportBtn = document.getElementById('amber-export-backup-btn');
+      if (exportBtn) {
+        exportBtn.addEventListener('click', async () => {
+          try {
+            exportBtn.disabled = true;
+            exportBtn.textContent = 'Exporting...';
+            let backupData = null;
+            if (instance.storage && typeof instance.storage.exportBackup === 'function') {
+              backupData = await instance.storage.exportBackup();
+            } else if (instance.player && typeof instance.player.exportUserData === 'function') {
+              backupData = await instance.player.exportUserData();
+            }
+            if (backupData) {
+              const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `auromind-backup-${Date.now()}.json`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }
+          } catch (err) {
+            console.error('Backup export failed:', err);
+          } finally {
+            exportBtn.disabled = false;
+            exportBtn.textContent = 'Export Backup (.json)';
+          }
+        });
+      }
+    }
+    banner.style.display = 'block';
+  } else if (banner) {
+    banner.style.display = 'none';
+  }
 }

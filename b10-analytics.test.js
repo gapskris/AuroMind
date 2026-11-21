@@ -54,81 +54,99 @@ function createStorageMock(initial = {}) {
 test('B10 Suite 1: Visitor consent lifecycle, immediate purge on opt-out, and zero PII', async () => {
   const store = createStorageMock();
   const sdk = createAuroMindSDK({ localStorage: store });
-  await sdk.init({ gameId: 'portal', appVersion: '1.0.0' });
+  try {
+    await sdk.init({ gameId: 'portal', appVersion: '1.0.0' });
 
-  // 1. Initial state: undecided
-  assert.equal(sdk.telemetry.getConsent(), false, 'Default consent must be false (opt-in only)');
-  assert.equal(sdk.telemetry.getConsentState(), 'undecided', 'State must be undecided before user choice');
-  assert.equal(sdk.telemetry.isConsentDecided(), false);
+    // 1. Initial state: undecided
+    assert.equal(sdk.telemetry.getConsent(), false, 'Default consent must be false (opt-in only)');
+    assert.equal(sdk.telemetry.getConsentState(), 'undecided', 'State must be undecided before user choice');
+    assert.equal(sdk.telemetry.isConsentDecided(), false);
 
-  // 2. Tracking without consent drops events completely
-  const dropped = sdk.telemetry.track('portal_visit', { test: 1 });
-  assert.equal(dropped, null, 'Unconsented tracking must return null');
-  assert.equal(sdk.telemetry.getQueueLength(), 0, 'Queue must remain strictly empty');
+    // 2. Tracking without consent drops events completely
+    const dropped = sdk.telemetry.track('portal_visit', { test: 1 });
+    assert.equal(dropped, null, 'Unconsented tracking must return null');
+    assert.equal(sdk.telemetry.getQueueLength(), 0, 'Queue must remain strictly empty');
 
-  // 3. User grants consent (Accept & Support)
-  sdk.telemetry.setConsent(true);
-  assert.equal(sdk.telemetry.getConsent(), true);
-  assert.equal(sdk.telemetry.getConsentState(), 'granted');
-  assert.equal(sdk.telemetry.isConsentDecided(), true);
-  assert.equal(store.getItem(LS_CONSENT_KEY), 'true');
+    // 3. User grants consent (Accept & Support)
+    sdk.telemetry.setConsent(true);
+    assert.equal(sdk.telemetry.getConsent(), true);
+    assert.equal(sdk.telemetry.getConsentState(), 'granted');
+    assert.equal(sdk.telemetry.isConsentDecided(), true);
+    assert.equal(store.getItem(LS_CONSENT_KEY), 'true');
 
-  // 4. Tracking with consent buffers events
-  const rawSecretPassword = 'secret_password_123';
-  const rawSecretToken = 'jwt_secret_token';
-  const rawSankalpaNote = 'My sacred spiritual intention';
+    // 4. Tracking with consent buffers events
+    const rawSecretPassword = 'secret_password_123';
+    const rawSecretToken = 'jwt_secret_token';
+    const rawSankalpaNote = 'My sacred spiritual intention';
 
-  const tracked = sdk.telemetry.track('game_launch', {
-    gameId: 'vak',
-    // Sensitive keys to verify automatic redaction
-    password: rawSecretPassword,
-    token: rawSecretToken,
-    sankalpa_note: rawSankalpaNote
-  });
+    const tracked = sdk.telemetry.track('game_launch', {
+      gameId: 'vak',
+      // Sensitive keys to verify automatic exclusion (TASK-TEL-02 / ADR-09)
+      password: rawSecretPassword,
+      token: rawSecretToken,
+      sankalpa_note: rawSankalpaNote
+    });
 
-  assert.ok(tracked);
-  assert.equal(tracked.eventName, 'game_launch');
-  assert.equal(sdk.telemetry.getQueueLength(), 1);
+    assert.ok(tracked);
+    assert.equal(tracked.eventName, 'game_launch');
+    assert.equal(sdk.telemetry.getQueueLength(), 1);
 
-  // Privacy invariant: sensitive fields are completely redacted
-  assert.equal(tracked.payload.password, '[REDACTED]');
-  assert.equal(tracked.payload.token, '[REDACTED]');
-  assert.equal(tracked.payload.sankalpa_note, '[REDACTED]');
+    // Privacy invariant (ADR-09 / TASK-TEL-02): sensitive fields are completely excluded from telemetry
+    assert.equal(tracked.payload.password, undefined, 'password must not enter telemetry payload');
+    assert.equal(tracked.payload.token, undefined, 'token must not enter telemetry payload');
+    assert.equal(tracked.payload.sankalpa_note, undefined, 'sankalpa_note must not enter telemetry payload');
+    assert.equal(tracked.payload.gameId, 'vak', 'Allowlisted legitimate fields must be preserved');
 
-  // Explicit verification: zero sensitive raw values appear in payload, queue, or persisted storage
-  const serializedPayload = JSON.stringify(tracked.payload);
-  const serializedQueue = JSON.stringify(sdk.telemetry.getQueue());
-  const rawPersistedQueue = store.getItem(LS_TELEMETRY_KEY) || '';
+    // Nested sensitive fields must also be completely excluded
+    const nestedTracked = sdk.telemetry.track('level_attempt', {
+      gameId: 'vak',
+      levelId: 1,
+      nested: {
+        password: 'nested_secret_123',
+        sankalpa_intention: 'nested_sacred_intention',
+        levelScore: 250
+      }
+    });
+    assert.ok(nestedTracked);
+    assert.equal(nestedTracked.payload.nested.password, undefined, 'Nested password must be excluded');
+    assert.equal(nestedTracked.payload.nested.sankalpa_intention, undefined, 'Nested sankalpa must be excluded');
+    assert.equal(nestedTracked.payload.nested.levelScore, 250, 'Legitimate nested fields must be preserved');
 
-  for (const rawSecret of [rawSecretPassword, rawSecretToken, rawSankalpaNote]) {
-    assert.equal(
-      serializedPayload.includes(rawSecret),
-      false,
-      `Tracked payload must never contain original sensitive value: ${rawSecret}`
-    );
-    assert.equal(
-      serializedQueue.includes(rawSecret),
-      false,
-      `In-memory queue must never contain original sensitive value: ${rawSecret}`
-    );
-    assert.equal(
-      rawPersistedQueue.includes(rawSecret),
-      false,
-      `Persisted storage queue must never contain original sensitive value: ${rawSecret}`
-    );
+    // Explicit verification: zero sensitive raw values appear in payload, queue, or persisted storage
+    const serializedPayload = JSON.stringify(tracked.payload);
+    const serializedQueue = JSON.stringify(sdk.telemetry.getQueue());
+    const rawPersistedQueue = store.getItem(LS_TELEMETRY_KEY) || '';
+
+    for (const rawSecret of [rawSecretPassword, rawSecretToken, rawSankalpaNote, 'nested_secret_123', 'nested_sacred_intention']) {
+      assert.equal(
+        serializedPayload.includes(rawSecret),
+        false,
+        `Tracked payload must never contain original sensitive value: ${rawSecret}`
+      );
+      assert.equal(
+        serializedQueue.includes(rawSecret),
+        false,
+        `In-memory queue must never contain original sensitive value: ${rawSecret}`
+      );
+      assert.equal(
+        rawPersistedQueue.includes(rawSecret),
+        false,
+        `Persisted storage queue must never contain original sensitive value: ${rawSecret}`
+      );
+    }
+
+    // 5. User revokes consent (Decline / Opt-Out)
+    sdk.telemetry.setConsent(false);
+    assert.equal(sdk.telemetry.getConsent(), false);
+    assert.equal(sdk.telemetry.getConsentState(), 'denied');
+    assert.equal(store.getItem(LS_CONSENT_KEY), 'false');
+
+    // Immediate effect: queue must be completely purged from memory and storage
+    assert.equal(sdk.telemetry.getQueueLength(), 0, 'Opt-out must instantly purge memory queue');
+    assert.equal(store.getItem(LS_TELEMETRY_KEY), null, 'Opt-out must instantly remove persisted queue');
+  } finally {
+    sdk.dispose();
   }
-
-  // 5. User revokes consent (Decline / Opt-Out)
-  sdk.telemetry.setConsent(false);
-  assert.equal(sdk.telemetry.getConsent(), false);
-  assert.equal(sdk.telemetry.getConsentState(), 'denied');
-  assert.equal(store.getItem(LS_CONSENT_KEY), 'false');
-
-  // Immediate effect: queue must be completely purged from memory and storage
-  assert.equal(sdk.telemetry.getQueueLength(), 0, 'Opt-out must instantly purge memory queue');
-  assert.equal(store.getItem(LS_TELEMETRY_KEY), null, 'Opt-out must instantly remove persisted queue');
-
-  sdk.dispose();
 });
 
 // ---------------------------------------------------------------------------
@@ -137,62 +155,65 @@ test('B10 Suite 1: Visitor consent lifecycle, immediate purge on opt-out, and ze
 test('B10 Suite 2: Attribution parsing, referrer sanitization, and website lifecycle events', async () => {
   const store = createStorageMock();
   const sdk = createAuroMindSDK({ localStorage: store });
-  await sdk.init({ gameId: 'portal', appVersion: '1.0.0' });
-  sdk.telemetry.setConsent(true);
+  try {
+    await sdk.init({ gameId: 'portal', appVersion: '1.0.0' });
+    sdk.telemetry.setConsent(true);
 
-  // Simulated attribution parser
-  function parseAttribution(searchQuery, rawReferrer) {
-    const params = new URLSearchParams(searchQuery || '');
-    const utm = {};
-    const utmKeys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
-    for (const key of utmKeys) {
-      const val = params.get(key);
-      if (val) utm[key] = val.slice(0, 100);
-    }
-    let referrerDomain = null;
-    if (rawReferrer) {
-      try {
-        const refUrl = new URL(rawReferrer);
-        referrerDomain = refUrl.hostname || 'external';
-      } catch {
-        referrerDomain = 'external';
+    // Simulated attribution parser
+    function parseAttribution(searchQuery, rawReferrer) {
+      const params = new URLSearchParams(searchQuery || '');
+      const utm = {};
+      const utmKeys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
+      for (const key of utmKeys) {
+        const val = params.get(key);
+        if (val) utm[key] = val.slice(0, 100);
       }
+      let referrerDomain = null;
+      if (rawReferrer) {
+        try {
+          const refUrl = new URL(rawReferrer);
+          referrerDomain = refUrl.hostname || 'external';
+        } catch {
+          referrerDomain = 'external';
+        }
+      }
+      return { utm, referrerDomain };
     }
-    return { utm, referrerDomain };
+
+    // Test referrer stripping (zero token leakage from referral URLs)
+    const referrerWithToken = 'https://search.partner.org/results?q=mindful+games&auth_token=super_secret_leak#access_token=xyz';
+    const parsed = parseAttribution('?utm_source=auroville_today&utm_medium=newsletter&utm_campaign=january_launch', referrerWithToken);
+
+    assert.equal(parsed.referrerDomain, 'search.partner.org', 'Referrer must isolate hostname only');
+    assert.equal(parsed.utm.utm_source, 'auroville_today');
+    assert.equal(parsed.utm.utm_campaign, 'january_launch');
+
+    // Track page_view and portal_visit
+    const pv = sdk.telemetry.track('page_view', {
+      path: '/',
+      title: 'AuroMind — Sanctuary of Mindful Play',
+      referrerDomain: parsed.referrerDomain,
+      ...parsed.utm
+    }, { category: 'ui', gameId: 'portal' });
+
+    assert.equal(pv.eventName, 'page_view');
+    assert.equal(pv.payload.referrerDomain, 'search.partner.org');
+    assert.equal(pv.payload.utm_source, 'auroville_today');
+
+    // Track catalog navigation
+    const cf = sdk.telemetry.track('catalog_filter', { category: 'strategy' }, { category: 'ui', gameId: 'portal' });
+    assert.equal(cf.eventName, 'catalog_filter');
+    assert.equal(cf.payload.category, 'strategy');
+
+    // Track portal exit
+    const pe = sdk.telemetry.track('portal_exit', { sessionDurationSeconds: 142 }, { category: 'lifecycle', gameId: 'portal' });
+    assert.equal(pe.eventName, 'portal_exit');
+    assert.equal(pe.payload.sessionDurationSeconds, 142);
+
+    assert.equal(sdk.telemetry.getQueueLength(), 3);
+  } finally {
+    sdk.dispose();
   }
-
-  // Test referrer stripping (zero token leakage from referral URLs)
-  const referrerWithToken = 'https://search.partner.org/results?q=mindful+games&auth_token=super_secret_leak#access_token=xyz';
-  const parsed = parseAttribution('?utm_source=auroville_today&utm_medium=newsletter&utm_campaign=january_launch', referrerWithToken);
-
-  assert.equal(parsed.referrerDomain, 'search.partner.org', 'Referrer must isolate hostname only');
-  assert.equal(parsed.utm.utm_source, 'auroville_today');
-  assert.equal(parsed.utm.utm_campaign, 'january_launch');
-
-  // Track page_view and portal_visit
-  const pv = sdk.telemetry.track('page_view', {
-    path: '/',
-    title: 'AuroMind — Sanctuary of Mindful Play',
-    referrerDomain: parsed.referrerDomain,
-    ...parsed.utm
-  }, { category: 'ui', gameId: 'portal' });
-
-  assert.equal(pv.eventName, 'page_view');
-  assert.equal(pv.payload.referrerDomain, 'search.partner.org');
-  assert.equal(pv.payload.utm_source, 'auroville_today');
-
-  // Track catalog navigation
-  const cf = sdk.telemetry.track('catalog_filter', { category: 'strategy' }, { category: 'ui', gameId: 'portal' });
-  assert.equal(cf.eventName, 'catalog_filter');
-  assert.equal(cf.payload.category, 'strategy');
-
-  // Track portal exit
-  const pe = sdk.telemetry.track('portal_exit', { sessionDurationSeconds: 142 }, { category: 'lifecycle', gameId: 'portal' });
-  assert.equal(pe.eventName, 'portal_exit');
-  assert.equal(pe.payload.sessionDurationSeconds, 142);
-
-  assert.equal(sdk.telemetry.getQueueLength(), 3);
-  sdk.dispose();
 });
 
 // ---------------------------------------------------------------------------
@@ -201,41 +222,43 @@ test('B10 Suite 2: Attribution parsing, referrer sanitization, and website lifec
 test('B10 Suite 3: Standardized gameplay events across all six launch titles', async () => {
   const store = createStorageMock();
   const sdk = createAuroMindSDK({ localStorage: store });
-  await sdk.init({ gameId: 'portal', appVersion: '1.0.0' });
-  sdk.telemetry.setConsent(true);
+  try {
+    await sdk.init({ gameId: 'portal', appVersion: '1.0.0' });
+    sdk.telemetry.setConsent(true);
 
-  assert.equal(LAUNCH_GAMES.length, 6);
-  assert.deepEqual(LAUNCH_GAMES, ['vak', 'auromatch', 'auromandala', 'wordriddle', 'auroblocks', 'vak-sanctuary']);
+    assert.equal(LAUNCH_GAMES.length, 6);
+    assert.deepEqual(LAUNCH_GAMES, ['vak', 'auromatch', 'auromandala', 'wordriddle', 'auroblocks', 'vak-sanctuary']);
 
-  // Simulate complete session lifecycle for each of the 6 games
-  for (const gameId of LAUNCH_GAMES) {
-    // 1. Game Selection & Launch
-    sdk.telemetry.track('game_select', { gameId, source: 'catalog_grid' }, { category: 'engagement', gameId });
-    sdk.telemetry.track('game_launch', { gameId, launchContext: 'theater' }, { category: 'engagement', gameId });
-    sdk.telemetry.track('game_session_start', { gameId }, { category: 'engagement', gameId });
+    // Simulate complete session lifecycle for each of the 6 games
+    for (const gameId of LAUNCH_GAMES) {
+      // 1. Game Selection & Launch
+      sdk.telemetry.track('game_select', { gameId, source: 'catalog_grid' }, { category: 'engagement', gameId });
+      sdk.telemetry.track('game_launch', { gameId, launchContext: 'theater' }, { category: 'engagement', gameId });
+      sdk.telemetry.track('game_session_start', { gameId }, { category: 'engagement', gameId });
 
-    // 2. Progression
-    sdk.telemetry.track('level_attempt', { gameId, levelId: 1, attemptNumber: 1 }, { category: 'progression', gameId });
-    sdk.telemetry.track('level_completed', { gameId, levelId: 1, score: 500, durationSeconds: 45 }, { category: 'progression', gameId });
-    sdk.telemetry.track('level_failed', { gameId, levelId: 2, reason: 'time_expired' }, { category: 'progression', gameId });
+      // 2. Progression
+      sdk.telemetry.track('level_attempt', { gameId, levelId: 1, attemptNumber: 1 }, { category: 'progression', gameId });
+      sdk.telemetry.track('level_completed', { gameId, levelId: 1, score: 500, durationSeconds: 45 }, { category: 'progression', gameId });
+      sdk.telemetry.track('level_failed', { gameId, levelId: 2, reason: 'time_expired' }, { category: 'progression', gameId });
 
-    // 3. Technical Error
-    sdk.telemetry.track('game_runtime_error', { gameId, errorMessage: 'AudioContext resumed after gesture', errorCategory: 'audio' }, { category: 'error', gameId });
+      // 3. Technical Error
+      sdk.telemetry.track('game_runtime_error', { gameId, errorMessage: 'AudioContext resumed after gesture', errorCategory: 'audio' }, { category: 'error', gameId });
 
-    // 4. Session End with Duration
-    sdk.telemetry.track('game_session_end', { gameId, durationSeconds: 360 }, { category: 'engagement', gameId });
+      // 4. Session End with Duration
+      sdk.telemetry.track('game_session_end', { gameId, durationSeconds: 360 }, { category: 'engagement', gameId });
+    }
+
+    // 6 games * 8 events = 48 events
+    assert.equal(sdk.telemetry.getQueueLength(), 48);
+
+    const queue = sdk.telemetry.getQueue(100);
+    const gameIdsPresent = new Set(queue.map(e => e.gameId));
+    for (const gId of LAUNCH_GAMES) {
+      assert.ok(gameIdsPresent.has(gId), `Game ${gId} must have tracked events`);
+    }
+  } finally {
+    sdk.dispose();
   }
-
-  // 6 games * 8 events = 48 events
-  assert.equal(sdk.telemetry.getQueueLength(), 48);
-
-  const queue = sdk.telemetry.getQueue(100);
-  const gameIdsPresent = new Set(queue.map(e => e.gameId));
-  for (const gId of LAUNCH_GAMES) {
-    assert.ok(gameIdsPresent.has(gId), `Game ${gId} must have tracked events`);
-  }
-
-  sdk.dispose();
 });
 
 // ---------------------------------------------------------------------------

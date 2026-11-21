@@ -180,6 +180,11 @@
                         </button>
                     </div>
                 </div>
+                <div class="gate-portal-return" style="margin-top: 10px; width: 100%; display: flex; justify-content: center;">
+                    <button type="button" class="gate-cta-secondary" style="font-size: 11px; padding: 6px 16px; opacity: 0.9;" onclick="window.exitToAuroMindPortal()">
+                        ⌂ Return to AuroMind Portal
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -1120,6 +1125,7 @@
     <!-- AuroMind Shared Platform SDK (dependency order) -->
     <script type="module" src="../../assets/sdk/auromind-adapters.js"></script>
     <script type="module" src="../../assets/sdk/auromind-sdk.js"></script>
+    <script type="module" src="./assets/auromatch-sdk-bridge.js"></script>
 
     <!-- Commercial Entitlement Engine (ENT-001) -->
     <script src="./src/controllers/entitlementManager.js"></script>

@@ -185,11 +185,12 @@ self.addEventListener('fetch', (event) => {
   if (!url.pathname.startsWith(scopePath)) return;
 
   // 3. Strictly bypass /games/* routes and requests originating from game iframes (AURO-01)
+  // Note: Platform SDK assets in PORTAL_SDK_REL_PATHS remain available to game iframes when offline (B17-GAP-06)
   const relPath = url.pathname.slice(scopePath.length).replace(/^\/+/, '');
   if (
     relPath.startsWith('games/') ||
     url.pathname.includes('/games/') ||
-    (request.referrer && request.referrer.includes('/games/'))
+    (!PORTAL_SDK_REL_PATHS.has(relPath) && request.referrer && request.referrer.includes('/games/'))
   ) {
     return;
   }
