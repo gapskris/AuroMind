@@ -3379,21 +3379,78 @@ body {
 
 
 
-/* Deep 3D Isometric Stack Shading (Layers 1-7) */
+/* Deep 2.5D Isometric Stack Shading (Layers 0-7): 45° Multi-Stop Chamfer Bevels & Cascading Elevation */
 
-.tile-element[data-z="1"] { box-shadow: inset 0 2px 0 rgba(255,255,255,0.9), 0 4px 6px rgba(0,0,0,0.25), 0 8px 0 #bfa075, 0 10px 16px rgba(0,0,0,0.3); }
+.tile-element,
+.tile-element[data-z="0"] {
+    box-shadow: 
+        inset 0 1.5px 0 rgba(255, 255, 255, 0.95),
+        inset -1px -1px 0 rgba(0, 0, 0, 0.12),
+        1px 1px 0 var(--tile-base-dark, #bfa075),
+        2px 2px 0 var(--tile-base-dark, #bfa075),
+        3px 3px 0 var(--tile-base-dark, #bfa075),
+        4px 4px 0 var(--tile-base-rim, #8a6d3b),
+        0 4px 8px rgba(0, 0, 0, 0.32);
+}
 
-.tile-element[data-z="2"] { box-shadow: inset 0 2px 0 rgba(255,255,255,0.9), 0 5px 8px rgba(0,0,0,0.28), 0 11px 0 #b09167, 0 13px 20px rgba(0,0,0,0.34); }
+.tile-element[data-z="1"] {
+    box-shadow: 
+        inset 0 2px 0 rgba(255, 255, 255, 0.95),
+        1px 1px 0 var(--tile-base-dark, #bfa075),
+        2px 2px 0 var(--tile-base-dark, #bfa075),
+        3px 3px 0 var(--tile-base-dark, #bfa075),
+        4px 4px 0 var(--tile-base-dark, #bfa075),
+        5px 5px 0 var(--tile-base-rim, #8a6d3b),
+        2px 6px 12px rgba(0, 0, 0, 0.40);
+}
 
-.tile-element[data-z="3"] { box-shadow: inset 0 2px 0 rgba(255,255,255,0.9), 0 6px 10px rgba(0,0,0,0.32), 0 14px 0 #9f8158, 0 16px 24px rgba(0,0,0,0.38); }
+.tile-element[data-z="2"] {
+    box-shadow: 
+        inset 0 2px 0 rgba(255, 255, 255, 0.95),
+        1px 1px 0 var(--tile-base-dark, #bfa075),
+        2px 2px 0 var(--tile-base-dark, #bfa075),
+        3px 3px 0 var(--tile-base-dark, #bfa075),
+        4px 4px 0 var(--tile-base-dark, #bfa075),
+        5px 5px 0 var(--tile-base-dark, #bfa075),
+        6px 6px 0 var(--tile-base-rim, #8a6d3b),
+        7px 7px 0 var(--tile-base-rim, #7a5d2b),
+        3px 8px 16px rgba(0, 0, 0, 0.48);
+}
 
-.tile-element[data-z="4"] { box-shadow: inset 0 2px 0 rgba(255,255,255,0.9), 0 7px 12px rgba(0,0,0,0.36), 0 17px 0 #8f7249, 0 19px 28px rgba(0,0,0,0.42); }
+.tile-element[data-z="3"] {
+    box-shadow: 
+        inset 0 2px 0 rgba(255, 255, 255, 0.95),
+        1px 1px 0 var(--tile-base-dark, #bfa075),
+        2px 2px 0 var(--tile-base-dark, #bfa075),
+        3px 3px 0 var(--tile-base-dark, #bfa075),
+        4px 4px 0 var(--tile-base-dark, #bfa075),
+        5px 5px 0 var(--tile-base-dark, #bfa075),
+        6px 6px 0 var(--tile-base-dark, #bfa075),
+        7px 7px 0 var(--tile-base-rim, #8a6d3b),
+        8px 8px 0 var(--tile-base-rim, #7a5d2b),
+        9px 9px 0 var(--tile-base-rim, #6a4d1b),
+        4px 10px 20px rgba(0, 0, 0, 0.55);
+}
 
-.tile-element[data-z="5"] { box-shadow: inset 0 2px 0 rgba(255,255,255,0.9), 0 8px 14px rgba(0,0,0,0.40), 0 20px 0 #7f633b, 0 22px 32px rgba(0,0,0,0.46); }
-
-.tile-element[data-z="6"] { box-shadow: inset 0 2px 0 rgba(255,255,255,0.9), 0 9px 16px rgba(0,0,0,0.45), 0 23px 0 #6e542c, 0 25px 36px rgba(0,0,0,0.50); }
-
-.tile-element[data-z="7"] { box-shadow: inset 0 2px 0 rgba(255,255,255,0.9), 0 10px 18px rgba(0,0,0,0.50), 0 26px 0 #5d451e, 0 28px 40px rgba(0,0,0,0.55); }
+.tile-element[data-z="4"],
+.tile-element[data-z="5"],
+.tile-element[data-z="6"],
+.tile-element[data-z="7"] {
+    box-shadow: 
+        inset 0 2px 0 rgba(255, 255, 255, 0.95),
+        1px 1px 0 var(--tile-base-dark, #bfa075),
+        2px 2px 0 var(--tile-base-dark, #bfa075),
+        3px 3px 0 var(--tile-base-dark, #bfa075),
+        4px 4px 0 var(--tile-base-dark, #bfa075),
+        5px 5px 0 var(--tile-base-dark, #bfa075),
+        6px 6px 0 var(--tile-base-dark, #bfa075),
+        7px 7px 0 var(--tile-base-dark, #bfa075),
+        8px 8px 0 var(--tile-base-rim, #8a6d3b),
+        9px 9px 0 var(--tile-base-rim, #7a5d2b),
+        10px 10px 0 var(--tile-base-rim, #6a4d1b),
+        11px 11px 0 var(--tile-base-rim, #5a3d0b),
+        5px 12px 24px rgba(0, 0, 0, 0.62);
+}
 
 
 
@@ -4366,7 +4423,7 @@ body {
    Right (290px): Sanctuary Alignment & Prahar Clock
    ======================================================== */
 
-@media (min-width: 1024px) {
+@media (min-width: 1024px), (orientation: landscape) and (min-width: 900px) {
 
     html, body {
         padding: 0 !important;
@@ -7795,7 +7852,7 @@ body:has(.stage-clear-overlay.active) .toast-banner,
    100% Parity with Vak
    Placed at the end of stylesheet to guarantee precedence over all portrait/landscape mobile overrides
    ========================================================================== */
-@media (min-width: 900px) and (max-width: 1023px) and (min-height: 500px) {
+@media (orientation: portrait) and (min-width: 900px) and (max-width: 1023px) and (min-height: 500px) {
     html, body {
         padding: 0 !important;
         margin: 0 !important;
@@ -8128,7 +8185,7 @@ body:has(.stage-clear-overlay.active) .toast-banner,
    MASTER FULL-SCREEN PC DESKTOP VIEWPORT (>= 1024px)
    Guaranteed Final Precedence: Edge-to-edge 100vw x 100vh 3-Column Immersive Panorama
    ========================================================================== */
-@media (min-width: 1024px) {
+@media (min-width: 1024px), (orientation: landscape) and (min-width: 900px) {
     html, body {
         padding: 0 !important;
         margin: 0 !important;

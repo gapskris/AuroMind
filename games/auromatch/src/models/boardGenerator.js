@@ -70,26 +70,140 @@ export class VitaBoardGenerator {
 
     if (coords.length === targetCount) return coords;
 
-    // Upward expansion when targetCount exceeds base template
+    // Upward Stepped Pagoda Expansion: Enforces bilateral symmetry, brick-bonded half-grid running offsets, and solid foundations
     if (coords.length < targetCount) {
       const result = [...coords];
       const set = new Set(result.map(c => `${c.x}_${c.y}_${c.z}`));
+
+      const minX = Math.min(...result.map(t => t.x));
+      const maxX = Math.max(...result.map(t => t.x));
+      const cx = (minX + maxX) / 2;
+      const cy = result.reduce((sum, t) => sum + t.y, 0) / result.length;
+
       let zTier = 1;
-      const maxTier = targetCount >= 72 ? 7 : (targetCount >= 48 ? 5 : 3);
+      const maxTier = targetCount >= 72 ? 6 : (targetCount >= 48 ? 4 : 3);
+
       while (result.length < targetCount && zTier <= maxTier) {
-        const currentLen = result.length;
-        for (let i = 0; i < currentLen && result.length < targetCount; i++) {
-          const base = result[i];
-          if (base.z === zTier - 1) {
-            const key = `${base.x}_${base.y}_${zTier}`;
-            if (!set.has(key)) {
-              set.add(key);
-              result.push({ x: base.x, y: base.y, z: zTier });
+        // Collect foundation tiles at layer zTier - 1
+        const lowerTiles = result.filter(t => t.z === zTier - 1);
+        if (lowerTiles.length < 2) break;
+
+        const candidates = [];
+        const candSeen = new Set();
+
+        // Foundation support rule: position (px, py) must rest upon at least 2 lower tiles
+        const hasSolidSupport = (px, py) => {
+          let count = 0;
+          for (const lt of lowerTiles) {
+            if (Math.abs(lt.x - px) <= 0.65 && Math.abs(lt.y - py) <= 0.65) count++;
+          }
+          return count >= 2;
+        };
+
+        // Half-grid brick-bonded candidate generation (running bond across adjacent foundation pairs)
+        for (let i = 0; i < lowerTiles.length; i++) {
+          for (let j = i + 1; j < lowerTiles.length; j++) {
+            const t1 = lowerTiles[i];
+            const t2 = lowerTiles[j];
+            if (Math.hypot(t1.x - t2.x, t1.y - t2.y) <= 1.45) {
+              const mx = (t1.x + t2.x) / 2;
+              const my = (t1.y + t2.y) / 2;
+              const key = `${mx}_${my}_${zTier}`;
+              if (!set.has(key) && !candSeen.has(key)) {
+                candSeen.add(key);
+                if (hasSolidSupport(mx, my)) {
+                  candidates.push({ x: mx, y: my, z: zTier });
+                }
+              }
             }
           }
         }
+
+        // If no running bond candidates found, generate centered plateau positions
+        if (candidates.length === 0) {
+          for (const lt of lowerTiles) {
+            const key = `${lt.x}_${lt.y}_${zTier}`;
+            if (!set.has(key) && !candSeen.has(key)) {
+              candSeen.add(key);
+              candidates.push({ x: lt.x, y: lt.y, z: zTier });
+            }
+          }
+        }
+
+        // Partition candidates into bilateral mirror pairs and central axis solos
+        const pairs = [];
+        const solos = [];
+        const candVisited = new Set();
+
+        for (let i = 0; i < candidates.length; i++) {
+          if (candVisited.has(i)) continue;
+          const c = candidates[i];
+          const isCenter = Math.abs(c.x - cx) < 0.01;
+
+          if (isCenter) {
+            solos.push(c);
+            candVisited.add(i);
+          } else {
+            const mirrorX = 2 * cx - c.x;
+            let partnerIdx = -1;
+            for (let j = i + 1; j < candidates.length; j++) {
+              if (candVisited.has(j)) continue;
+              const u = candidates[j];
+              if (Math.abs(u.y - c.y) < 0.01 && Math.abs(u.x - mirrorX) < 0.01) {
+                partnerIdx = j;
+                break;
+              }
+            }
+            if (partnerIdx !== -1) {
+              pairs.push([c, candidates[partnerIdx]]);
+              candVisited.add(i);
+              candVisited.add(partnerIdx);
+            }
+          }
+        }
+
+        // Symmetrical concentric ordering: innermost positions closer to center-of-mass are placed first
+        pairs.sort((a, b) => {
+          const distA = Math.hypot(a[0].x - cx, a[0].y - cy);
+          const distB = Math.hypot(b[0].x - cx, b[0].y - cy);
+          return distA - distB;
+        });
+
+        solos.sort((a, b) => Math.abs(a.y - cy) - Math.abs(b.y - cy));
+
+        // Add bilateral pairs in lockstep
+        for (const [p1, p2] of pairs) {
+          if (result.length + 2 <= targetCount) {
+            set.add(`${p1.x}_${p1.y}_${p1.z}`);
+            set.add(`${p2.x}_${p2.y}_${p2.z}`);
+            result.push(p1);
+            result.push(p2);
+          }
+        }
+
+        // Crowning apex: place single center tile only if odd remainder or exact fit
+        if (result.length < targetCount && solos.length > 0) {
+          const solo = solos[0];
+          set.add(`${solo.x}_${solo.y}_${solo.z}`);
+          result.push(solo);
+        }
+
         zTier++;
       }
+
+      // Base layer symmetrical extension if needed
+      if (result.length < targetCount) {
+        let col = 1;
+        while (result.length + 2 <= targetCount) {
+          const leftX = minX - col;
+          const rightX = maxX + col;
+          const midY = Math.round(cy);
+          result.push({ x: leftX, y: midY, z: 0 });
+          result.push({ x: rightX, y: midY, z: 0 });
+          col++;
+        }
+      }
+
       return result.slice(0, targetCount);
     }
 

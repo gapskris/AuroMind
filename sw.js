@@ -4,7 +4,7 @@
  * and strictly excludes /games/* routes so individual game Service Workers remain isolated.
  */
 
-const PORTAL_CACHE_NAME = 'auro-portal-v1.1.0';
+const PORTAL_CACHE_NAME = 'auro-portal-v1.2.0';
 const FONT_CACHE_NAME = 'auro-portal-fonts-v1.0.0';
 const CACHE_PREFIX = 'auro-portal-';
 
