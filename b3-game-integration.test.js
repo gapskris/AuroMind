@@ -266,12 +266,12 @@ test('Suite 6: Service worker scopes and cache configurations remain strictly is
   const riddleSwCode = fs.readFileSync(path.join(__dirname, 'games/word-riddle/sw.js'), 'utf8');
 
   // Root SW cache isolation
-  assert.ok(rootSwCode.includes('auro-portal-v1.1.0'), 'Root SW must use auro-portal-v1.1.0 cache');
+  assert.ok(rootSwCode.includes('auro-portal-v1.2.0'), 'Root SW must use auro-portal-v1.2.0 cache');
   assert.ok(rootSwCode.includes("relPath.startsWith('games/')"), 'Root SW must bypass game routes');
 
   // Game-specific SW caches
   assert.ok(vakSwCode.includes('auro-vak-v2.19'), 'VAK must use its isolated auro-vak cache');
-  assert.ok(matchSwCode.includes('auro-match-v2.2'), 'AuroMatch must use its isolated auro-match cache');
+  assert.ok(matchSwCode.includes('auro-match-v3.0'), 'AuroMatch must use its isolated auro-match cache');
   assert.ok(mandalaSwCode.includes('workbox'), 'AuroMandala must use Workbox isolated cache');
   assert.ok(blocksSwCode.includes('auroblocks-'), 'AuroBlocks must use its isolated shell cache');
   assert.ok(riddleSwCode.includes('word-discovery-'), 'Word Riddle must use its isolated shell cache');

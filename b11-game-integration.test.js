@@ -249,7 +249,7 @@ test('B11 Suite 4: Root service worker strictly bypasses /games/* routes, preser
   const rootSwCode = fs.readFileSync(path.join(__dirname, 'sw.js'), 'utf8');
 
   // Invariant 1: Root SW uses isolated portal cache key
-  assert.ok(rootSwCode.includes('auro-portal-v1.1.0'), 'Root SW must use auro-portal-v1.1.0 cache');
+  assert.ok(rootSwCode.includes('auro-portal-v1.2.0'), 'Root SW must use auro-portal-v1.2.0 cache');
   assert.ok(rootSwCode.includes('auro-portal-fonts-v1.0.0'), 'Root SW must use isolated font cache');
 
   // Invariant 2: Root SW explicitly bypasses /games/* and iframe referrers
@@ -271,7 +271,7 @@ test('B11 Suite 4: Root service worker strictly bypasses /games/* routes, preser
   assert.ok(vakSw.includes('auro-vak-v2.19'), 'VAK must use isolated auro-vak cache');
 
   const matchSw = fs.readFileSync(path.join(__dirname, 'games/auromatch/sw.js'), 'utf8');
-  assert.ok(matchSw.includes('auro-match-v2.2'), 'AuroMatch must use isolated auro-match cache');
+  assert.ok(matchSw.includes('auro-match-v3.0'), 'AuroMatch must use isolated auro-match cache');
 
   const riddleSw = fs.readFileSync(path.join(__dirname, 'games/word-riddle/sw.js'), 'utf8');
   assert.ok(riddleSw.includes('word-discovery-'), 'Word Riddle must use isolated word-discovery cache');

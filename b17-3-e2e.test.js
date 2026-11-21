@@ -498,6 +498,12 @@ test('E2E Suite E - 1: Root Service Worker registers and caches portal shell', a
 
     const swRegistered = await page.evaluate(async () => {
       if (!('serviceWorker' in navigator)) return { supported: false };
+      try {
+        await Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise((resolve) => setTimeout(resolve, 3000))
+        ]);
+      } catch {}
       const registration = await navigator.serviceWorker.getRegistration();
       return {
         supported: true,

@@ -243,7 +243,7 @@ export function reconcileGuestRecords(first, second) {
   };
 }
 
-const SENSITIVE_KEY_PATTERN = /(?:password|token|secret|auth|bearer|credential|sankalpa|key|private|cipher|salt|iv|seed|intention|reflection|prayer|audio|raw_audio|rawAudio|stroke|strokes|journal|note|personalNotes)/i;
+const SENSITIVE_KEY_PATTERN = /(?:password|passphrase|token|secret|auth|bearer|credential|sankalpa|vault|key|private|cipher|salt|iv|seed|intention|reflection|prayer|audio|raw_audio|rawAudio|audio_blob|audio_buffer|speech_recording|corpus_text|stroke|strokes|canvas_strokes|svg_data|journal|note|personalNotes)/i;
 const SENSITIVE_VALUE_PATTERNS = [
   /eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}/g, // JWT
   /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g // Email
@@ -301,6 +301,12 @@ export function sanitizeTelemetryPayload(data, depth = 0) {
     return data;
   }
   if (Array.isArray(data)) {
+    const hasObjectsOrSensitive = data.some(
+      (item) => item && (typeof item === 'object' || (typeof item === 'string' && SENSITIVE_KEY_PATTERN.test(item)))
+    );
+    if (hasObjectsOrSensitive) {
+      return data.length;
+    }
     return data
       .map((item) => sanitizeTelemetryPayload(item, depth + 1))
       .filter((item) => item !== null && item !== undefined);
@@ -331,15 +337,34 @@ export function hexToUint8Array(hex) {
 
 export function base64ToUint8Array(base64) {
   if (typeof base64 !== 'string') return new Uint8Array(0);
+  const normalized = base64.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
   if (typeof Buffer !== 'undefined') {
-    return new Uint8Array(Buffer.from(base64, 'base64'));
+    return new Uint8Array(Buffer.from(padded, 'base64'));
   }
-  const binaryString = atob(base64);
+  const binaryString = atob(padded);
   const bytes = new Uint8Array(binaryString.length);
   for (let i = 0; i < binaryString.length; i++) {
     bytes[i] = binaryString.charCodeAt(i);
   }
   return bytes;
+}
+
+export function uint8ArrayToBase64(bytes) {
+  if (!bytes || !(bytes instanceof Uint8Array || ArrayBuffer.isView(bytes))) return '';
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(u8).toString('base64');
+  }
+  let binary = '';
+  for (let i = 0; i < u8.length; i++) {
+    binary += String.fromCharCode(u8[i]);
+  }
+  return btoa(binary);
+}
+
+export function uint8ArrayToBase64Url(bytes) {
+  return uint8ArrayToBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 /**
@@ -418,26 +443,57 @@ export async function verifyEd25519EntitlementToken({
     return Object.freeze({ valid: false, reason: 'TOKEN_MISSING' });
   }
 
-  let parsedToken = token;
-  if (typeof token === 'string') {
+  let payload = null;
+  let signature = null;
+  let signedBytes = null;
+
+  // Case 1: Compact JWT format ("header.payload.signature")
+  if (typeof token === 'string' && token.split('.').length === 3) {
+    const parts = token.split('.');
     try {
-      parsedToken = JSON.parse(token);
+      const payloadBytes = base64ToUint8Array(parts[1]);
+      payload = JSON.parse(new TextDecoder().decode(payloadBytes));
+      signature = base64ToUint8Array(parts[2]);
+      signedBytes = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
     } catch {
       return Object.freeze({ valid: false, reason: 'INVALID_TOKEN_FORMAT' });
     }
+  } else {
+    // Case 2: JSON string or object envelope { payload, signature }
+    let parsedToken = token;
+    if (typeof token === 'string') {
+      try {
+        parsedToken = JSON.parse(token);
+      } catch {
+        return Object.freeze({ valid: false, reason: 'INVALID_TOKEN_FORMAT' });
+      }
+    }
+
+    if (!parsedToken || typeof parsedToken !== 'object') {
+      return Object.freeze({ valid: false, reason: 'TOKEN_STRUCTURE_INVALID' });
+    }
+
+    payload = parsedToken.payload;
+    signature = parsedToken.signature;
+
+    if (!payload || !signature) {
+      return Object.freeze({ valid: false, reason: 'TOKEN_STRUCTURE_INVALID' });
+    }
+
+    signedBytes = new TextEncoder().encode(typeof payload === 'string' ? payload : JSON.stringify(payload));
   }
 
-  const { payload, signature } = parsedToken;
-  if (!payload || !signature) {
-    return Object.freeze({ valid: false, reason: 'TOKEN_STRUCTURE_INVALID' });
-  }
-
-  // 1. Clock manipulation defense (ADR-08)
-  const lastValidatedMs = Date.parse(payload.lastValidatedAt || payload.issuedAt || '');
+  // Parse timestamps (supports lastValidatedAt, issuedAt, or iat)
+  const lastValidatedMs = Date.parse(
+    payload.lastValidatedAt ||
+    payload.issuedAt ||
+    (payload.iat ? (payload.iat > 1e11 ? new Date(payload.iat).toISOString() : new Date(payload.iat * 1000).toISOString()) : '')
+  );
   if (Number.isNaN(lastValidatedMs)) {
     return Object.freeze({ valid: false, reason: 'INVALID_TOKEN_TIMESTAMP' });
   }
 
+  // 1. Clock manipulation defense (ADR-08)
   if (currentTimestamp < lastValidatedMs - 60000) {
     return Object.freeze({
       valid: false,
@@ -454,7 +510,19 @@ export async function verifyEd25519EntitlementToken({
     });
   }
 
-  // 2. Offline grace period check (30 calendar days)
+  // 2. Token expiration check (exp)
+  if (payload.exp !== undefined && payload.exp !== null) {
+    const expMs = payload.exp > 1e11 ? payload.exp : payload.exp * 1000;
+    if (currentTimestamp > expMs) {
+      return Object.freeze({
+        valid: false,
+        reason: 'TOKEN_EXPIRED',
+        details: { expMs, currentTimestamp }
+      });
+    }
+  }
+
+  // 3. Offline grace period check (30 calendar days)
   const gracePeriodMs = offlineGraceDays * 24 * 60 * 60 * 1000;
   const effectiveAnchor = Math.max(lastValidatedMs, anchorTimestamp || 0);
   if (currentTimestamp - effectiveAnchor > gracePeriodMs) {
@@ -465,28 +533,29 @@ export async function verifyEd25519EntitlementToken({
     });
   }
 
-  // 3. Cryptographic signature verification using Web Crypto API
+  // 4. Cryptographic signature verification using Web Crypto API
   try {
     const cryptoObj = typeof crypto !== 'undefined' ? crypto : (typeof globalThis !== 'undefined' ? globalThis.crypto : null);
-    if (cryptoObj && cryptoObj.subtle) {
-      let key = publicKey;
-      if (typeof publicKey === 'string' || publicKey instanceof Uint8Array || ArrayBuffer.isView(publicKey)) {
-        const rawKey = typeof publicKey === 'string'
-          ? (publicKey.startsWith('0x') ? hexToUint8Array(publicKey.slice(2)) : base64ToUint8Array(publicKey))
-          : publicKey;
-        key = await cryptoObj.subtle.importKey('raw', rawKey, { name: 'Ed25519' }, true, ['verify']);
-      }
+    if (!cryptoObj || !cryptoObj.subtle) {
+      return Object.freeze({ valid: false, reason: 'CRYPTO_UNAVAILABLE' });
+    }
 
-      const sigBytes = typeof signature === 'string'
-        ? (signature.startsWith('0x') ? hexToUint8Array(signature.slice(2)) : base64ToUint8Array(signature))
-        : signature;
+    let key = publicKey;
+    if (typeof publicKey === 'string' || publicKey instanceof Uint8Array || ArrayBuffer.isView(publicKey)) {
+      const rawKey = typeof publicKey === 'string'
+        ? (publicKey.startsWith('0x') ? hexToUint8Array(publicKey.slice(2)) : base64ToUint8Array(publicKey))
+        : publicKey;
+      key = await cryptoObj.subtle.importKey('raw', rawKey, { name: 'Ed25519' }, true, ['verify']);
+    }
 
-      const payloadBytes = new TextEncoder().encode(typeof payload === 'string' ? payload : JSON.stringify(payload));
-      const isVerified = await cryptoObj.subtle.verify({ name: 'Ed25519' }, key, sigBytes, payloadBytes);
+    const sigBytes = typeof signature === 'string'
+      ? (signature.startsWith('0x') ? hexToUint8Array(signature.slice(2)) : base64ToUint8Array(signature))
+      : signature;
 
-      if (!isVerified) {
-        return Object.freeze({ valid: false, reason: 'SIGNATURE_VERIFICATION_FAILED' });
-      }
+    const isVerified = await cryptoObj.subtle.verify({ name: 'Ed25519' }, key, sigBytes, signedBytes);
+
+    if (!isVerified) {
+      return Object.freeze({ valid: false, reason: 'SIGNATURE_VERIFICATION_FAILED' });
     }
   } catch (err) {
     return Object.freeze({ valid: false, reason: 'CRYPTO_VERIFICATION_ERROR', error: err?.message });
@@ -495,8 +564,55 @@ export async function verifyEd25519EntitlementToken({
   return Object.freeze({
     valid: true,
     payload,
-    entitlements: payload.entitlements || []
+    sku: payload.sku || (Array.isArray(payload.entitlements) ? payload.entitlements[0] : null),
+    tier: payload.tier || 'STANDARD',
+    entitlements: payload.entitlements || (payload.sku ? [payload.sku] : [])
   });
+}
+
+/**
+ * Mints an Ed25519 digitally signed entitlement token for testing and validation (TASK-COMM-02 / ADR-08).
+ *
+ * @param {object} params
+ * @param {object} params.payload
+ * @param {CryptoKey|Uint8Array|string} params.privateKey
+ * @param {boolean} [params.compact=false]
+ * @returns {Promise<string|object>}
+ */
+export async function mintEd25519EntitlementToken({
+  payload,
+  privateKey,
+  compact = false
+}) {
+  const cryptoObj = typeof crypto !== 'undefined' ? crypto : (typeof globalThis !== 'undefined' ? globalThis.crypto : null);
+  if (!cryptoObj || !cryptoObj.subtle) {
+    throw new Error('WebCrypto subtle is unavailable');
+  }
+
+  let key = privateKey;
+  if (typeof privateKey === 'string' || privateKey instanceof Uint8Array || ArrayBuffer.isView(privateKey)) {
+    const rawKey = typeof privateKey === 'string'
+      ? (privateKey.startsWith('0x') ? hexToUint8Array(privateKey.slice(2)) : base64ToUint8Array(privateKey))
+      : privateKey;
+    key = await cryptoObj.subtle.importKey('pkcs8', rawKey, { name: 'Ed25519' }, true, ['sign']);
+  }
+
+  if (compact) {
+    const header = { alg: 'EdDSA', typ: 'JWT', crv: 'Ed25519' };
+    const headerB64 = uint8ArrayToBase64Url(new TextEncoder().encode(JSON.stringify(header)));
+    const payloadB64 = uint8ArrayToBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
+    const signingInput = `${headerB64}.${payloadB64}`;
+    const sigBuffer = await cryptoObj.subtle.sign({ name: 'Ed25519' }, key, new TextEncoder().encode(signingInput));
+    const sigB64 = uint8ArrayToBase64Url(new Uint8Array(sigBuffer));
+    return `${signingInput}.${sigB64}`;
+  }
+
+  const payloadBytes = new TextEncoder().encode(typeof payload === 'string' ? payload : JSON.stringify(payload));
+  const sigBuffer = await cryptoObj.subtle.sign({ name: 'Ed25519' }, key, payloadBytes);
+  return {
+    payload,
+    signature: uint8ArrayToBase64(new Uint8Array(sigBuffer))
+  };
 }
 
 function createNullProviders() {
@@ -2661,7 +2777,11 @@ export function createAuroMindSDK(options = {}) {
           const idx = memoryTelemetryQueue.findIndex(e => e.tier === 'critical' || e.category === 'critical');
           if (idx !== -1) {
             memoryTelemetryQueue.splice(idx, 1);
+            console.warn('[AuroMind Telemetry] CRITICAL_QUEUE_SATURATED');
             criticalOverflowCounter++;
+            try {
+              lsSetRaw('auromind.telemetry.critical_overflow', String(criticalOverflowCounter));
+            } catch {}
           }
         }
       }
@@ -2675,7 +2795,11 @@ export function createAuroMindSDK(options = {}) {
           memoryTelemetryQueue.splice(dropIdx, 1);
         } else {
           memoryTelemetryQueue.shift();
+          console.warn('[AuroMind Telemetry] CRITICAL_QUEUE_SATURATED');
           criticalOverflowCounter++;
+          try {
+            lsSetRaw('auromind.telemetry.critical_overflow', String(criticalOverflowCounter));
+          } catch {}
         }
       }
 
@@ -2705,6 +2829,7 @@ export function createAuroMindSDK(options = {}) {
       memoryTelemetryQueue.length = 0;
       criticalOverflowCounter = 0;
       lsRemoveRaw(LS_TELEMETRY_KEY);
+      lsRemoveRaw('auromind.telemetry.critical_overflow');
     },
     setConsent(consented) {
       telemetryConsent = Boolean(consented);
@@ -2715,6 +2840,9 @@ export function createAuroMindSDK(options = {}) {
         this.clearQueue();
       }
       return telemetryConsent;
+    },
+    revokeConsent() {
+      return this.setConsent(false);
     },
     getConsent() {
       return telemetryConsent === true;
@@ -2749,6 +2877,29 @@ export function createAuroMindSDK(options = {}) {
       return currentSessionId;
     },
     async flush() {
+      if (criticalOverflowCounter > 0) {
+        const incidentEvent = Object.freeze({
+          eventId: generateUuidV4(getCrypto()),
+          schemaVersion: 1,
+          timestamp: getNow().toISOString(),
+          eventName: 'TELEMETRY_OVERFLOW_INCIDENT',
+          category: 'critical',
+          tier: 'critical',
+          gameId: activeConfig?.gameId || 'portal',
+          sessionId: currentSessionId,
+          guestId: currentGuestRecord ? currentGuestRecord.guestId : null,
+          payload: {
+            droppedCriticalCount: criticalOverflowCounter,
+            reason: 'CRITICAL_QUEUE_SATURATED'
+          },
+          appVersion: activeConfig?.appVersion || SDK_VERSION
+        });
+        memoryTelemetryQueue.unshift(incidentEvent);
+        criticalOverflowCounter = 0;
+        try {
+          lsRemoveRaw('auromind.telemetry.critical_overflow');
+        } catch {}
+      }
       if (providers.telemetryTransport && providers.telemetryTransport.isConfigured()) {
         const eventsToSend = [...memoryTelemetryQueue];
         if (eventsToSend.length === 0) {
@@ -3067,8 +3218,13 @@ export function createAuroMindSDK(options = {}) {
     } catch {}
   }
 
+  let activeCommercialGateOverride = null;
+
   const entitlementsService = Object.freeze({
     isCommercialGateActive() {
+      if (typeof activeCommercialGateOverride === 'boolean') {
+        return activeCommercialGateOverride;
+      }
       return (
         configService.isFeatureEnabled('platform.commercialGatesActive') ||
         Boolean(capabilities.entitlementsEnabled && providers.entitlements.isConfigured())
@@ -3376,11 +3532,23 @@ export function createAuroMindSDK(options = {}) {
 
   const purchasesService = Object.freeze({
     isCommercialGateActive() {
-      return false; // Launch invariant: free beta for January 1, 2027 release
+      if (typeof activeCommercialGateOverride === 'boolean') {
+        return activeCommercialGateOverride;
+      }
+      return entitlementsService.isCommercialGateActive();
+    },
+    setCommercialGateActiveForTesting(active) {
+      activeCommercialGateOverride = typeof active === 'boolean' ? active : null;
     },
     hasEntitlement(sku) {
       if (!this.isCommercialGateActive()) return true;
-      return activePurchaseProvider.hasEntitlement(sku);
+      if (activePurchaseProvider && typeof activePurchaseProvider.hasEntitlement === 'function') {
+        if (activePurchaseProvider.hasEntitlement(sku)) return true;
+      }
+      return (
+        entitlementsService.hasEntitlement('all', sku) ||
+        entitlementsService.hasEntitlement(activeConfig?.gameId || 'all', sku)
+      );
     },
     hasAccess(skuOrTier) {
       if (!this.isCommercialGateActive()) return true;
@@ -3401,25 +3569,54 @@ export function createAuroMindSDK(options = {}) {
           unlockedAt: getNow().toISOString()
         });
       }
-      return activePurchaseProvider.purchase(sku, options);
+      if (activePurchaseProvider && typeof activePurchaseProvider.purchase === 'function') {
+        try {
+          return await activePurchaseProvider.purchase(sku, options);
+        } catch (err) {
+          return Object.freeze({
+            ok: false,
+            errorCode: 'PURCHASE_ERROR',
+            message: err?.message || 'Transaction error.'
+          });
+        }
+      }
+      return Object.freeze({
+        ok: false,
+        errorCode: 'PURCHASE_PROVIDER_UNAVAILABLE',
+        message: 'No purchase provider available.'
+      });
     },
     async purchase(sku, options = {}) {
       return this.requestPurchase(sku, options);
     },
     async refundPurchase(sku) {
-      if (typeof activePurchaseProvider.refund === 'function') {
-        return activePurchaseProvider.refund(sku);
+      if (activePurchaseProvider && typeof activePurchaseProvider.refund === 'function') {
+        try {
+          return await activePurchaseProvider.refund(sku);
+        } catch (err) {
+          return Object.freeze({ ok: false, errorCode: 'REFUND_ERROR', message: err?.message });
+        }
       }
       return Object.freeze({ ok: false, errorCode: 'REFUND_NOT_SUPPORTED' });
     },
     async restorePurchases() {
-      if (typeof activePurchaseProvider.restorePurchases === 'function') {
-        return activePurchaseProvider.restorePurchases();
+      if (!this.isCommercialGateActive()) {
+        return Object.freeze([]);
+      }
+      if (activePurchaseProvider && typeof activePurchaseProvider.restorePurchases === 'function') {
+        try {
+          return await activePurchaseProvider.restorePurchases();
+        } catch {
+          return Object.freeze([]);
+        }
       }
       return Object.freeze([]);
     },
-    verifyEntitlementToken(params) {
+    async verifyEntitlementToken(params) {
       return verifyEd25519EntitlementToken(params);
+    },
+    getEntitlements() {
+      return entitlementsService.getEntitlements();
     }
   });
 
