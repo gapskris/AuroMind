@@ -223,8 +223,8 @@ export class VitaBoardGenerator {
       const layerCounts = {};
       current.forEach(t => layerCounts[t.z] = (layerCounts[t.z] || 0) + 1);
 
-      // Tile is unsupporting if no other tile sits directly on top at z + 1
-      const isSupporting = (t) => current.some(u => u.z === t.z + 1 && Math.abs(u.x - t.x) <= 0.85 && Math.abs(u.y - t.y) <= 0.85);
+      // Tile is unsupporting if no other tile sits directly on top at z + 1 (support footprint <= 0.65)
+      const isSupporting = (t) => current.some(u => u.z === t.z + 1 && Math.abs(u.x - t.x) <= 0.65 && Math.abs(u.y - t.y) <= 0.65);
 
       const pairs = [];
       const solos = [];
@@ -236,19 +236,22 @@ export class VitaBoardGenerator {
         if (isSupporting(t)) continue;
 
         const isCenter = Math.abs(t.x - cx) < 0.01;
+        const dist = Math.hypot(t.x - cx, t.y - cy);
+        
+        // Smart Stacking Trimming Priority: Outermost base perimeter tiles (Layer 0) are trimmed first
+        // Upper layers (especially Layer 2 & 3 crowning peaks) are strictly protected to preserve the stepped pagoda
+        let score = dist;
+        if (t.z === 0) {
+          score += 10000;
+        } else if (t.z === 1) {
+          score += 2000;
+        } else if (t.z === 2) {
+          score -= 3000;
+        } else {
+          score -= 15000; // Never trim peak apex tiles unless absolutely no other unsupporting tile exists
+        }
+
         if (isCenter) {
-          // Solo tile on symmetry axis
-          const dist = Math.hypot(t.x - cx, t.y - cy);
-          let score = dist;
-          if (t.z >= 3 && (layerCounts[t.z] || 0) > maxLayer3) score += 5000 + t.z * 100;
-          else if (t.z === 2 && (layerCounts[t.z] || 0) > maxLayer2) score += 5000 + t.z * 100;
-          else if (t.z === 1 && (layerCounts[t.z] || 0) > maxLayer1) score += 5000 + t.z * 100;
-          else if (t.z === 0) {
-            if ((layerCounts[0] || 0) <= minLayer0) score -= 2000;
-            else score += 1000;
-          } else {
-            score += (4 - t.z) * 500;
-          }
           solos.push({ indices: [i], score, tiles: [t] });
           visited.add(i);
         } else {
@@ -267,23 +270,11 @@ export class VitaBoardGenerator {
           if (partnerIdx !== -1) {
             const partner = current[partnerIdx];
             if (!isSupporting(partner)) {
-              const dist = Math.hypot(t.x - cx, t.y - cy);
-              let score = dist;
-              if (t.z >= 3 && (layerCounts[t.z] || 0) > maxLayer3) score += 5000 + t.z * 100;
-              else if (t.z === 2 && (layerCounts[t.z] || 0) > maxLayer2) score += 5000 + t.z * 100;
-              else if (t.z === 1 && (layerCounts[t.z] || 0) > maxLayer1) score += 5000 + t.z * 100;
-              else if (t.z === 0) {
-                if ((layerCounts[0] || 0) <= minLayer0) score -= 2000;
-                else score += 1000;
-              } else {
-                score += (4 - t.z) * 500;
-              }
               pairs.push({ indices: [i, partnerIdx], score, tiles: [t, partner] });
               visited.add(i);
               visited.add(partnerIdx);
             }
           } else {
-            const dist = Math.hypot(t.x - cx, t.y - cy);
             solos.push({ indices: [i], score: dist, tiles: [t] });
             visited.add(i);
           }
@@ -339,11 +330,76 @@ export class VitaBoardGenerator {
     return current;
   }
 
-  // 1. Pyramid (Shikhara - Concentric centered pyramid)
+  // 1. Pyramid (Shikhara - Stepped 4-Tier Pagoda Pyramid with Crowning Apex)
   static _genPyramid(targetCount) {
     const coords = [];
-    const maxR = targetCount <= 36 ? 4 : (targetCount <= 60 ? 5 : 6);
-    const maxC = targetCount <= 36 ? 5 : (targetCount <= 60 ? 6 : 8);
+
+    if (targetCount === 36) {
+      // 36 Tiles: Pure 4-tier Pagoda Pyramid (16 Base + 12 Terrace + 6 Ridge + 2 Crown)
+      // Layer 0: 16 tiles (4x5 foundation notched at 4 corners)
+      for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < 5; c++) {
+          if ((c === 0 || c === 4) && (r === 0 || r === 3)) continue;
+          coords.push({ x: c * 1.0, y: r * 1.0, z: 0 });
+        }
+      }
+      // Layer 1: 12 tiles (3x4 plateau stepped at x+0.5, y+0.5)
+      for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < 4; c++) {
+          coords.push({ x: c * 1.0 + 0.5, y: r * 1.0 + 0.5, z: 1 });
+        }
+      }
+      // Layer 2: 6 tiles (2x3 terrace stepped at x+1.0, y+1.0)
+      for (let r = 0; r < 2; r++) {
+        for (let c = 0; c < 3; c++) {
+          coords.push({ x: c * 1.0 + 1.0, y: r * 1.0 + 1.0, z: 2 });
+        }
+      }
+      // Layer 3: 2 tiles (1x2 crowning apex crest at x+1.5, y+1.5)
+      coords.push({ x: 1.5, y: 1.5, z: 3 });
+      coords.push({ x: 2.5, y: 1.5, z: 3 });
+      return coords;
+    }
+
+    if (targetCount === 24) {
+      // 24 Tiles: 3-tier pyramid (12 Base + 6 Terrace + 4 Ridge + 2 Crown)
+      for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < 4; c++) coords.push({ x: c * 1.0, y: r * 1.0, z: 0 });
+      }
+      for (let r = 0; r < 2; r++) {
+        for (let c = 0; c < 3; c++) coords.push({ x: c * 1.0 + 0.5, y: r * 1.0 + 0.5, z: 1 });
+      }
+      coords.push({ x: 1.0, y: 0.5, z: 2 });
+      coords.push({ x: 2.0, y: 0.5, z: 2 });
+      coords.push({ x: 1.0, y: 1.5, z: 2 });
+      coords.push({ x: 2.0, y: 1.5, z: 2 });
+      coords.push({ x: 1.5, y: 1.0, z: 3 });
+      coords.push({ x: 2.0, y: 1.0, z: 3 });
+      return coords.slice(0, 24);
+    }
+
+    if (targetCount === 48) {
+      for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < 6; c++) coords.push({ x: c * 1.0, y: r * 1.0, z: 0 });
+      }
+      for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < 5; c++) {
+          if (r === 1 && c === 2) continue;
+          coords.push({ x: c * 1.0 + 0.5, y: r * 1.0 + 0.5, z: 1 });
+        }
+      }
+      for (let r = 0; r < 2; r++) {
+        for (let c = 0; c < 3; c++) coords.push({ x: c * 1.0 + 1.5, y: r * 1.0 + 1.0, z: 2 });
+      }
+      coords.push({ x: 2.0, y: 1.0, z: 3 });
+      coords.push({ x: 3.0, y: 1.0, z: 3 });
+      coords.push({ x: 2.0, y: 2.0, z: 3 });
+      coords.push({ x: 3.0, y: 2.0, z: 3 });
+      return coords.slice(0, 48);
+    }
+
+    const maxR = targetCount <= 60 ? 5 : 6;
+    const maxC = targetCount <= 60 ? 6 : 8;
     for (let r = 0; r < maxR; r++) {
       for (let c = 0; c < maxC; c++) coords.push({ x: c * 1.0, y: r * 1.0, z: 0 });
     }

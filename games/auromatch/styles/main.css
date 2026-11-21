@@ -76,6 +76,14 @@
 
     --tile-glow-color: rgba(197, 168, 128, 0.4);
 
+    --tile-base-dark: #bfa075;
+    --tile-base-rim: #8a6d3b;
+    --tile-surface-bg: linear-gradient(145deg, #ffffff 0%, #fcf7ec 60%, #f4e8cf 100%);
+    --tile-border: 1.5px solid #b45309;
+    --board-mat-bg: radial-gradient(circle at center, #26160b 0%, #170d06 70%, #0a0502 100%);
+    --board-mat-border: 2px solid rgba(251, 191, 36, 0.5);
+    --board-mat-shadow: inset 0 0 60px rgba(0, 0, 0, 0.9), 0 16px 44px rgba(0, 0, 0, 0.7), 0 0 24px rgba(251, 191, 36, 0.2);
+
 }
 
 
@@ -3126,33 +3134,32 @@ body {
 
 
 /* Authentic Artwork Tile Skins (Photo-Real Dedicated 3D Tile Sets) */
-
 .tile-element.tile-authentic-art {
-
-    background: transparent !important;
-
-    border: none !important;
-
-    box-shadow: none !important;
-
+    background: var(--tile-surface-bg, linear-gradient(145deg, #132442 0%, #0a1426 100%)) !important;
+    border: var(--tile-border, 1.5px solid #d4af37) !important;
+    border-radius: 10px !important;
     overflow: visible !important;
-
 }
 
-
-
 .tile-element.tile-authentic-art .tile-face {
-
     background: transparent !important;
-
     border: none !important;
-
-    box-shadow: none !important;
-
-    overflow: visible !important;
-
+    overflow: hidden !important;
+    border-radius: 8px !important;
     padding: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
 
+.tile-element.tile-authentic-art .tile-art-img {
+    width: calc(100% - 4px) !important;
+    height: calc(100% - 4px) !important;
+    object-fit: contain !important;
+    border-radius: 7px !important;
+    display: block !important;
 }
 
 
@@ -5810,6 +5817,13 @@ body {
     --theme-accent-gradient: linear-gradient(135deg, #f59e0b, #d97706);
     --theme-accent-glow: rgba(251, 191, 36, 0.45);
     --border-current: rgba(251, 191, 36, 0.35);
+    --tile-base-dark: #bfa075;
+    --tile-base-rim: #8a6d3b;
+    --tile-surface-bg: linear-gradient(145deg, #ffffff 0%, #fcf7ec 60%, #f4e8cf 100%);
+    --tile-border: 1.5px solid #b45309;
+    --board-mat-bg: radial-gradient(circle at center, #26160b 0%, #170d06 70%, #0a0502 100%);
+    --board-mat-border: 2px solid rgba(251, 191, 36, 0.5);
+    --board-mat-shadow: inset 0 0 60px rgba(0, 0, 0, 0.9), 0 16px 44px rgba(0, 0, 0, 0.7), 0 0 24px rgba(251, 191, 36, 0.2);
 }
 
 [data-theme="imperial_gold"] #center-stage-col.theme-standard-stage {
@@ -5840,6 +5854,13 @@ body {
     --theme-accent-gradient: linear-gradient(135deg, #00b4d8, #0077b6);
     --theme-accent-glow: rgba(0, 229, 255, 0.45);
     --border-current: rgba(0, 229, 255, 0.35);
+    --tile-base-dark: #07101f;
+    --tile-base-rim: #8a6d3b;
+    --tile-surface-bg: linear-gradient(145deg, #132442 0%, #0a1426 100%);
+    --tile-border: 1.5px solid #d4af37;
+    --board-mat-bg: radial-gradient(circle at center, #0f223d 0%, #081424 70%, #030810 100%);
+    --board-mat-border: 2px solid rgba(0, 229, 255, 0.45);
+    --board-mat-shadow: inset 0 0 60px rgba(0, 0, 0, 0.9), 0 16px 44px rgba(0, 0, 0, 0.7), 0 0 24px rgba(0, 229, 255, 0.2);
 }
 
 [data-theme="royal_lapis"] #center-stage-col.theme-standard-stage {
@@ -8350,6 +8371,14 @@ body:has(.stage-clear-overlay.active) .toast-banner,
         box-sizing: border-box !important;
     }
 
+    #field-guide-card {
+        flex: 1 1 auto !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: flex-start !important;
+        gap: 12px !important;
+    }
+
     #status-prahar-col {
         display: flex !important;
         flex-direction: column !important;
@@ -8395,9 +8424,9 @@ body:has(.stage-clear-overlay.active) .toast-banner,
         position: relative !important;
         overflow: visible !important;
         border-radius: 24px !important;
-        border: 1.5px solid rgba(255, 215, 0, 0.28) !important;
-        background: radial-gradient(circle at center, rgba(32, 20, 10, 0.72) 0%, rgba(14, 8, 3, 0.9) 100%) !important;
-        box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.8), 0 16px 40px rgba(0, 0, 0, 0.5) !important;
+        border: var(--board-mat-border, 2px solid rgba(251, 191, 36, 0.5)) !important;
+        background: var(--board-mat-bg, radial-gradient(circle at center, #26160b 0%, #170d06 70%, #0a0502 100%)) !important;
+        box-shadow: var(--board-mat-shadow, inset 0 0 60px rgba(0, 0, 0, 0.9), 0 16px 44px rgba(0, 0, 0, 0.7), 0 0 24px rgba(251, 191, 36, 0.2)) !important;
         backdrop-filter: blur(12px) !important;
         padding: 10px 16px !important;
         margin-bottom: 8px !important;

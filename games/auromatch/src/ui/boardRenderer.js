@@ -240,68 +240,40 @@ export class BoardRenderer {
 
 
     // Dynamic width bounds across viewports (Unified parity across Pairs, Tile Club, Classic, Realms)
-
     let minAllowed, maxAllowed;
-
     if (isMobile) {
-
       // Mobile Viewport (< 480px): Unified 72px ceiling ensures identical tile scale between Pairs & Tile Club
-
       minAllowed = isSenior ? 48 : 42;
-
       maxAllowed = isSenior ? 84 : (isRealmsMode || this.options.gameplayMode === 'botanical' ? 82 : 72);
-
     } else if (isTablet) {
-
       // Tablet Viewport (480px - 1023px): Unified across all modes (~86px-116px)
-
       minAllowed = isSenior ? 66 : 58;
-
       maxAllowed = isSenior ? 130 : 116;
-
     } else {
-
-      // Desktop Viewport (>= 1024px): Full-screen immersive — scales gracefully down on short viewports
-
-      minAllowed = isSenior ? 52 : 42;
-
-      maxAllowed = isSenior ? 130 : 116;
-
+      // Desktop Viewport (>= 1024px): Prominent, grand mahjong solitaire tile scale filling the stage
+      minAllowed = isSenior ? 70 : 60;
+      maxAllowed = isSenior ? 144 : 126;
     }
 
-
-
     const targetW = Math.max(minAllowed, Math.min(maxAllowed, rawFitW));
-
     const width = targetW;
-
     const height = Math.round(width * aspect);
 
-
-
     // Hero Game Icons and Typography: Scale proportionally with tile width
-
     const iconRatio = isSenior ? 0.58 : 0.56;
-
     const fontRatio = isSenior ? 0.17 : 0.155;
-
     const iconSize = Math.max(24, Math.round(width * iconRatio));
-
     const fontSize = Math.max(9, Math.round(width * fontRatio));
-
     const colSpacing = Math.round(width * spacingFactor);
-
     const rowSpacing = Math.round(height * spacingFactor);
-
     const boardTotalW = (maxX - minX) * colSpacing + width;
-
     const boardTotalH = (maxY - minY) * rowSpacing + height;
 
+    // Authentic 2.5D Isometric depth compensation & exact bounding box centering:
+    // Stepped layers have prominent visual elevation: isoDx = -(tile.z * 5.0) and isoDy = -(tile.z * 8.0).
+    const isoScaleX = 5.0;
+    const isoScaleY = 8.0;
 
-
-    // Isometric depth compensation & exact bounding box centering:
-    // Tiles have isoDx = -(tile.z * 2.5) and isoDy = -(tile.z * 3.5).
-    // Calculate the actual relative pixel bounds of the entire stage including isometric offsets
     let minRelX = 0, maxRelX = (maxX - minX) * colSpacing + width;
     let minRelY = 0, maxRelY = (maxY - minY) * rowSpacing + height;
 
@@ -309,10 +281,10 @@ export class BoardRenderer {
       minRelX = Infinity; maxRelX = -Infinity;
       minRelY = Infinity; maxRelY = -Infinity;
       allStageTiles.forEach(t => {
-        const rx = (t.x - minX) * colSpacing - (t.z * 2.5);
+        const rx = (t.x - minX) * colSpacing - (t.z * isoScaleX);
         if (rx < minRelX) minRelX = rx;
         if (rx + width > maxRelX) maxRelX = rx + width;
-        const ry = (t.y - minY) * rowSpacing - (t.z * 3.5);
+        const ry = (t.y - minY) * rowSpacing - (t.z * isoScaleY);
         if (ry < minRelY) minRelY = ry;
         if (ry + height > maxRelY) maxRelY = ry + height;
       });
@@ -321,8 +293,8 @@ export class BoardRenderer {
     const actualBoardW = maxRelX - minRelX;
     const actualBoardH = maxRelY - minRelY;
 
-    const minSafeOffsetX = Math.ceil(maxZ * 2.5) + (isMobile ? 6 : 10);
-    const minSafeOffsetY = Math.ceil(maxZ * 3.5) + (isMobile ? 14 : 14);
+    const minSafeOffsetX = Math.ceil(maxZ * isoScaleX) + (isMobile ? 8 : 16);
+    const minSafeOffsetY = Math.ceil(maxZ * isoScaleY) + (isMobile ? 16 : 24);
 
     let offsetX = minSafeOffsetX;
     if (containerW && containerW > actualBoardW) {
@@ -510,56 +482,33 @@ export class BoardRenderer {
 
 
 
-      // Isometric depth offset: dx = -2.5px, dy = -3.5px per layer for rich 3D stacking
-
-      const isoDx = -(tile.z * 2.5);
-
-      const isoDy = -(tile.z * 3.5);
-
-
+      // Authentic 2.5D Isometric depth offset: dx = -5.0px, dy = -8.0px per tier for prominent, tangible 3D stepped elevation
+      const isoDx = -(tile.z * 5.0);
+      const isoDy = -(tile.z * 8.0);
 
       const posX = offsetX + (tile.x - minX) * colSpacing + isoDx;
-
       const posY = offsetY + (tile.y - minY) * rowSpacing + isoDy;
 
-
-
       // Flora details & Archetype
-
       const flora = tile.floraData || getFloraById(tile.floraId);
-
       const arch = this.options.activeArchetype || tile.archetype || flora.archetype || 'ivory';
-
       const ribbonColor = domainRibbons[flora.domain] || '#c5a880';
 
-
-
       const el = document.createElement('div');
-
       el.className = `tile-element archetype-${arch} ${isFree ? 'tile-free' : 'tile-blocked'} ${isSelected ? 'tile-selected' : ''}`;
-
       if (this.options.seniorView) el.classList.add('senior-tile');
 
-
-
       el.id = tile.id;
-
       el.dataset.id = tile.id;
-
       el.dataset.archetype = arch;
-
       el.dataset.z = `${tile.z}`;
-
       el.style.width = `${width}px`;
-
       el.style.height = `${height}px`;
-
       el.style.left = `${posX}px`;
-
       el.style.top = `${posY}px`;
 
-      const baseZ = tile.z * 20 + 10;
-      el.style.zIndex = `${baseZ + (isSelected ? 6 : (isFree ? 2 : 0))}`;
+      const baseZ = tile.z * 40 + 10;
+      el.style.zIndex = `${baseZ + (isSelected ? 10 : (isFree ? 4 : 0))}`;
 
 
 
