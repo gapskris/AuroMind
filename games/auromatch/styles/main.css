@@ -356,6 +356,29 @@ body {
     white-space: nowrap;
 }
 
+.brand-sup-maa {
+    font-family: 'Playfair Display', 'Cinzel', serif;
+    font-style: italic;
+    font-size: 0.65em;
+    vertical-align: top;
+    position: relative;
+    top: -0.22em;
+    margin-right: 3px;
+    font-weight: 800;
+    background: linear-gradient(135deg, #ffffff 0%, #fef08a 60%, #fbbf24 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 10px rgba(251, 191, 36, 0.85));
+    letter-spacing: 0.5px;
+    display: inline-block;
+}
+
+.brand-auromatch-title .brand-sup-maa {
+    font-size: 0.68em;
+    top: -0.20em;
+    margin-right: 2px;
+}
+
 .brand-tagline-text {
     font-family: 'Outfit', sans-serif;
     font-size: 0.72rem;
@@ -6064,6 +6087,12 @@ body[data-theme="royal_lapis"] .brand-umbrella-eyebrow {
 body[data-theme="royal_lapis"] .brand-tagline-text {
     color: #e0f2fe !important;
     opacity: 0.75 !important;
+}
+body[data-theme="royal_lapis"] .brand-sup-maa {
+    background: linear-gradient(135deg, #ffffff 0%, #bae6fd 60%, #00e5ff 100%) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    filter: drop-shadow(0 0 10px rgba(0, 229, 255, 0.85)) !important;
 }
 
 /* 5. HUD Progression Badges (Seeker, IQ, Rank, Level, Sparks, Score, Clean Solve) */
