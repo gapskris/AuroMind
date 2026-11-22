@@ -46,28 +46,21 @@
             // 1. Mandatory Source Validation: message MUST originate from expected parent window
             if (!window.parent || event.source !== window.parent) return;
 
-            // 2. Strict Origin Validation: validate against trusted portal origin contract
-            // Disallow wildcard ('*'), empty (''), and opaque ('null') origins (B19.5-01C / B19.5-01D)
+            // 2. Strict Same-Origin Validation (B19.5-01E)
+            // Confirmed same-origin architecture: portal and game share the exact same HTTP(S) origin
+            // Reject opaque ('null'), empty (''), wildcard ('*'), and mismatched origins
             var currentOrigin = window.location.origin;
-            var isHttp = Boolean(
-              event.origin &&
-              event.origin !== 'null' &&
-              (event.origin.indexOf('http://') === 0 || event.origin.indexOf('https://') === 0)
-            );
-            if (!isHttp) return;
+            if (
+              !currentOrigin ||
+              currentOrigin === 'null' ||
+              currentOrigin === '' ||
+              (!currentOrigin.startsWith('http://') && !currentOrigin.startsWith('https://'))
+            ) {
+              return;
+            }
 
             var isTrustedOrigin = (event.origin === currentOrigin);
-            if (!isTrustedOrigin && typeof document !== 'undefined' && document.referrer) {
-              try {
-                var refOrigin = new URL(document.referrer).origin;
-                if (refOrigin && refOrigin !== 'null' && event.origin === refOrigin) {
-                  isTrustedOrigin = true;
-                }
-              } catch (_e) {}
-            }
             if (!isTrustedOrigin) return;
-
-            window.__AUROMIND_PARENT_ORIGIN__ = event.origin;
 
             // 3. Strict Payload and Type Allowlist Validation
             if (!event.data || typeof event.data !== 'object' || Array.isArray(event.data)) return;

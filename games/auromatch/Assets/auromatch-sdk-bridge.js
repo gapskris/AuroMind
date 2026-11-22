@@ -167,57 +167,34 @@ export function createAuroMatchGameAdapter() {
 }
 
 /**
- * Resolves and validates the exact parent portal HTTP(S) origin (B19.5-01D).
- * Does not assume parent and child always share an origin.
- * Works for same-origin deployments and cross-origin embedding.
- * Rejects missing, opaque ('null'), empty, or malformed origins.
- * Returns null if not in an iframe or if no trusted HTTP(S) parent origin is determined.
+ * Resolves and validates the exact same-origin parent portal HTTP(S) origin (B19.5-01E).
+ * Confirmed same-origin architecture: portal and games share the exact same origin.
+ * Does not trust document.referrer or cached origins.
+ * Rejects missing, opaque ('null'), empty, wildcard, or cross-origin contexts.
+ * Returns null if not in a valid same-origin iframe context.
  */
 export function resolveParentPortalOrigin() {
   if (typeof window === 'undefined' || !window.parent || window.parent === window) {
     return null;
   }
 
-  // 1. Same-origin or accessible parent window: read window.parent.location.origin directly
+  const currentOrigin = window.location.origin;
+  if (
+    !currentOrigin ||
+    currentOrigin === 'null' ||
+    currentOrigin === '' ||
+    (!currentOrigin.startsWith('http://') && !currentOrigin.startsWith('https://'))
+  ) {
+    return null;
+  }
+
+  // Same-origin verification: parent origin must be accessible and match exact currentOrigin
   try {
-    if (window.parent.location && window.parent.location.origin) {
-      const parentOrigin = window.parent.location.origin;
-      if (
-        parentOrigin &&
-        parentOrigin !== 'null' &&
-        (parentOrigin.indexOf('http://') === 0 || parentOrigin.indexOf('https://') === 0)
-      ) {
-        return parentOrigin;
-      }
+    if (window.parent.location && window.parent.location.origin === currentOrigin) {
+      return currentOrigin;
     }
-  } catch (_crossOriginErr) {
-    // Cross-origin parent window access throws DOMException (SecurityError)
-  }
-
-  // 2. Verified message origin received from window.parent (e.g. handshake on load)
-  if (typeof window !== 'undefined' && window.__AUROMIND_PARENT_ORIGIN__) {
-    const cachedOrigin = window.__AUROMIND_PARENT_ORIGIN__;
-    if (
-      cachedOrigin &&
-      cachedOrigin !== 'null' &&
-      (cachedOrigin.indexOf('http://') === 0 || cachedOrigin.indexOf('https://') === 0)
-    ) {
-      return cachedOrigin;
-    }
-  }
-
-  // 3. Cross-origin parent: derive from document.referrer if available and valid HTTP(S)
-  if (typeof document !== 'undefined' && document.referrer) {
-    try {
-      const refUrl = new URL(document.referrer);
-      if (
-        (refUrl.protocol === 'http:' || refUrl.protocol === 'https:') &&
-        refUrl.origin &&
-        refUrl.origin !== 'null'
-      ) {
-        return refUrl.origin;
-      }
-    } catch (_refErr) {}
+  } catch (_e) {
+    // Cross-origin parent window access fails closed
   }
 
   return null;
@@ -225,16 +202,16 @@ export function resolveParentPortalOrigin() {
 
 /**
  * Return to AuroMind Portal navigation.
- * Authoritative implementation (B19.5-01D).
- * Targets the verified parent portal origin, never wildcard '*', 'null', or empty.
- * If in standalone mode or parent origin cannot be verified, navigates cleanly to portal root.
+ * Authoritative implementation (B19.5-01E).
+ * Targets the verified exact same-origin parent portal, never wildcard '*', 'null', or empty.
+ * In standalone mode or if same-origin verification fails closed, navigates cleanly to portal root.
  */
 export function exitToAuroMindPortal() {
   try {
     if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
       const targetOrigin = resolveParentPortalOrigin();
       if (!targetOrigin) {
-        // Untrusted, opaque, or missing parent origin - fallback to relative portal navigation
+        // Fail closed against posting messages; fallback to direct relative navigation to portal
         window.location.href = '../../index.html';
         return;
       }

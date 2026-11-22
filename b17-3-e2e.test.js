@@ -816,6 +816,23 @@ test('E2E Suite D - 5: Real-browser AuroMatch Return-to-Portal security, button 
     isTheaterVisible = await page.$eval('#game-theater-view', el => el.style.display !== 'none');
     assert.ok(isTheaterVisible, 'Mismatched game ID (vak) must NOT close auromatch theater (Item 15 / B19.5-01D)');
 
+    // 4d. Replaced or detached iframe contentWindow rejected (B19.5-01E)
+    await page.evaluate(() => {
+      const dummyIframe = document.createElement('iframe');
+      dummyIframe.src = 'about:blank';
+      document.body.appendChild(dummyIframe);
+      const foreignWin = dummyIframe.contentWindow;
+      window.dispatchEvent(new MessageEvent('message', {
+        source: foreignWin,
+        origin: window.location.origin,
+        data: { type: 'AUROMIND_CLOSE_THEATER', gameId: 'auromatch' }
+      }));
+      dummyIframe.remove();
+    });
+    await new Promise(r => setTimeout(r, 150));
+    isTheaterVisible = await page.$eval('#game-theater-view', el => el.style.display !== 'none');
+    assert.ok(isTheaterVisible, 'Detached/replaced iframe source must NOT close portal theater (B19.5-01E)');
+
     // 5. Valid Return Button click returns to portal (Items 12, 16, 21 / B19.5-01D)
     const returnBtnExists = await frame.evaluate(() => !!document.getElementById('auromind-theater-return-btn'));
     assert.ok(returnBtnExists, '#auromind-theater-return-btn must exist in iframe (Item 16)');
@@ -853,6 +870,17 @@ test('E2E Suite D - 5: Real-browser AuroMatch Return-to-Portal security, button 
 
     const catalogVisible = await page.$eval('.portal-content-scroll', el => el.style.display !== 'none');
     assert.ok(catalogVisible, 'Catalog must be restored after returning to portal (Items 12, 21)');
+
+    // 5b. Inactive theater guard: messages sent when theater is closed are ignored cleanly (B19.5-01E)
+    const inactiveHandled = await page.evaluate(() => {
+      window.dispatchEvent(new MessageEvent('message', {
+        source: window,
+        origin: window.location.origin,
+        data: { type: 'AUROMIND_CLOSE_THEATER', gameId: 'auromatch' }
+      }));
+      return document.getElementById('game-theater-view').style.display === 'none';
+    });
+    assert.ok(inactiveHandled, 'Inactive theater must ignore close messages cleanly (B19.5-01E)');
 
     // 6. Standalone AuroMatch navigation (Item 17)
     const { page: standalonePage, close: closeStandalone } = await env.createInstrumentedPage();

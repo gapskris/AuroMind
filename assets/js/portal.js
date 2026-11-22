@@ -586,14 +586,24 @@ function initTheaterMode() {
 
   // Listen to HTML5 PostMessage from child game iframes (Vak, AuroMatch, etc.)
   window.addEventListener('message', (event) => {
-    // 1. Mandatory Source Validation: message MUST originate from active theater iframe contentWindow
-    if (!theaterIframe || event.source !== theaterIframe.contentWindow) return;
+    // 1. Inactive Theater Guard: reject messages when game theater is inactive or already closed (B19.5-01E)
+    if (!theaterView || theaterView.style.display === 'none' || !document.body.classList.contains('in-game-mode')) return;
 
-    // 2. Strict Origin Validation: reject opaque ('null'), empty, and untrusted origins (B19.5-01D)
-    // Theater iframe deployment uses standard HTTP(S) origins and never sandboxes to opaque origins
-    if (!event.origin || event.origin === 'null' || event.origin === '') return;
-    const expectedOrigin = getExpectedIframeOrigin(theaterIframe);
-    if (!expectedOrigin || event.origin !== expectedOrigin) return;
+    // 2. Mandatory Active & Current Iframe Validation: rejects inactive, detached, or replaced iframes (B19.5-01E)
+    if (!theaterIframe || event.source !== theaterIframe.contentWindow) return;
+    const currentActiveIframe = document.getElementById('game-viewport-iframe');
+    if (!currentActiveIframe || currentActiveIframe !== theaterIframe || currentActiveIframe.src === 'about:blank' || !currentActiveIframe.contentWindow || event.source !== currentActiveIframe.contentWindow) {
+      return;
+    }
+
+    // 3. Strict Same-Origin Validation (B19.5-01E)
+    // Confirmed same-origin architecture: portal and games share the exact same HTTP(S) origin
+    // Reject opaque ('null'), empty (''), wildcard ('*'), and untrusted origins
+    if (!event.origin || event.origin === 'null' || event.origin === '' || event.origin === '*') return;
+    const expectedOrigin = (typeof getExpectedIframeOrigin === 'function')
+      ? getExpectedIframeOrigin(currentActiveIframe)
+      : window.location.origin;
+    if (!expectedOrigin || event.origin !== expectedOrigin || event.origin !== window.location.origin) return;
 
     const data = event.data;
     if (!data || typeof data !== 'object' || Array.isArray(data)) return;
@@ -602,7 +612,7 @@ function initTheaterMode() {
     if (!activeGameId || !gameUrls[activeGameId]) return;
 
     if (data.type === 'AUROMIND_CLOSE_THEATER' || data.action === 'EXIT_GAME') {
-      // Require data.gameId as non-empty string and validate against exact active ID or narrow alias map (B19.5-01D)
+      // Require non-empty string canonical game ID matching explicit narrow alias map (B19.5-01E)
       if (!data.gameId || typeof data.gameId !== 'string') return;
       const normPayload = data.gameId.trim().toLowerCase();
       const validAliases = GAME_ID_ALIASES[activeGameId] || [activeGameId];
