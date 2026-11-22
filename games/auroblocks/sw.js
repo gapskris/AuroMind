@@ -151,22 +151,72 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// Scope Resolution and Strict Path-Boundary Containment Helpers
+function getRegistrationScope() {
+  if (typeof self !== 'undefined' && self.registration && self.registration.scope) {
+    try {
+      return new URL(self.registration.scope, self.location.href);
+    } catch {}
+  }
+  return new URL('./', self.location.href);
+}
+
+function isRequestInScope(requestUrl, scopeUrl) {
+  // Origin boundary: cross-origin requests bypass AuroBlocks SW cache
+  if (requestUrl.origin !== scopeUrl.origin) return false;
+
+  const normalizedScope = scopeUrl.pathname.endsWith('/')
+    ? scopeUrl.pathname
+    : scopeUrl.pathname + '/';
+  const scopeRootWithoutSlash = normalizedScope.slice(0, -1);
+
+  // Exact match on scope root (e.g. '/games/auroblocks')
+  if (requestUrl.pathname === scopeRootWithoutSlash) return true;
+
+  // Prefix match with trailing slash boundary (e.g. '/games/auroblocks/')
+  if (!requestUrl.pathname.startsWith(normalizedScope)) return false;
+
+  // Protect against encoded path traversal attacks (e.g. %2e%2e, %2f)
+  try {
+    const decodedPath = decodeURIComponent(requestUrl.pathname);
+    if (
+      decodedPath.includes('/../') ||
+      decodedPath.endsWith('/..') ||
+      !decodedPath.startsWith(normalizedScope)
+    ) {
+      const canonicalPath = new URL(decodedPath, 'https://dummy.local').pathname;
+      if (
+        canonicalPath !== scopeRootWithoutSlash &&
+        !canonicalPath.startsWith(normalizedScope)
+      ) {
+        return false;
+      }
+    }
+  } catch {
+    return false;
+  }
+
+  return true;
+}
+
 // 3. Fetch Phase: Cohesive NetworkFirst for HTML / CacheFirst for versioned assets
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
   const url = new URL(event.request.url);
-  const scopeBase = new URL('./', self.location.href);
+  const scopeUrl = getRegistrationScope();
 
-  // Cross-origin or out-of-scope requests bypass AuroBlocks SW cache
-  if (url.origin !== self.location.origin) return;
-  if (!url.href.startsWith(scopeBase.href)) return;
+  // Strict origin and path-boundary containment check
+  if (!isRequestInScope(url, scopeUrl)) return;
 
   // Never intercept or cache Vite dev-server module transform or pre-bundled dependency requests
   if (isViteDevModulePath(url.pathname)) return;
 
-  const indexCacheUrl = new URL('./index.html', self.location.href).href;
-  const rootCacheUrl = scopeBase.href;
+  const normalizedScope = scopeUrl.pathname.endsWith('/')
+    ? scopeUrl.pathname
+    : scopeUrl.pathname + '/';
+  const indexCacheUrl = new URL('./index.html', scopeUrl.href).href;
+  const rootCacheUrl = scopeUrl.href;
 
   // A. Navigation requests (HTML documents):
   // NetworkFirst with offline cache fallback to ./index.html or ./
@@ -184,11 +234,12 @@ self.addEventListener('fetch', (event) => {
           return networkResponse;
         })
         .catch(async () => {
-          const exactMatch = await caches.match(event.request);
+          const cache = await caches.open(CACHE_NAME);
+          const exactMatch = await cache.match(event.request);
           if (exactMatch) return exactMatch;
-          const indexMatch = await caches.match(indexCacheUrl);
+          const indexMatch = await cache.match(indexCacheUrl);
           if (indexMatch) return indexMatch;
-          return caches.match(rootCacheUrl);
+          return cache.match(rootCacheUrl);
         })
     );
     return;
@@ -196,7 +247,7 @@ self.addEventListener('fetch', (event) => {
 
   // B. Hashed or static immutable assets (./assets/*, icons): CacheFirst
   const isStaticOrHashed =
-    url.pathname.startsWith(scopeBase.pathname + 'assets/') ||
+    url.pathname.startsWith(normalizedScope + 'assets/') ||
     url.pathname.endsWith('.woff2') ||
     url.pathname.endsWith('.js') ||
     url.pathname.endsWith('.css') ||
@@ -209,9 +260,10 @@ self.addEventListener('fetch', (event) => {
   if (isStaticOrHashed) {
     event.respondWith(
       (async () => {
+        const cache = await caches.open(CACHE_NAME);
         const cleanHref = url.origin + url.pathname;
         const cachedResponse =
-          (await caches.match(event.request)) || (await caches.match(cleanHref));
+          (await cache.match(event.request)) || (await cache.match(cleanHref));
         if (cachedResponse) {
           return cachedResponse;
         }
@@ -219,7 +271,7 @@ self.addEventListener('fetch', (event) => {
         const networkResponse = await fetch(event.request);
         if (networkResponse && networkResponse.status === 200) {
           const copy = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(cleanHref, copy));
+          await cache.put(cleanHref, copy);
         }
         return networkResponse;
       })()
@@ -230,14 +282,15 @@ self.addEventListener('fetch', (event) => {
   // C. General app assets: StaleWhileRevalidate
   event.respondWith(
     (async () => {
+      const cache = await caches.open(CACHE_NAME);
       const cleanHref = url.origin + url.pathname;
       const cachedResponse =
-        (await caches.match(event.request)) || (await caches.match(cleanHref));
+        (await cache.match(event.request)) || (await cache.match(cleanHref));
       const fetchPromise = fetch(event.request)
-        .then((networkResponse) => {
+        .then(async (networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
             const copy = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(cleanHref, copy));
+            await cache.put(cleanHref, copy);
           }
           return networkResponse;
         })
