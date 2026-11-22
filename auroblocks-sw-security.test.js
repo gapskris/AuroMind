@@ -443,7 +443,7 @@ describe('AuroBlocks SW Scope Security - Real Browser E2E Verification', () => {
     }
   });
 
-  test('Real Browser: Foreign cache namespaces remain untouched across SW lifecycle', async (t) => {
+  test('Real Browser: Genuinely new SW version installs, activates, and controls page while preserving foreign caches', async (t) => {
     if (!browserAvailable || !env) {
       t.skip('Real browser unavailable');
       return;
@@ -453,37 +453,91 @@ describe('AuroBlocks SW Scope Security - Real Browser E2E Verification', () => {
     try {
       await page.goto(`${env.baseUrl}/games/auroblocks/index.html`, { waitUntil: 'networkidle2' });
 
-      // Create synthetic sibling cache and portal cache, then verify contents remain unchanged
-      const cacheCheck = await page.evaluate(async () => {
-        if (!window.caches) return { supported: false };
+      // Create synthetic sibling cache, portal cache, and obsolete version cache,
+      // then register a genuinely new SW version and observe state transitions to active & controlling.
+      const lifecycleCheck = await page.evaluate(async () => {
+        if (!window.caches || !('serviceWorker' in navigator)) return { supported: false };
+
+        // 1. Wait for initial baseline worker
+        await navigator.serviceWorker.ready;
+        const initialController = navigator.serviceWorker.controller ? navigator.serviceWorker.controller.scriptURL : null;
+
+        // 2. Setup foreign caches and an obsolete AuroBlocks cache
         const sibling = await window.caches.open('auro-match-v7.0');
         await sibling.put('/test-probe', new Response('probe-data-immutable'));
 
         const portal = await window.caches.open('auro-portal-v1.2.0');
         await portal.put('/portal-probe', new Response('portal-data-immutable'));
 
-        // Trigger SW activate message or lifecycle check
-        const swReg = await navigator.serviceWorker.getRegistration('./');
-        if (swReg && swReg.active) {
-          swReg.active.postMessage({ type: 'SKIP_WAITING' });
+        const obsoleteCache = await window.caches.open('auroblocks-v0.0.1-obsolete');
+        await obsoleteCache.put('/obsolete-probe', new Response('obsolete-data'));
+
+        // 3. Register a genuinely new service worker version URL
+        const newReg = await navigator.serviceWorker.register('./sw.js?v=lifecycle-verified-v2', { scope: './' });
+
+        // 4. Track state transitions
+        const stateLog = [];
+        const newWorker = newReg.installing || newReg.waiting;
+        if (newWorker) {
+          stateLog.push(newWorker.state);
+          await new Promise((resolve) => {
+            if (newWorker.state === 'activated') return resolve();
+            newWorker.addEventListener('statechange', () => {
+              stateLog.push(newWorker.state);
+              if (newWorker.state === 'activated') resolve();
+            });
+            setTimeout(resolve, 6000);
+          });
         }
 
-        // Query all cache names and content after lifecycle trigger
+        // Allow clients.claim() propagation
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        // 5. Query active worker and controller
+        const activeWorker = newReg.active;
+        const activeUrl = activeWorker ? activeWorker.scriptURL : null;
+        const currentController = navigator.serviceWorker.controller ? navigator.serviceWorker.controller.scriptURL : null;
+
+        // 6. Query all cache names and content after lifecycle transition
         const namesAfter = await window.caches.keys();
         const hasSibling = namesAfter.includes('auro-match-v7.0');
         const hasPortal = namesAfter.includes('auro-portal-v1.2.0');
+        const hasObsolete = namesAfter.includes('auroblocks-v0.0.1-obsolete');
 
         // Verify foreign cache content remains exactly identical
-        const probeResp = await sibling.match('/test-probe');
-        const probeText = probeResp ? await probeResp.text() : null;
+        const siblingResp = await sibling.match('/test-probe');
+        const siblingText = siblingResp ? await siblingResp.text() : null;
+        const portalResp = await portal.match('/portal-probe');
+        const portalText = portalResp ? await portalResp.text() : null;
 
-        return { supported: true, hasSibling, hasPortal, probeText };
+        return {
+          supported: true,
+          initialController,
+          activeUrl,
+          currentController,
+          stateLog,
+          hasSibling,
+          hasPortal,
+          hasObsolete,
+          siblingText,
+          portalText,
+        };
       });
 
-      assert.ok(cacheCheck.supported, 'CacheStorage must be supported');
-      assert.ok(cacheCheck.hasSibling, 'Sibling cache auro-match-v7.0 must be preserved');
-      assert.ok(cacheCheck.hasPortal, 'Portal cache auro-portal-v1.2.0 must be preserved');
-      assert.equal(cacheCheck.probeText, 'probe-data-immutable', 'Foreign cache content must be completely unmutated');
+      assert.ok(lifecycleCheck.supported, 'ServiceWorker and CacheStorage must be supported');
+      assert.ok(
+        lifecycleCheck.activeUrl && lifecycleCheck.activeUrl.includes('lifecycle-verified-v2'),
+        'Genuinely new service worker version must be active'
+      );
+      assert.ok(
+        lifecycleCheck.currentController && lifecycleCheck.currentController.includes('lifecycle-verified-v2'),
+        'New service worker must take control of page via clients.claim()'
+      );
+      assert.ok(lifecycleCheck.hasSibling, 'Sibling cache auro-match-v7.0 must be preserved');
+      assert.ok(lifecycleCheck.hasPortal, 'Portal cache auro-portal-v1.2.0 must be preserved');
+      assert.equal(lifecycleCheck.hasObsolete, false, 'Obsolete auroblocks cache must be evicted by new worker activation');
+      assert.equal(lifecycleCheck.siblingText, 'probe-data-immutable', 'Sibling cache content must be completely unmutated');
+      assert.equal(lifecycleCheck.portalText, 'portal-data-immutable', 'Portal cache content must be completely unmutated');
     } finally {
       await close();
     }
