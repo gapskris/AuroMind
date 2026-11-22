@@ -976,7 +976,7 @@ body {
 
 
 
-/* Matching Tray / Dock at the Top (Mode B Tile Club) */
+/* Matching Tray / Dock at the Top (Mode B Triads) */
 
 .tray-container {
 
@@ -5500,7 +5500,7 @@ body {
 
 
 
-/* Golden Starlight Dissolution Animation (Vita Pairs & Tile Club Triads) */
+/* Golden Starlight Dissolution Animation (Pairs & Triads) */
 
 .tile-dissolving-sparkle {
 
@@ -6415,7 +6415,7 @@ body[data-theme="royal_lapis"] .settings-modal {
 }
 
 /* ==========================================================================
-   ✨ AuroMatch Tile Club High-Fidelity 3D Tray Enhancements
+   ✨ AuroMatch Triads High-Fidelity 3D Tray Enhancements
    ========================================================================== */
 .tray-slot {
     flex: 1;
@@ -8784,14 +8784,14 @@ body:has(.stage-clear-overlay.active) .toast-banner,
                         </div>
                     </div>
 
-                    <!-- Card 2: Tile Club (Triad Match-3) -->
+                    <!-- Card 2: Triads (Triad Match-3) -->
                     <div class="realm-hub-card" id="hub-card-tileclub" onclick="window.selectHubMode('tile_club')">
                         <div class="rh-card-icon-wrap" style="background: linear-gradient(135deg, #fce7f3, #fbcfe8); border-color: #ec4899;">
                             <span class="rh-card-icon">📥</span>
                         </div>
                         <div class="rh-card-body">
                             <div class="rh-card-header">
-                                <h3 class="rh-card-title">TILE CLUB</h3>
+                                <h3 class="rh-card-title">TRIADS</h3>
                                 <span class="rh-card-badge">Triad Match-3 Studio</span>
                             </div>
                             <p class="rh-card-desc">7-Slot Tactile Holding Tray & Dynamic 3D Triad Dissolution across All Sacred Formations</p>
@@ -9079,7 +9079,7 @@ body:has(.stage-clear-overlay.active) .toast-banner,
             <!-- Mode Switcher HUD Bar -->
             <div class="mode-toggle-bar">
                 <button class="mode-btn active" id="btn-mode-vita" onclick="window.switchGameplayMode('vita')" title="Pairs Campaign (400 Levels)">🪷 Pairs</button>
-                <button class="mode-btn" id="btn-mode-tileclub" onclick="window.switchGameplayMode('tile_club')" title="Tile Club Triad Match-3">📥 Tile Club</button>
+                <button class="mode-btn" id="btn-mode-tileclub" onclick="window.switchGameplayMode('tile_club')" title="Triad Match-3 Flow (7-Slot Tray)">📥 Triads</button>
                 <button class="mode-btn mode-btn-botanical" id="btn-mode-botanical" onclick="window.switchGameplayMode('botanical')" title="🌸 Botanical Art Campaign (200 Levels)">🌸 Botanical<span class="mode-word-art"> Art</span></button>
                 <button class="mode-btn mode-btn-realms" id="btn-mode-realms" onclick="window.switchGameplayMode('realms')" title="20 Thematic Realms (1,000 Levels)">🗺️ Realms</button>
                 <button class="senior-toggle-btn" id="btn-toggle-senior" onclick="window.toggleSeniorViewMode()" title="Toggle Senior View (aA)" aria-label="Toggle Senior View aA">aA</button>
@@ -9141,7 +9141,7 @@ body:has(.stage-clear-overlay.active) .toast-banner,
                         </div>
                     </div>
 
-                    <!-- 7-Slot Sorting Tray (Mode B Tile Club & Triad Matches) -->
+                    <!-- 7-Slot Sorting Tray (Mode B Triad Matches) -->
                     <div class="tray-container" id="tray-container" style="display: none;">
                         <div class="tray-guidance-bar">
                             <span class="tray-guidance-text">📥 Holding Tray: Match 3 identical tiles to dissolve!</span>
@@ -9373,7 +9373,7 @@ body:has(.stage-clear-overlay.active) .toast-banner,
                 <div class="setting-row" style="margin-top: 10px;">
                     <div>
                         <div class="setting-label" style="font-weight: 700;">Theme Appearance (Standard & Pairs)</div>
-                        <div style="font-size: 10px; opacity: 0.75; max-width: 200px;">Choose elevated 3D theme for Pairs & Tile Club</div>
+                        <div style="font-size: 10px; opacity: 0.75; max-width: 200px;">Choose elevated 3D theme for Pairs & Triads</div>
                     </div>
                     <select id="set-standard-theme" onchange="window.handleSettingsThemeChange(this.value)" style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-current); color: var(--text-current); padding: 4px 8px; border-radius: 8px; font-weight: 600;">
                         <option value="imperial_gold">✨ Imperial Gold & Jewel Reliquary</option>
@@ -59053,7 +59053,7 @@ class BoardRenderer {
 
     const availW = Math.max(260, containerW - 16);
 
-    // Sizing Parity: AvailH is unified across all gameplay modes (Pairs, Tile Club, Classic, Realms)
+    // Sizing Parity: AvailH is unified across all gameplay modes (Pairs, Triads, Classic, Realms)
     // so that switching between categories never causes the tile formation to jump or shrink.
     const promptDeduction = isMobile ? 24 : (isTablet ? 28 : 24);
 
@@ -59089,10 +59089,10 @@ class BoardRenderer {
 
 
 
-    // Dynamic width bounds across viewports (Unified parity across Pairs, Tile Club, Classic, Realms)
+    // Dynamic width bounds across viewports (Unified parity across Pairs, Triads, Classic, Realms)
     let minAllowed, maxAllowed;
     if (isMobile) {
-      // Mobile Viewport (< 480px): Unified 72px ceiling ensures identical tile scale between Pairs & Tile Club
+      // Mobile Viewport (< 480px): Unified 72px ceiling ensures identical tile scale between Pairs & Triads
       minAllowed = isSenior ? 48 : 42;
       maxAllowed = isSenior ? 84 : (isRealmsMode || this.options.gameplayMode === 'botanical' ? 82 : 72);
     } else if (isTablet) {
@@ -59852,7 +59852,7 @@ function triggerTileConvergenceSmash(el1, el2) {
 }
 
 /**
- * Visual Sparkling Dissolution for Tile Club Mode (3-tile match in tray)
+ * Visual Sparkling Dissolution for Triads Mode (3-tile match in tray)
  */
 function triggerTrayTriadSparkle(matchedFloraId) {
     if (typeof document === 'undefined') return;
@@ -62186,7 +62186,7 @@ class ThemeManager {
 
 // --- Game Manager ---
 // Dual-Mode Central Game Manager for AuroMatch
-// Supports Mode A (Vita Mahjong - Match-2 pairs) and Mode B (Tile Club - Match-3 7-slot tray)
+// Supports Mode A (Pairs Solitaire - Match-2 pairs) and Mode B (Triads - Match-3 7-slot tray)
 // Senior accessibility toggles, undo history stacks, and guaranteed solvability generation.
 
 
@@ -62419,7 +62419,7 @@ class GameManager {
       }
     } catch (e) {}
 
-    // If currently in standard mode (Pairs or Tile Club), refresh current stage tiles and background
+    // If currently in standard mode (Pairs or Triads), refresh current stage tiles and background
     if (this.gameplayMode === 'vita' || this.gameplayMode === 'tile_club') {
       const stdTheme = ThemeManager.getStandardTheme(this.standardTheme);
       const artTiles = stdTheme.customTiles;
@@ -62814,7 +62814,7 @@ class GameManager {
         }
       });
     } else {
-      // In standard modes (Pairs, Tile Club): Apply the active elevated shining 3D theme (Imperial Gold or Royal Lapis)
+      // In standard modes (Pairs, Triads): Apply the active elevated shining 3D theme (Imperial Gold or Royal Lapis)
       const stdTheme = ThemeManager.getStandardTheme(this.standardTheme);
       const artTiles = stdTheme.customTiles;
       const distinctFlora = Array.from(new Set(this.tiles.map(t => t.floraId)));
@@ -63284,7 +63284,7 @@ class GameManager {
   }
 
   /**
-   * Mode B: Tile Club (Match-3 Triad Matching with 7-Slot Holding Tray)
+   * Mode B: Triads (Match-3 Triad Matching with 7-Slot Holding Tray)
    */
   handleTileClubMatch3Click(tile) {
     if (this.tray.length >= 7) {
@@ -64132,7 +64132,7 @@ window.addEventListener('load', async () => {
             }
         }
 
-        // 3. Render tray slots for Mode B (Tile Club Triads)
+        // 3. Render tray slots for Mode B (Triads)
         const trayEl = document.getElementById('tray');
         const trayCounter = document.getElementById('tray-slot-counter');
         const trayGuidance = document.querySelector('.tray-guidance-text');
@@ -64787,7 +64787,7 @@ window.addEventListener('load', async () => {
             return;
         }
         activeGameManager.setGameplayMode(mode);
-        window.showToastMessage("📥 Tile Club: Collect 3 identical tiles into the holding tray to clear!");
+        window.showToastMessage("📥 Triads: Collect 3 identical tiles into the holding tray to clear!");
     };
 
     window.openRealmsBrowser = () => {
@@ -65619,7 +65619,7 @@ window.addEventListener('load', async () => {
                 if (storedMode === 'botanical') {
                     formation = 'Botanical Art';
                 } else if (storedMode === 'tile_club') {
-                    formation = 'Tile Club';
+                    formation = 'Triads';
                 } else if (storedMode === 'realms' && activeGameManager && activeGameManager.currentRealm) {
                     formation = activeGameManager.currentRealm.name;
                 } else if (storedMode === 'vita' || storedMode === 'classic') {
@@ -65798,7 +65798,7 @@ window.addEventListener('load', async () => {
         const mode = activeGameManager.gameplayMode;
         if (mode === 'tile_club') {
             if (iconEl) iconEl.textContent = '📥';
-            textEl.textContent = 'Tile Club (Triad)';
+            textEl.textContent = 'Triads (Match-3)';
         } else if (mode === 'botanical') {
             if (iconEl) iconEl.textContent = '🌸';
             textEl.textContent = 'Botanical Art';
