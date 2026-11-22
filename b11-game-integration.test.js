@@ -271,7 +271,16 @@ test('B11 Suite 4: Root service worker strictly bypasses /games/* routes, preser
   assert.ok(vakSw.includes('auro-vak-v2.19'), 'VAK must use isolated auro-vak cache');
 
   const matchSw = fs.readFileSync(path.join(__dirname, 'games/auromatch/sw.js'), 'utf8');
-  assert.ok(matchSw.includes('auro-match-v5.0'), 'AuroMatch must use isolated auro-match cache');
+  // Architectural contract: AuroMatch cache name must adhere to 'auro-match-v<major>.<minor>' versioned pattern
+  const matchCacheMatch = matchSw.match(/const\s+CACHE_NAME\s*=\s*['"](auro-match-v\d+\.\d+)['"]/);
+  assert.ok(matchCacheMatch, 'AuroMatch must define a versioned auro-match-vX.Y cache name');
+  assert.ok(matchSw.includes('auro-match-artwork-v'), 'AuroMatch must isolate artwork cache');
+  assert.ok(matchSw.includes('auro-match-fonts-v'), 'AuroMatch must isolate font cache');
+  // Negative assertions: AuroMatch SW must NEVER adopt portal or cross-game cache prefixes
+  assert.equal(matchSw.includes('auro-portal-'), false, 'AuroMatch must not use portal cache');
+  assert.equal(matchSw.includes('auroblocks-'), false, 'AuroMatch must not use auroblocks cache');
+  assert.equal(matchSw.includes('auro-vak-'), false, 'AuroMatch must not use vak cache');
+  assert.equal(matchSw.includes('word-discovery-'), false, 'AuroMatch must not use word-discovery cache');
 
   const riddleSw = fs.readFileSync(path.join(__dirname, 'games/word-riddle/sw.js'), 'utf8');
   assert.ok(riddleSw.includes('word-discovery-'), 'Word Riddle must use isolated word-discovery cache');
