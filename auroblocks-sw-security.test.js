@@ -197,6 +197,29 @@ describe('AuroBlocks SW Scope Security - Scope Resolution & Boundary Matrix', ()
       standardHarness.isRequestInScope(new URL('https://portal.auromind.org/games/auroblocks/%2e%2e%2fauromatch/index.html'), scopeUrl),
       false
     );
+    // Repeated / nested percent encoding (%252e%252e)
+    assert.equal(
+      standardHarness.isRequestInScope(new URL('https://portal.auromind.org/games/auroblocks/%252e%252e/auromatch/index.html'), scopeUrl),
+      false
+    );
+    // Encoded backslash (%5c..%5c)
+    assert.equal(
+      standardHarness.isRequestInScope(new URL('https://portal.auromind.org/games/auroblocks/%5c..%5cauromatch/index.html'), scopeUrl),
+      false
+    );
+  });
+
+  test('Malformed percent encoding is handled safely without throwing', () => {
+    const scopeUrl = standardHarness.getRegistrationScope();
+    // Incomplete or invalid percent sequence
+    assert.equal(
+      standardHarness.isRequestInScope(new URL('https://portal.auromind.org/games/auroblocks/%E0%A4%A/index.html'), scopeUrl),
+      false
+    );
+    assert.equal(
+      standardHarness.isRequestInScope(new URL('https://portal.auromind.org/games/auroblocks/%/test'), scopeUrl),
+      false
+    );
   });
 });
 
@@ -430,27 +453,37 @@ describe('AuroBlocks SW Scope Security - Real Browser E2E Verification', () => {
     try {
       await page.goto(`${env.baseUrl}/games/auroblocks/index.html`, { waitUntil: 'networkidle2' });
 
-      // Create synthetic sibling cache and portal cache
+      // Create synthetic sibling cache and portal cache, then verify contents remain unchanged
       const cacheCheck = await page.evaluate(async () => {
         if (!window.caches) return { supported: false };
         const sibling = await window.caches.open('auro-match-v7.0');
-        await sibling.put('/test-probe', new Response('probe-data'));
+        await sibling.put('/test-probe', new Response('probe-data-immutable'));
 
         const portal = await window.caches.open('auro-portal-v1.2.0');
-        await portal.put('/portal-probe', new Response('portal-data'));
-
-        // Query all cache names
-        const namesBefore = await window.caches.keys();
+        await portal.put('/portal-probe', new Response('portal-data-immutable'));
 
         // Trigger SW activate message or lifecycle check
-        const hasSibling = namesBefore.includes('auro-match-v7.0');
-        const hasPortal = namesBefore.includes('auro-portal-v1.2.0');
-        return { supported: true, hasSibling, hasPortal };
+        const swReg = await navigator.serviceWorker.getRegistration('./');
+        if (swReg && swReg.active) {
+          swReg.active.postMessage({ type: 'SKIP_WAITING' });
+        }
+
+        // Query all cache names and content after lifecycle trigger
+        const namesAfter = await window.caches.keys();
+        const hasSibling = namesAfter.includes('auro-match-v7.0');
+        const hasPortal = namesAfter.includes('auro-portal-v1.2.0');
+
+        // Verify foreign cache content remains exactly identical
+        const probeResp = await sibling.match('/test-probe');
+        const probeText = probeResp ? await probeResp.text() : null;
+
+        return { supported: true, hasSibling, hasPortal, probeText };
       });
 
       assert.ok(cacheCheck.supported, 'CacheStorage must be supported');
       assert.ok(cacheCheck.hasSibling, 'Sibling cache auro-match-v7.0 must be preserved');
       assert.ok(cacheCheck.hasPortal, 'Portal cache auro-portal-v1.2.0 must be preserved');
+      assert.equal(cacheCheck.probeText, 'probe-data-immutable', 'Foreign cache content must be completely unmutated');
     } finally {
       await close();
     }

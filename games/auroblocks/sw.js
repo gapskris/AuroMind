@@ -176,9 +176,22 @@ function isRequestInScope(requestUrl, scopeUrl) {
   // Prefix match with trailing slash boundary (e.g. '/games/auroblocks/')
   if (!requestUrl.pathname.startsWith(normalizedScope)) return false;
 
-  // Protect against encoded path traversal attacks (e.g. %2e%2e, %2f)
+  // Reject any backslash characters (counter parser differentials and traversal attacks)
+  if (requestUrl.pathname.includes('%5c') || requestUrl.pathname.includes('%5C')) return false;
+
+  // Protect against encoded path traversal attacks (e.g. %2e%2e, %2f, repeated encoding)
   try {
-    const decodedPath = decodeURIComponent(requestUrl.pathname);
+    let decodedPath = decodeURIComponent(requestUrl.pathname);
+    // Reject decoded backslashes
+    if (decodedPath.includes('\\')) return false;
+
+    // Handle repeated/nested percent-encoding (e.g. %252e%252e)
+    if (decodedPath.includes('%')) {
+      try {
+        decodedPath = decodeURIComponent(decodedPath);
+        if (decodedPath.includes('\\')) return false;
+      } catch {}
+    }
     if (
       decodedPath.includes('/../') ||
       decodedPath.endsWith('/..') ||
