@@ -279,14 +279,24 @@ function attachSeniorModeListener() {
     if (!isTrustedOrigin) return;
 
     if (!event.data || typeof event.data !== 'object' || Array.isArray(event.data)) return;
-    if (event.data.type === 'AUROMIND_SET_SENIOR_MODE') {
-      const isSenior = Boolean(event.data.enabled);
-      if (document.documentElement) {
-        document.documentElement.classList.toggle('senior-mode', isSenior);
-      }
-      if (document.body) {
-        document.body.classList.toggle('senior-mode', isSenior);
-      }
+    if (event.data.type !== 'AUROMIND_SET_SENIOR_MODE') return;
+    if (typeof event.data.enabled !== 'boolean') return;
+
+    const isSenior = event.data.enabled;
+    window.__AUROMIND_SENIOR_MODE__ = isSenior;
+
+    if (document.documentElement) {
+      document.documentElement.classList.toggle('senior-mode', isSenior);
+    }
+    if (document.body) {
+      document.body.classList.toggle('senior-mode', isSenior);
+    }
+    try {
+      localStorage.setItem('auromind_senior_mode', isSenior ? 'true' : 'false');
+    } catch (e) {}
+
+    if (window.activeGameManager && typeof window.activeGameManager.toggleSeniorView === 'function') {
+      window.activeGameManager.toggleSeniorView(isSenior);
     }
   });
 }

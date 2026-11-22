@@ -31,7 +31,7 @@
       })();
     </script>
 
-    <!-- Immediate Senior Mode Initialization & Portal Listener (Zero-FOUC B17-DEFECT-02) -->
+    <!-- Immediate Senior Mode Initialization & Portal Listener (Zero-FOUC B17-DEFECT-02 / B19.5-01A) -->
     <script>
       (function() {
         try {
@@ -39,19 +39,44 @@
           if (savedSenior) {
             document.documentElement.classList.add('senior-mode');
             if (document.body) document.body.classList.add('senior-mode');
+            window.__AUROMIND_SENIOR_MODE__ = true;
           }
-          window.addEventListener('message', function(event) {
+
+          function handleSeniorModeMessage(event) {
+            // 1. Mandatory Source Validation: message MUST originate from expected parent window
+            if (!window.parent || event.source !== window.parent) return;
+
+            // 2. Strict Origin Validation: exact match if valid origin available, allow 'null' only for opaque sandboxed origins
+            var currentOrigin = window.location.origin;
+            var isTrustedOrigin = (currentOrigin && currentOrigin !== 'null')
+              ? (event.origin === currentOrigin)
+              : (event.origin === 'null' || event.origin === '');
+            if (!isTrustedOrigin) return;
+
+            // 3. Strict Payload and Type Allowlist Validation
             if (!event.data || typeof event.data !== 'object' || Array.isArray(event.data)) return;
-            if (event.data.type === 'AUROMIND_SET_SENIOR_MODE') {
-              var isSenior = Boolean(event.data.enabled);
-              if (document.documentElement) document.documentElement.classList.toggle('senior-mode', isSenior);
-              if (document.body) document.body.classList.toggle('senior-mode', isSenior);
-              try { localStorage.setItem('auromind_senior_mode', isSenior ? 'true' : 'false'); } catch (e) {}
-              if (window.activeGameManager && typeof window.activeGameManager.toggleSeniorView === 'function') {
-                window.activeGameManager.toggleSeniorView(isSenior);
-              }
+            if (event.data.type !== 'AUROMIND_SET_SENIOR_MODE') return;
+            if (typeof event.data.enabled !== 'boolean') return;
+
+            var isSenior = event.data.enabled;
+            window.__AUROMIND_SENIOR_MODE__ = isSenior;
+
+            if (document.documentElement) {
+              document.documentElement.classList.toggle('senior-mode', isSenior);
             }
-          });
+            if (document.body) {
+              document.body.classList.toggle('senior-mode', isSenior);
+            }
+            try {
+              localStorage.setItem('auromind_senior_mode', isSenior ? 'true' : 'false');
+            } catch (e) {}
+
+            if (window.activeGameManager && typeof window.activeGameManager.toggleSeniorView === 'function') {
+              window.activeGameManager.toggleSeniorView(isSenior);
+            }
+          }
+
+          window.addEventListener('message', handleSeniorModeMessage);
         } catch(e) {}
       })();
     </script>
@@ -62336,7 +62361,13 @@ class GameManager {
     this.standardTheme = this.loadStandardTheme(); // 'imperial_gold' | 'royal_lapis'
     this.seniorView = (options.seniorView !== undefined) 
       ? !!options.seniorView 
-      : !!(profileState && profileState.settings && profileState.settings.seniorViewActive);
+      : (typeof window !== 'undefined' && typeof window.__AUROMIND_SENIOR_MODE__ === 'boolean')
+        ? window.__AUROMIND_SENIOR_MODE__
+        : (typeof document !== 'undefined' && document.documentElement && document.documentElement.classList.contains('senior-mode'))
+          ? true
+          : (typeof localStorage !== 'undefined' && localStorage.getItem('auromind_senior_mode') === 'true')
+            ? true
+            : !!(profileState && profileState.settings && profileState.settings.seniorViewActive);
     this.tuningBase = (options.tuningBase !== undefined) ? options.tuningBase : 'off';
     this.boardRenderer = null;
     this.inputDispatcher = null;
@@ -62961,6 +62992,10 @@ class GameManager {
     } else {
       rootEl.classList.remove('senior-view');
       rootEl.classList.remove('senior-view-active');
+    }
+    if (typeof document !== 'undefined') {
+      if (document.documentElement) document.documentElement.classList.toggle('senior-mode', this.seniorView);
+      if (document.body) document.body.classList.toggle('senior-mode', this.seniorView);
     }
     // Persist to storage
     if (profileState && profileState.settings) {
@@ -63813,6 +63848,13 @@ class GameManager {
 }
 
 const activeGameManager = new GameManager();
+window.activeGameManager = activeGameManager;
+// Apply any early Senior Mode preference received before activeGameManager was created
+if (typeof window.__AUROMIND_SENIOR_MODE__ === 'boolean') {
+  activeGameManager.toggleSeniorView(window.__AUROMIND_SENIOR_MODE__);
+} else if (typeof document !== 'undefined' && document.documentElement && document.documentElement.classList.contains('senior-mode')) {
+  activeGameManager.toggleSeniorView(true);
+}
 
 
 const gardens = REALMS.map(r => ({

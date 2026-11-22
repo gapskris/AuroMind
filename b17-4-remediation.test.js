@@ -427,3 +427,199 @@ test('B17.4 Group D - 4: All scripts in AuroBlocks index.html use relative same-
     );
   }
 });
+
+// ---------------------------------------------------------------------------
+// Group E: B19.5-01A — AuroMatch Senior Mode Message Trust & Initialization
+// ---------------------------------------------------------------------------
+
+test('B19.5-01A Test 1: games/auromatch/index.html defines strict message source & origin validation', () => {
+  const htmlPath = path.join(__dirname, 'games/auromatch/index.html');
+  const html = fs.readFileSync(htmlPath, 'utf8');
+
+  // Verify source check
+  assert.ok(
+    html.includes('!window.parent || event.source !== window.parent'),
+    'AuroMatch must strictly check event.source === window.parent'
+  );
+  // Verify origin check
+  assert.ok(
+    html.includes('event.origin === currentOrigin'),
+    'AuroMatch must strictly check event.origin === currentOrigin'
+  );
+  // Verify boolean enabled check
+  assert.ok(
+    html.includes("typeof event.data.enabled !== 'boolean'"),
+    'AuroMatch must strictly require typeof event.data.enabled === boolean'
+  );
+  // Verify SDK bridge script link
+  assert.ok(
+    html.includes('src="./Assets/auromatch-sdk-bridge.js"'),
+    'AuroMatch index.html must link auromatch-sdk-bridge.js'
+  );
+});
+
+test('B19.5-01A Test 2: AuroMatch message handler behavioral matrix (valid, untrusted origin, untrusted source, malformed, non-boolean)', () => {
+  let docElementSenior = false;
+  let docBodySenior = false;
+  let storedPreference = null;
+  let managerToggledWith = null;
+
+  const mockWindow = {
+    parent: { id: 'portal-parent' },
+    location: { origin: 'https://auromasti.com' },
+    activeGameManager: {
+      toggleSeniorView: (val) => { managerToggledWith = val; }
+    }
+  };
+
+  function simulateAuroMatchSeniorHandler(event) {
+    // 1. Mandatory Source Validation
+    if (!mockWindow.parent || event.source !== mockWindow.parent) return false;
+
+    // 2. Strict Origin Validation
+    const currentOrigin = mockWindow.location.origin;
+    const isTrustedOrigin = (currentOrigin && currentOrigin !== 'null')
+      ? (event.origin === currentOrigin)
+      : (event.origin === 'null' || event.origin === '');
+    if (!isTrustedOrigin) return false;
+
+    // 3. Strict Payload and Type Allowlist Validation
+    if (!event.data || typeof event.data !== 'object' || Array.isArray(event.data)) return false;
+    if (event.data.type !== 'AUROMIND_SET_SENIOR_MODE') return false;
+    if (typeof event.data.enabled !== 'boolean') return false;
+
+    const isSenior = event.data.enabled;
+    docElementSenior = isSenior;
+    docBodySenior = isSenior;
+    storedPreference = isSenior ? 'true' : 'false';
+
+    if (mockWindow.activeGameManager && typeof mockWindow.activeGameManager.toggleSeniorView === 'function') {
+      mockWindow.activeGameManager.toggleSeniorView(isSenior);
+    }
+    return true;
+  }
+
+  // 1. Valid parent message with enabled: true -> accepted
+  const res1 = simulateAuroMatchSeniorHandler({
+    source: mockWindow.parent,
+    origin: 'https://auromasti.com',
+    data: { type: 'AUROMIND_SET_SENIOR_MODE', enabled: true }
+  });
+  assert.strictEqual(res1, true);
+  assert.strictEqual(docElementSenior, true);
+  assert.strictEqual(docBodySenior, true);
+  assert.strictEqual(storedPreference, 'true');
+  assert.strictEqual(managerToggledWith, true);
+
+  // 2. Untrusted origin -> rejected
+  const res2 = simulateAuroMatchSeniorHandler({
+    source: mockWindow.parent,
+    origin: 'https://evil-attacker.com',
+    data: { type: 'AUROMIND_SET_SENIOR_MODE', enabled: false }
+  });
+  assert.strictEqual(res2, false);
+  assert.strictEqual(docElementSenior, true, 'State must remain unchanged on untrusted origin');
+
+  // 3. Untrusted source (foreign window) -> rejected
+  const res3 = simulateAuroMatchSeniorHandler({
+    source: { id: 'attacker-window' },
+    origin: 'https://auromasti.com',
+    data: { type: 'AUROMIND_SET_SENIOR_MODE', enabled: false }
+  });
+  assert.strictEqual(res3, false);
+  assert.strictEqual(docElementSenior, true, 'State must remain unchanged on foreign source');
+
+  // 4. Malformed message (missing type / wrong type) -> rejected
+  const res4 = simulateAuroMatchSeniorHandler({
+    source: mockWindow.parent,
+    origin: 'https://auromasti.com',
+    data: { type: 'UNEXPECTED_COMMAND', enabled: false }
+  });
+  assert.strictEqual(res4, false);
+  assert.strictEqual(docElementSenior, true, 'State must remain unchanged on unexpected message type');
+
+  // 5. Non-boolean enabled (string 'true', number 1, truthy object) -> strictly rejected
+  const res5a = simulateAuroMatchSeniorHandler({
+    source: mockWindow.parent,
+    origin: 'https://auromasti.com',
+    data: { type: 'AUROMIND_SET_SENIOR_MODE', enabled: 'true' }
+  });
+  assert.strictEqual(res5a, false);
+
+  const res5b = simulateAuroMatchSeniorHandler({
+    source: mockWindow.parent,
+    origin: 'https://auromasti.com',
+    data: { type: 'AUROMIND_SET_SENIOR_MODE', enabled: 1 }
+  });
+  assert.strictEqual(res5b, false);
+
+  const res5c = simulateAuroMatchSeniorHandler({
+    source: mockWindow.parent,
+    origin: 'https://auromasti.com',
+    data: { type: 'AUROMIND_SET_SENIOR_MODE', enabled: null }
+  });
+  assert.strictEqual(res5c, false);
+
+  // 6. Valid toggle OFF with boolean false -> accepted
+  const res6 = simulateAuroMatchSeniorHandler({
+    source: mockWindow.parent,
+    origin: 'https://auromasti.com',
+    data: { type: 'AUROMIND_SET_SENIOR_MODE', enabled: false }
+  });
+  assert.strictEqual(res6, true);
+  assert.strictEqual(docElementSenior, false);
+  assert.strictEqual(docBodySenior, false);
+  assert.strictEqual(storedPreference, 'false');
+  assert.strictEqual(managerToggledWith, false);
+});
+
+test('B19.5-01A Test 3: Early Senior Mode message received before GameManager exists is preserved and applied on init', () => {
+  let pendingSeniorMode = undefined;
+  let activeGameManager = null;
+
+  function handleEarlyMessage(enabled) {
+    if (typeof enabled !== 'boolean') return;
+    pendingSeniorMode = enabled;
+    if (activeGameManager && typeof activeGameManager.toggleSeniorView === 'function') {
+      activeGameManager.toggleSeniorView(enabled);
+    }
+  }
+
+  // 1. Message arrives when activeGameManager is null
+  handleEarlyMessage(true);
+  assert.strictEqual(pendingSeniorMode, true);
+  assert.strictEqual(activeGameManager, null);
+
+  // 2. GameManager initializes subsequently
+  class MockGameManager {
+    constructor() {
+      this.seniorView = (typeof pendingSeniorMode === 'boolean') ? pendingSeniorMode : false;
+      this.boardRenderer = null;
+    }
+    init(containerId) {
+      this.boardRenderer = { seniorView: this.seniorView };
+    }
+    toggleSeniorView(val) {
+      this.seniorView = (val !== null) ? !!val : !this.seniorView;
+      if (this.boardRenderer) this.boardRenderer.seniorView = this.seniorView;
+    }
+  }
+
+  activeGameManager = new MockGameManager();
+  // Post-instantiation sync hook matching games/auromatch/index.html:63850
+  if (typeof pendingSeniorMode === 'boolean') {
+    activeGameManager.toggleSeniorView(pendingSeniorMode);
+  }
+
+  assert.strictEqual(activeGameManager.seniorView, true, 'GameManager must initialize with seniorView = true');
+
+  // 3. Stage initialization creates boardRenderer with seniorView = true
+  activeGameManager.init('board');
+  assert.strictEqual(activeGameManager.boardRenderer.seniorView, true, 'boardRenderer must inherit seniorView on creation');
+
+  // 4. Mid-session toggle OFF during active gameplay
+  handleEarlyMessage(false);
+  assert.strictEqual(activeGameManager.seniorView, false, 'Mid-session toggle OFF must update GameManager');
+  assert.strictEqual(activeGameManager.boardRenderer.seniorView, false, 'Mid-session toggle OFF must update boardRenderer');
+});
+
