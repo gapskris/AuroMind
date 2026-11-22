@@ -1,8 +1,8 @@
 // Service Worker for AuroMatch: Concentration Quest (PWA Offline First with Fresh Online Updates)
 // Conforms strictly to AuroProject Master Policy AP-PWA-014 (Batch 2: AURO-17, AURO-18, AURO-19, AURO-34)
-const CACHE_NAME = 'auro-match-v6.0';
-const ARTWORK_CACHE_NAME = 'auro-match-artwork-v6.0';
-const FONT_CACHE_NAME = 'auro-match-fonts-v6.0';
+const CACHE_NAME = 'auro-match-v7.0';
+const ARTWORK_CACHE_NAME = 'auro-match-artwork-v7.0';
+const FONT_CACHE_NAME = 'auro-match-fonts-v7.0';
 
 const GOOGLE_FONT_STYLESHEET =
   'https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Outfit:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap';
