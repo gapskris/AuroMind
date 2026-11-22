@@ -443,6 +443,25 @@ test('BATCH-D: Trusted proxy header extraction ignores client spoofing', () => {
   assert.equal(proxyIp, '203.0.113.195', 'Trusted Cloudflare calls must use cf-connecting-ip');
 });
 
+test('BATCH-D: Telemetry function migration pins search_path and enforces service_role execution only', () => {
+  const migrationPath = path.join(__dirname, 'supabase/migrations/20261122000003_b18c_telemetry_search_path_hardening.sql');
+  assert.ok(fs.existsSync(migrationPath), 'Hardening migration 3 must exist');
+  const sql = fs.readFileSync(migrationPath, 'utf8');
+
+  // Verify function definition specifies security definer and set search_path
+  assert.ok(sql.includes('security definer'), 'Function must be declared security definer');
+  assert.ok(/set\s+search_path\s*=\s*pg_catalog,\s*public/i.test(sql), 'Function must pin search_path to pg_catalog, public');
+
+  // Verify full schema qualification of tables
+  assert.ok(sql.includes('public.telemetry_rate_buckets'), 'Table references must be schema-qualified');
+
+  // Verify strict privilege revocation from public, anon, and authenticated
+  assert.ok(/revoke\s+all\s+on\s+function\s+public\.consume_telemetry_token.*from\s+public,\s*anon,\s*authenticated/i.test(sql), 'Must revoke all on function from public, anon, authenticated');
+
+  // Verify explicit execute grant to service_role
+  assert.ok(/grant\s+execute\s+on\s+function\s+public\.consume_telemetry_token.*to\s+service_role/i.test(sql), 'Must grant execute to service_role');
+});
+
 // =============================================================================
 // Batch F: Entitlement Signing, Key Rotation & Emergency Revocation
 // =============================================================================
