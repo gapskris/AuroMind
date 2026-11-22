@@ -841,6 +841,14 @@ test('E2E Suite D - 5: Real-browser AuroMatch Return-to-Portal security, button 
     const resolvedOrigin = await frame.evaluate(() => (typeof window.resolveParentPortalOrigin === 'function' ? window.resolveParentPortalOrigin() : null));
     assert.strictEqual(resolvedOrigin, env.baseUrl, `resolveParentPortalOrigin must resolve exact parent origin ${env.baseUrl} (B19.5-01D)`);
 
+    // Capture active iframe contentWindow before closing the theater (B19.5-01F Item 1)
+    await page.evaluate(() => {
+      const activeIframe = document.getElementById('game-viewport-iframe');
+      window.__capturedActiveContentWindow = activeIframe ? activeIframe.contentWindow : null;
+    });
+    const capturedWinExists = await page.evaluate(() => !!window.__capturedActiveContentWindow);
+    assert.ok(capturedWinExists, 'Must capture active iframe contentWindow before closing theater (B19.5-01F Item 1)');
+
     // Record close message dispatch received on portal window
     await page.evaluate(() => {
       window.__portalReceivedCloseMessages = [];
@@ -854,6 +862,7 @@ test('E2E Suite D - 5: Real-browser AuroMatch Return-to-Portal security, button 
       });
     });
 
+    // Close the theater (B19.5-01F Item 2)
     await frame.click('#auromind-theater-return-btn');
     await page.waitForFunction(() => {
       const tv = document.getElementById('game-theater-view');
@@ -871,16 +880,131 @@ test('E2E Suite D - 5: Real-browser AuroMatch Return-to-Portal security, button 
     const catalogVisible = await page.$eval('.portal-content-scroll', el => el.style.display !== 'none');
     assert.ok(catalogVisible, 'Catalog must be restored after returning to portal (Items 12, 21)');
 
-    // 5b. Inactive theater guard: messages sent when theater is closed are ignored cleanly (B19.5-01E)
-    const inactiveHandled = await page.evaluate(() => {
+    // 5b. Inactive theater message rejection verification (B19.5-01F Items 3, 4, 5)
+    // Arm controlled spies and sentinel before dispatching valid message to inactive theater
+    const inactiveRejectionResult = await page.evaluate(() => {
+      const capturedWin = window.__capturedActiveContentWindow;
+      if (!capturedWin) {
+        return { error: 'Captured active contentWindow is missing' };
+      }
+
+      // Spies for all possible side effects of closeTheater()
+      const spies = {
+        telemetryExitCalls: 0,
+        pushStateCalls: 0,
+        iframeSrcSets: 0,
+        bodyClassRemovals: 0,
+        catalogDisplaySets: 0
+      };
+
+      // 1. Spy on telemetry exit event
+      let origTrack = null;
+      if (window.AuroMind && window.AuroMind.telemetry && typeof window.AuroMind.telemetry.track === 'function') {
+        origTrack = window.AuroMind.telemetry.track;
+        window.AuroMind.telemetry.track = function(name, payload, meta) {
+          if (name === 'theater_exit' || name === 'game_session_end') {
+            spies.telemetryExitCalls++;
+          }
+          return origTrack.call(this, name, payload, meta);
+        };
+      }
+
+      // 2. Spy on history.pushState
+      const origPushState = history.pushState;
+      history.pushState = function(...args) {
+        spies.pushStateCalls++;
+        return origPushState.apply(this, args);
+      };
+
+      // 3. Spy on iframe src setter
+      const iframe = document.getElementById('game-viewport-iframe');
+      let origSrcDesc = null;
+      if (iframe) {
+        origSrcDesc = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'src');
+        if (origSrcDesc && origSrcDesc.set) {
+          Object.defineProperty(iframe, 'src', {
+            set(val) {
+              spies.iframeSrcSets++;
+              return origSrcDesc.set.call(this, val);
+            },
+            get() {
+              return origSrcDesc.get.call(this);
+            },
+            configurable: true
+          });
+        }
+      }
+
+      // 4. Spy on body classList.remove for in-game-mode
+      const origClassRemove = document.body.classList.remove;
+      document.body.classList.remove = function(...args) {
+        if (args.includes('in-game-mode')) {
+          spies.bodyClassRemovals++;
+        }
+        return origClassRemove.apply(this, args);
+      };
+
+      // 5. Spy on catalog display style mutation
+      const catalogScroll = document.querySelector('.portal-content-scroll');
+      let currentDisplay = catalogScroll ? catalogScroll.style.display : null;
+      if (catalogScroll) {
+        Object.defineProperty(catalogScroll.style, 'display', {
+          set(val) {
+            spies.catalogDisplaySets++;
+            currentDisplay = val;
+          },
+          get() {
+            return currentDisplay;
+          },
+          configurable: true
+        });
+      }
+
+      // 6. Observable Sentinel: edgeController classList
+      // If closeTheater() executed, it would execute: edgeController.classList.remove('open')
+      const edgeController = document.getElementById('edge-menu-tab');
+      if (edgeController) {
+        edgeController.classList.add('sentinel-inactive-test');
+      }
+
+      const initialUrl = window.location.href;
+
+      // Dispatch syntactically valid close message using captured iframe source and correct same-origin (B19.5-01F Item 3)
       window.dispatchEvent(new MessageEvent('message', {
-        source: window,
+        source: capturedWin,
         origin: window.location.origin,
         data: { type: 'AUROMIND_CLOSE_THEATER', gameId: 'auromatch' }
       }));
-      return document.getElementById('game-theater-view').style.display === 'none';
+
+      // Cleanup spies and sentinel
+      if (origTrack) window.AuroMind.telemetry.track = origTrack;
+      history.pushState = origPushState;
+      document.body.classList.remove = origClassRemove;
+      if (iframe) delete iframe.src;
+      if (catalogScroll) delete catalogScroll.style.display;
+
+      const sentinelPreserved = edgeController ? edgeController.classList.contains('sentinel-inactive-test') : true;
+      if (edgeController) edgeController.classList.remove('sentinel-inactive-test');
+
+      return {
+        spies,
+        sentinelPreserved,
+        receivedTotal: window.__portalReceivedCloseMessages ? window.__portalReceivedCloseMessages.length : 0,
+        urlUnchanged: window.location.href === initialUrl
+      };
     });
-    assert.ok(inactiveHandled, 'Inactive theater must ignore close messages cleanly (B19.5-01E)');
+
+    assert.ifError(inactiveRejectionResult.error);
+    // Verify window received the dispatched message (message delivery succeeded)
+    assert.strictEqual(inactiveRejectionResult.receivedTotal, 2, 'Message must be delivered to window message listener');
+    // Verify inactive theater handler rejected it: zero close actions or side effects (B19.5-01F Items 4 & 5)
+    assert.strictEqual(inactiveRejectionResult.spies.telemetryExitCalls, 0, 'Inactive theater message must NOT trigger telemetry exit (B19.5-01F)');
+    assert.strictEqual(inactiveRejectionResult.spies.pushStateCalls, 0, 'Inactive theater message must NOT trigger navigation pushState (B19.5-01F)');
+    assert.strictEqual(inactiveRejectionResult.spies.iframeSrcSets, 0, 'Inactive theater message must NOT re-unload or set iframe src (B19.5-01F)');
+    assert.strictEqual(inactiveRejectionResult.spies.bodyClassRemovals, 0, 'Inactive theater message must NOT mutate body class (B19.5-01F)');
+    assert.strictEqual(inactiveRejectionResult.spies.catalogDisplaySets, 0, 'Inactive theater message must NOT re-transition catalog display (B19.5-01F)');
+    assert.strictEqual(inactiveRejectionResult.sentinelPreserved, true, 'Sentinel must be preserved without closeTheater execution (B19.5-01F)');
+    assert.strictEqual(inactiveRejectionResult.urlUnchanged, true, 'Location URL must remain unchanged (B19.5-01F)');
 
     // 6. Standalone AuroMatch navigation (Item 17)
     const { page: standalonePage, close: closeStandalone } = await env.createInstrumentedPage();
