@@ -271,7 +271,7 @@ test('B11 Suite 4: Root service worker strictly bypasses /games/* routes, preser
   assert.ok(vakSw.includes('auro-vak-v2.19'), 'VAK must use isolated auro-vak cache');
 
   const matchSw = fs.readFileSync(path.join(__dirname, 'games/auromatch/sw.js'), 'utf8');
-  assert.ok(matchSw.includes('auro-match-v3.0'), 'AuroMatch must use isolated auro-match cache');
+  assert.ok(matchSw.includes('auro-match-v5.0'), 'AuroMatch must use isolated auro-match cache');
 
   const riddleSw = fs.readFileSync(path.join(__dirname, 'games/word-riddle/sw.js'), 'utf8');
   assert.ok(riddleSw.includes('word-discovery-'), 'Word Riddle must use isolated word-discovery cache');
