@@ -31,6 +31,31 @@
       })();
     </script>
 
+    <!-- Immediate Senior Mode Initialization & Portal Listener (Zero-FOUC B17-DEFECT-02) -->
+    <script>
+      (function() {
+        try {
+          var savedSenior = localStorage.getItem('auromind_senior_mode') === 'true';
+          if (savedSenior) {
+            document.documentElement.classList.add('senior-mode');
+            if (document.body) document.body.classList.add('senior-mode');
+          }
+          window.addEventListener('message', function(event) {
+            if (!event.data || typeof event.data !== 'object' || Array.isArray(event.data)) return;
+            if (event.data.type === 'AUROMIND_SET_SENIOR_MODE') {
+              var isSenior = Boolean(event.data.enabled);
+              if (document.documentElement) document.documentElement.classList.toggle('senior-mode', isSenior);
+              if (document.body) document.body.classList.toggle('senior-mode', isSenior);
+              try { localStorage.setItem('auromind_senior_mode', isSenior ? 'true' : 'false'); } catch (e) {}
+              if (window.activeGameManager && typeof window.activeGameManager.toggleSeniorView === 'function') {
+                window.activeGameManager.toggleSeniorView(isSenior);
+              }
+            }
+          });
+        } catch(e) {}
+      })();
+    </script>
+
     <!-- Cross-Platform PWA & Mobile Meta (Android, iOS, iPadOS, Tablets, PC) -->
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -45,6 +70,8 @@
     <link rel="alternate icon" type="image/png" href="./Assets/icons/favicon.png">
     <link rel="apple-touch-icon" sizes="180x180" href="./Assets/icons/apple-touch-icon.png">
     <link rel="manifest" href="./manifest.json">
+    <!-- AuroMind Shared Platform SDK Bridge (TASK-ADP-02) -->
+    <script type="module" src="./Assets/auromatch-sdk-bridge.js"></script>
 
     <!-- CSS Design System -->
     <style>
