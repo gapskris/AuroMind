@@ -4621,6 +4621,7 @@ body {
     #header-sparks-count,
     #header-score-badge,
     #header-level-indicator,
+    #header-timer-badge,
     #btn-toggle-senior {
         display: inline-flex !important;
         align-items: center !important;
@@ -5098,6 +5099,46 @@ body {
     color: #ffd700;
 
     white-space: nowrap;
+
+}
+
+.hud-timer-badge {
+
+    background: rgba(6, 182, 212, 0.15);
+
+    border: 1px solid rgba(6, 182, 212, 0.4);
+
+    border-radius: 12px;
+
+    padding: 3px 8px;
+
+    font-size: 11px;
+
+    font-weight: 700;
+
+    color: #67e8f9;
+
+    white-space: nowrap;
+
+    display: inline-flex;
+
+    align-items: center;
+
+    gap: 4px;
+
+    letter-spacing: 0.5px;
+
+    transition: all 0.25s ease;
+
+}
+
+.hud-timer-badge.swift-flow {
+
+    background: rgba(16, 185, 129, 0.2);
+
+    border-color: rgba(52, 211, 153, 0.6);
+
+    color: #a7f3d0;
 
 }
 
@@ -6150,6 +6191,7 @@ body[data-theme="imperial_gold"] .hud-player-badge,
 body[data-theme="imperial_gold"] .hud-iq-badge,
 body[data-theme="imperial_gold"] .hud-rank-badge,
 body[data-theme="imperial_gold"] .hud-level-indicator,
+body[data-theme="imperial_gold"] .hud-timer-badge,
 body[data-theme="imperial_gold"] .hud-sparks-count {
     background: rgba(32, 19, 10, 0.85) !important;
     border: 1px solid rgba(251, 191, 36, 0.45) !important;
@@ -6170,6 +6212,7 @@ body[data-theme="royal_lapis"] .hud-player-badge,
 body[data-theme="royal_lapis"] .hud-iq-badge,
 body[data-theme="royal_lapis"] .hud-rank-badge,
 body[data-theme="royal_lapis"] .hud-level-indicator,
+body[data-theme="royal_lapis"] .hud-timer-badge,
 body[data-theme="royal_lapis"] .hud-sparks-count {
     background: rgba(5, 16, 36, 0.85) !important;
     border: 1px solid rgba(0, 229, 255, 0.45) !important;
@@ -8210,6 +8253,7 @@ body:has(.stage-clear-overlay.active) .toast-banner,
     }
 
     /* Keep remaining visible badges compact */
+    #header-timer-badge,
     #header-score-badge,
     .hud-sparks-count,
     .hud-player-badge {
@@ -8399,6 +8443,7 @@ body:has(.stage-clear-overlay.active) .toast-banner,
     #header-sparks-count,
     #header-score-badge,
     #header-level-indicator,
+    #header-timer-badge,
     #btn-toggle-senior {
         display: inline-flex !important;
         align-items: center !important;
@@ -8577,6 +8622,12 @@ body:has(.stage-clear-overlay.active) .toast-banner,
         <!-- Welcome Screen -->
                 <!-- Stage 0: 3D Brand Splash Screen (1.6s / Tap-to-Skip) -->
         <div class="screen-view landing-view active-screen" id="landing-screen" onclick="window.handleLandingTap()">
+            <script>
+                if (typeof window !== 'undefined' && window.location && window.location.search && window.location.search.indexOf('screen=game') !== -1) {
+                    document.getElementById('landing-screen').classList.remove('active-screen');
+                    document.getElementById('landing-screen').style.display = 'none';
+                }
+            </script>
             <div class="sanctuary-dot-grid"></div>
             <div class="landing-content">
                 <div class="landing-emblem-wrap">
@@ -8969,6 +9020,12 @@ body:has(.stage-clear-overlay.active) .toast-banner,
 
         <!-- Gameplay Board Screen -->
         <div class="screen-view" id="game-screen">
+            <script>
+                if (typeof window !== 'undefined' && window.location && window.location.search && window.location.search.indexOf('screen=game') !== -1) {
+                    document.getElementById('game-screen').classList.add('active-screen');
+                    document.getElementById('game-screen').style.display = 'flex';
+                }
+            </script>
             <header class="app-header">
                 <div class="header-left-group">
                     <button class="hdr-btn" onclick="backToWelcome()" title="Return to Welcome">←</button>
@@ -8995,6 +9052,7 @@ body:has(.stage-clear-overlay.active) .toast-banner,
                     <span class="hud-iq-badge" id="header-iq-badge" title="Focus IQ: Cognitive concentration and sharpness index">🧠 IQ: <span id="header-iq-count">80</span></span>
                     <span class="hud-rank-badge" id="header-rank-badge" data-full-title="🌱 Aspirant">🌱 Aspirant</span>
                     <span class="hud-level-indicator" id="header-level-indicator" title="Click to Jump to Level" style="cursor: pointer;" onclick="window.openLevelJumpModal()">Level 1 / 200</span>
+                    <span class="hud-timer-badge" id="header-timer-badge" title="Level Elapsed Time · Par Target">⏱️ <span id="header-timer-text">00:00</span></span>
                     <div class="epiphany-serenity-meter-wrap" id="epiphany-serenity-wrap" style="display: none; align-items: center; gap: 8px; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(250, 204, 21, 0.4); border-radius: 12px; padding: 2px 10px;">
                         <span style="font-size: 11px; font-weight: 700; color: #facc15;">FOCUS SERENITY: <strong id="serenity-val">100%</strong></span>
                         <div style="width: 80px; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
@@ -9501,6 +9559,19 @@ body:has(.stage-clear-overlay.active) .toast-banner,
                     <div style="background: rgba(255,255,255,0.06); padding: 8px 14px; border-radius: 12px; border: 1px solid var(--border-current);" id="victory-bonus-box">
                         <div style="font-size: 11px; color: #c5a880;">Bonus</div>
                         <div style="font-size: 13px; font-weight: 600; color: #ffd700;" id="victory-bonus-text">Clean Solve +5</div>
+                    </div>
+                </div>
+                <!-- Time & Speed Mastery Performance Card -->
+                <div class="victory-time-banner" id="victory-time-banner" style="background: rgba(255,255,255,0.06); padding: 8px 14px; border-radius: 12px; border: 1px solid var(--border-current); width: 100%; box-sizing: border-box; margin: 4px 0 8px 0; text-align: left;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                        <span style="font-size: 12px; color: #c5a880; display: inline-flex; align-items: center; gap: 4px;">⏱️ Time: <strong id="victory-elapsed-time" style="color: #67e8f9; font-size: 14px; font-weight: 700;">00:00</strong></span>
+                        <span style="font-size: 11px; color: #94a3b8;">Par: <span id="victory-par-time">01:45</span></span>
+                    </div>
+                    <div id="victory-time-eval" style="font-size: 12px; font-weight: 700; color: #34d399;">
+                        ⚡ Swift Flow Cleared! (+10 Sparks)
+                    </div>
+                    <div id="victory-record-eval" style="display: none; font-size: 11px; font-weight: 700; color: #fbbf24; margin-top: 2px;">
+                        🏆 New Personal Best! (+15 Sparks)
                     </div>
                 </div>
                 <div id="victory-rank-up" style="display: none; font-size: 13px; font-weight: 700; color: #fde047;">Rank Promoted! +50 Sparks 💫</div>
@@ -62202,6 +62273,34 @@ function getBotanicalTileCount(levelNum) {
   return 144;
 }
 
+/**
+ * Benchmark / Par Completion Times (in seconds):
+ * Based on uniform tile count progression:
+ * - 60 tiles (Level 1): 105s (01:45)
+ * - 72 tiles (Levels 2–10): 135s (02:15)
+ * - 96 tiles (Levels 11–30): 180s (03:00)
+ * - 120 tiles (Levels 31–75): 240s (04:00)
+ * - 144 tiles (Levels 76–520+): 300s (05:00)
+ */
+function getTargetParTimeSec(tileCount) {
+  const count = Number(tileCount) || 60;
+  if (count <= 60) return 105;   // 01:45 (Level 1)
+  if (count <= 72) return 135;   // 02:15 (Levels 2-10)
+  if (count <= 96) return 180;   // 03:00 (Levels 11-30)
+  if (count <= 120) return 240;  // 04:00 (Levels 31-75)
+  return 300;                    // 05:00 (Levels 76-520+ / 144 tiles)
+}
+
+/**
+ * Format raw seconds as MM:SS (e.g. 75 -> '01:15')
+ */
+function formatTimeMMSS(sec) {
+  const total = Math.max(0, Math.floor(sec || 0));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
 
 
 class GameManager {
@@ -62230,6 +62329,13 @@ class GameManager {
     this.isPaused = false;
     this.isStageCompleted = false;
 
+    // Stage Timer & Speed Mastery (Contemplative forward count-up stopwatch)
+    this.stageStartTime = null;
+    this.stageElapsedBeforePause = 0;
+    this.stageTimerInterval = null;
+    this.isTimerRunning = false;
+    this.onTimerTick = options.onTimerTick || null;
+
     // Sacred Epiphany System tracking (Periodic 6-12 Level Window)
     this.levelsSinceLastEpiphany = 0;
     this.nextEpiphanyTarget = Math.floor(Math.random() * 7) + 6; // 6 to 12
@@ -62247,12 +62353,14 @@ class GameManager {
   }
 
   resetActivePlayerState() {
+    this.stopStageTimer();
     this.player = {
       name: '',
       currentLevel: 1,
       sparks: 100,
       score: 0,
       focusIQ: 80,
+      records: {},
       isNewUser: true
     };
     this.profilesMap = {};
@@ -62383,6 +62491,7 @@ class GameManager {
             sparks: typeof parsed.sparks === 'number' ? parsed.sparks : 100,
             score: typeof parsed.score === 'number' ? parsed.score : 0,
             focusIQ: typeof parsed.focusIQ === 'number' ? parsed.focusIQ : (80 + Math.min(120, (rawLevel - 1) * 2)),
+            records: (parsed.records && typeof parsed.records === 'object') ? parsed.records : {},
             goldenAuraLevelsRemaining: typeof parsed.goldenAuraLevelsRemaining === 'number' ? parsed.goldenAuraLevelsRemaining : 0,
             isNewUser: rawLevel === 1 && !parsed.hasProgress
           };
@@ -62408,7 +62517,7 @@ class GameManager {
     } catch (e) {
       console.warn('Failed to load player state:', e);
     }
-    return { name: '', currentLevel: 1, sparks: 100, score: 0, focusIQ: 80, isNewUser: true };
+    return { name: '', currentLevel: 1, sparks: 100, score: 0, focusIQ: 80, records: {}, isNewUser: true };
   }
 
   savePlayerState() {
@@ -62428,6 +62537,9 @@ class GameManager {
                 for (const m in stored.modeLevels) {
                   this.player.modeLevels[m] = Math.max(this.player.modeLevels[m] || 1, stored.modeLevels[m] || 1);
                 }
+              }
+              if (stored.records && typeof stored.records === 'object') {
+                this.player.records = { ...stored.records, ...(this.player.records || {}) };
               }
               if (stored.gameplayMode === this.gameplayMode && typeof stored.currentLevel === 'number' && stored.currentLevel > this.player.currentLevel) {
                 this.player.currentLevel = stored.currentLevel;
@@ -62458,6 +62570,7 @@ class GameManager {
           sparks: this.player.sparks,
           score: this.player.score || 0,
           focusIQ: this.player.focusIQ || 80,
+          records: this.player.records || {},
           goldenAuraLevelsRemaining: this.player.goldenAuraLevelsRemaining || 0,
           epiphaniesUnlocked: this.epiphaniesUnlocked || [],
           hasProgress: this.player.currentLevel > 1 || this.player.sparks !== 100 || (this.player.score || 0) > 0
@@ -62782,6 +62895,7 @@ class GameManager {
       }
     }
 
+    this.startStageTimer();
     this.notifyState();
   }
 
@@ -63414,13 +63528,117 @@ class GameManager {
 
   togglePause() {
     this.isPaused = !this.isPaused;
+    if (this.isPaused) {
+      this.pauseStageTimer();
+    } else {
+      this.resumeStageTimer();
+    }
     this.notifyState();
+  }
+
+  pauseGame() {
+    if (!this.isPaused) {
+      this.isPaused = true;
+      this.pauseStageTimer();
+      this.notifyState();
+    }
+  }
+
+  resumeGame() {
+    if (this.isPaused) {
+      this.isPaused = false;
+      this.resumeStageTimer();
+      this.notifyState();
+    }
+  }
+
+  startStageTimer() {
+    this.stopStageTimer();
+    this.stageStartTime = Date.now();
+    this.stageElapsedBeforePause = 0;
+    this.isTimerRunning = true;
+    if (typeof window !== 'undefined') {
+      this.stageTimerInterval = setInterval(() => {
+        if (this.isTimerRunning && !this.isPaused && !this.isStageCompleted) {
+          const elapsed = this.getStageElapsedSec();
+          if (this.onTimerTick) {
+            this.onTimerTick(elapsed, formatTimeMMSS(elapsed));
+          }
+        }
+      }, 500);
+    }
+    if (this.onTimerTick) {
+      this.onTimerTick(0, '00:00');
+    }
+  }
+
+  pauseStageTimer() {
+    if (this.isTimerRunning && this.stageStartTime) {
+      this.stageElapsedBeforePause += (Date.now() - this.stageStartTime);
+      this.stageStartTime = null;
+    }
+  }
+
+  resumeStageTimer() {
+    if (this.isTimerRunning && !this.isPaused && !this.isStageCompleted && !this.stageStartTime) {
+      this.stageStartTime = Date.now();
+    }
+  }
+
+  stopStageTimer() {
+    if (this.isTimerRunning && this.stageStartTime) {
+      this.stageElapsedBeforePause += (Date.now() - this.stageStartTime);
+      this.stageStartTime = null;
+    }
+    this.isTimerRunning = false;
+    if (this.stageTimerInterval) {
+      clearInterval(this.stageTimerInterval);
+      this.stageTimerInterval = null;
+    }
+  }
+
+  getStageElapsedSec() {
+    let totalMs = this.stageElapsedBeforePause || 0;
+    if (this.isTimerRunning && this.stageStartTime && !this.isPaused) {
+      totalMs += (Date.now() - this.stageStartTime);
+    }
+    return Math.floor(totalMs / 1000);
   }
 
   checkStageCompletion() {
     const remaining = this.tiles.filter(t => !t.isMatched);
     if (remaining.length === 0 && this.tray.length === 0) {
       this.isStageCompleted = true;
+      this.stopStageTimer();
+      const elapsedSec = this.getStageElapsedSec();
+      const elapsedFormatted = formatTimeMMSS(elapsedSec);
+
+      const tileCount = this.tiles ? this.tiles.length : 60;
+      const parSec = getTargetParTimeSec(tileCount);
+      const parFormatted = formatTimeMMSS(parSec);
+      const isSwiftFlow = elapsedSec <= parSec;
+
+      const completedLevel = this.player.currentLevel;
+      const themeId = (this.activeRealm && this.activeRealm.id) ? this.activeRealm.id : (this.standardTheme || 'std');
+      const recordKey = `${this.gameplayMode}_${themeId}_lvl${completedLevel}`;
+
+      if (!this.player.records) this.player.records = {};
+      const prevRecord = this.player.records[recordKey] || null;
+      const isNewRecord = !prevRecord || (elapsedSec < prevRecord.bestTimeSec);
+
+      const newBestTimeSec = isNewRecord ? elapsedSec : prevRecord.bestTimeSec;
+      this.player.records[recordKey] = {
+        bestTimeSec: newBestTimeSec,
+        bestTimeFormatted: formatTimeMMSS(newBestTimeSec),
+        lastTimeSec: elapsedSec,
+        lastTimeFormatted: elapsedFormatted,
+        parSec,
+        parFormatted,
+        clearsCount: ((prevRecord && prevRecord.clearsCount) || 0) + 1,
+        swiftCount: ((prevRecord && prevRecord.swiftCount) || 0) + (isSwiftFlow ? 1 : 0),
+        lastClearedAt: Date.now()
+      };
+
       playAshramMeditationGong();
 
       // Sparks economy
@@ -63431,7 +63649,14 @@ class GameManager {
         cleanSolve = true;
       }
 
-      const completedLevel = this.player.currentLevel;
+      let timeBonusSparks = 0;
+      if (isSwiftFlow) {
+        timeBonusSparks += 10; // +10 Swift Flow bonus (under par)
+      }
+      if (isNewRecord) {
+        timeBonusSparks += 15; // +15 Personal Record celebration bonus
+      }
+      earnedSparks += timeBonusSparks;
       // Sequential Chapter Unlock check for 20 Themes (every 50 levels)
       const isChapterComplete = (this.gameplayMode === 'realms') && (completedLevel % 50 === 0);
       const completedChapterNum = Math.floor((completedLevel - 1) / 50) + 1;
@@ -63508,7 +63733,15 @@ class GameManager {
           oldRank,
           newRank,
           focusIQ: this.player.focusIQ,
-          totalSparks: this.player.sparks
+          totalSparks: this.player.sparks,
+          elapsedSec,
+          elapsedFormatted,
+          parSec,
+          parFormatted,
+          isSwiftFlow,
+          isNewRecord,
+          timeBonusSparks,
+          themeName: (this.activeRealm && this.activeRealm.name) ? this.activeRealm.name : 'Sanctuary'
         });
       }
 
@@ -64070,6 +64303,12 @@ window.addEventListener('load', async () => {
                 levelIndicator.title = `Current Level: ${state.currentLevel || 1} of ${total} (${state.formationName || 'Sanctuary Formation'}) · Click to Jump`;
             }
         }
+        const timerBadge = document.getElementById('header-timer-badge');
+        if (timerBadge) {
+            const tileCount = state.totalTilesCount || 60;
+            const parSec = getTargetParTimeSec(tileCount);
+            timerBadge.title = `Elapsed Time · Par Target: ${formatTimeMMSS(parSec)} (${tileCount} tiles)`;
+        }
         if (sparksCount) {
             sparksCount.innerText = `✨ ${state.sparks || 100}`;
         }
@@ -64242,6 +64481,11 @@ window.addEventListener('load', async () => {
         syncFieldGuideAndCard(flora);
     };
 
+    activeGameManager.onTimerTick = (elapsedSec, formatted) => {
+        const timerText = document.getElementById('header-timer-text');
+        if (timerText) timerText.innerText = formatted;
+    };
+
     activeGameManager.onStageComplete = (info) => {
         const modal = document.getElementById('stage-clear-modal');
         if (!modal) return;
@@ -64251,6 +64495,10 @@ window.addEventListener('load', async () => {
         const vSparks = document.getElementById('victory-sparks');
         const vBonusText = document.getElementById('victory-bonus-text');
         const vRankUp = document.getElementById('victory-rank-up');
+        const vElapsed = document.getElementById('victory-elapsed-time');
+        const vPar = document.getElementById('victory-par-time');
+        const vTimeEval = document.getElementById('victory-time-eval');
+        const vRecordEval = document.getElementById('victory-record-eval');
 
         if (vTitle) vTitle.innerText = info.isMilestone ? `🌟 Milestone Level ${info.completedLevel} Cleared!` : `Level ${info.completedLevel} Cleared!`;
         if (vSubtitle) vSubtitle.innerText = `${info.newRank.symbol} ${info.newRank.name} · Next: Level ${info.nextLevel} / ${info.totalLevels || 200}`;
@@ -64258,7 +64506,39 @@ window.addEventListener('load', async () => {
         if (vBonusText) {
             let bonusStr = info.cleanSolve ? 'Clean Solve +5 ✨' : 'Standard Clear';
             if (info.isMilestone) bonusStr += ' · Sanctuary Milestone +20 ✨';
+            if (info.timeBonusSparks > 0) {
+                if (info.isSwiftFlow && info.isNewRecord) {
+                    bonusStr += ' · Swift Record +25 ✨';
+                } else if (info.isSwiftFlow) {
+                    bonusStr += ' · Swift Flow +10 ✨';
+                } else if (info.isNewRecord) {
+                    bonusStr += ' · New Record +15 ✨';
+                }
+            }
             vBonusText.innerText = bonusStr;
+        }
+
+        if (vElapsed) vElapsed.innerText = info.elapsedFormatted || '00:00';
+        if (vPar) vPar.innerText = info.parFormatted || '01:45';
+
+        if (vTimeEval) {
+            if (info.isSwiftFlow) {
+                const diffSec = Math.max(0, (info.parSec || 105) - (info.elapsedSec || 0));
+                vTimeEval.style.color = '#34d399';
+                vTimeEval.innerText = `⚡ Swift Flow Cleared (${diffSec}s under par)! +10 ✨`;
+            } else {
+                vTimeEval.style.color = '#c084fc';
+                vTimeEval.innerText = `🍃 Zen Pace · Serene & Mindful Play`;
+            }
+        }
+
+        if (vRecordEval) {
+            if (info.isNewRecord) {
+                vRecordEval.style.display = 'block';
+                vRecordEval.innerText = `🏆 New Personal Record! +15 ✨`;
+            } else {
+                vRecordEval.style.display = 'none';
+            }
         }
 
         if (vRankUp) {
@@ -64278,6 +64558,19 @@ window.addEventListener('load', async () => {
         }
         modal.classList.add('active');
     };
+
+    // Auto-pause timer when tab is hidden, resume when tab is visible
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            if (window.activeGameManager && !window.activeGameManager.isPaused && !window.activeGameManager.isStageCompleted) {
+                window.activeGameManager.pauseStageTimer();
+            }
+        } else {
+            if (window.activeGameManager && !window.activeGameManager.isPaused && !window.activeGameManager.isStageCompleted) {
+                window.activeGameManager.resumeStageTimer();
+            }
+        }
+    });
 
     activeGameManager.onGameOver = ({ reason }) => {
         if (reason === 'GAME_OVER_TRAY_OVERFLOW') {
@@ -65654,6 +65947,23 @@ window.addEventListener('load', async () => {
     };
 
         initDynamicScreenAdjuster();
+        if (typeof window !== 'undefined' && window.location && window.location.search && window.location.search.includes('screen=game')) {
+            document.querySelectorAll('.screen-view').forEach(s => s.classList.remove('active-screen'));
+            const gameScreen = document.getElementById('game-screen');
+            if (gameScreen) gameScreen.classList.add('active-screen');
+            const landing = document.getElementById('landing-screen');
+            if (landing) { landing.classList.remove('active-screen'); landing.style.display = 'none'; }
+            const gate = document.getElementById('gate-screen');
+            if (gate) { gate.classList.remove('active-screen'); gate.style.display = 'none'; }
+            routeToScreen('game');
+            if (activeGameManager) {
+                if (!activeGameManager.boardRenderer) {
+                    activeGameManager.init('board', 'center-stage-col');
+                } else {
+                    activeGameManager.startNewStage(activeGameManager.player.currentLevel);
+                }
+            }
+        }
 });
 
 </script>
