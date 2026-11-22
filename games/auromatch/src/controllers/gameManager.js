@@ -49,13 +49,11 @@ export function getRankForLevel(level) {
  * Smooth S-Curve Tile Density Function across 520 Levels
  */
 export function getTileCountForLevel(levelNum) {
-  if (levelNum === 1) return 36;          // Level 1: 36 tiles (Introductory Grand Solitaire)
-  if (levelNum <= 10) return 48;         // Levels 2-10: 48 tiles (Foundation)
-  if (levelNum <= 30) return 60;         // Levels 11-30: 60 tiles (Ascent)
-  if (levelNum <= 75) return 72;         // Levels 31-75: 72 tiles (Depth)
-  if (levelNum <= 150) return 84;        // Levels 76-150: 84 tiles (Mastery)
-  if (levelNum <= 260) return 96;        // Levels 151-260: 96 tiles (Grand Peak)
-  return 108;                            // Levels 261-520+: 108 tiles (Grand Citadel)
+  if (levelNum === 1) return 60;          // Level 1: 60 tiles (Introductory Grand Solitaire with rich 4-tier apex)
+  if (levelNum <= 10) return 72;         // Levels 2-10: 72 tiles (Foundation)
+  if (levelNum <= 30) return 96;         // Levels 11-30: 96 tiles (Ascent)
+  if (levelNum <= 75) return 120;        // Levels 31-75: 120 tiles (Depth)
+  return 144;                            // Levels 76-520+: 144 tiles (The Grand Turtle / Mahjong Pinnacle)
 }
 
 /**
@@ -560,8 +558,10 @@ export class GameManager {
     }
     const levelFlora = getTilesForLevel(levelNum, distinctFloraCount);
 
-    const layout = VitaBoardGenerator.createLevelLayout(levelNum, tileCount);
-    this.currentFormationName = VitaBoardGenerator.getFormationName(levelNum);
+    // Unpredictable random shape selection: pick a fresh silhouette from the 25-formation gallery
+    const formationIdx = Math.floor(Math.random() * VitaBoardGenerator.FORMATIONS.length);
+    const layout = VitaBoardGenerator.createLevelLayout(levelNum, tileCount, formationIdx);
+    this.currentFormationName = VitaBoardGenerator.getFormationName(levelNum, formationIdx);
     this.tiles = VitaBoardGenerator.generateSolvableBoard(layout, levelFlora, isTileClub ? 'tile_club' : 'vita');
 
     // Realm & Botanical Campaign Metadata & Archetype assignment

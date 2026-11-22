@@ -902,6 +902,128 @@ export class VitaBoardGenerator {
     return VitaBoardGenerator._padToTarget(coords, targetCount);
   }
 
+  // 21. The Grand Turtle (Kurma - Classic 144-Tile Mahjong Solitaire Centerpiece)
+  static _genTurtle(targetCount) {
+    const coords = [];
+    // 4 Outward Flippers / Feet
+    coords.push({ x: 0.0, y: 0.0, z: 0 }, { x: 1.0, y: 0.0, z: 0 });
+    coords.push({ x: 8.0, y: 0.0, z: 0 }, { x: 9.0, y: 0.0, z: 0 });
+    coords.push({ x: 0.0, y: 7.0, z: 0 }, { x: 1.0, y: 7.0, z: 0 });
+    coords.push({ x: 8.0, y: 7.0, z: 0 }, { x: 9.0, y: 7.0, z: 0 });
+    // Head (top center) & Tail (bottom center)
+    coords.push({ x: 4.0, y: 0.0, z: 0 }, { x: 5.0, y: 0.0, z: 0 });
+    coords.push({ x: 4.5, y: -0.5, z: 1 });
+    coords.push({ x: 4.0, y: 7.0, z: 0 }, { x: 5.0, y: 7.0, z: 0 });
+    // Carapace Base (Layer 0)
+    for (let r = 1; r <= 6; r++) {
+      for (let c = 2; c <= 7; c++) {
+        coords.push({ x: c * 1.0, y: r * 1.0, z: 0 });
+      }
+    }
+    // Carapace Middle Shell (Layer 1)
+    for (let r = 2; r <= 5; r++) {
+      for (let c = 3; c <= 6; c++) {
+        coords.push({ x: c * 1.0 + 0.5, y: r * 1.0 + 0.5, z: 1 });
+      }
+    }
+    // Carapace Ridge (Layer 2)
+    for (let r = 3; r <= 4; r++) {
+      for (let c = 4; c <= 5; c++) {
+        coords.push({ x: c * 1.0 + 0.5, y: r * 1.0 + 0.5, z: 2 });
+      }
+    }
+    // Apex Crown (Layer 3)
+    coords.push({ x: 4.5, y: 3.5, z: 3 });
+    coords.push({ x: 5.0, y: 3.5, z: 3 });
+    return VitaBoardGenerator._padToTarget(coords, targetCount);
+  }
+
+  // 22. Floating Archipelago (Dwipa - 3 Multi-Island Clusters)
+  static _genArchipelago(targetCount) {
+    const coords = [];
+    // West Island (Left Pavilion)
+    for (let r = 1; r <= 4; r++) {
+      for (let c = 0; c <= 2; c++) {
+        coords.push({ x: c * 1.0, y: r * 1.0, z: 0 });
+      }
+    }
+    for (let r = 2; r <= 3; r++) {
+      coords.push({ x: 1.0, y: r * 1.0, z: 1 });
+    }
+    // Central Sanctuary Island (Tall Spire)
+    for (let r = 0; r <= 5; r++) {
+      for (let c = 4; c <= 7; c++) {
+        coords.push({ x: c * 1.0, y: r * 1.0, z: 0 });
+      }
+    }
+    for (let r = 1; r <= 4; r++) {
+      for (let c = 5; c <= 6; c++) {
+        coords.push({ x: c * 1.0 + 0.5, y: r * 1.0 + 0.5, z: 1 });
+      }
+    }
+    coords.push({ x: 5.5, y: 2.0, z: 2 }, { x: 5.5, y: 3.0, z: 2 });
+    coords.push({ x: 5.5, y: 2.5, z: 3 });
+    // East Island (Right Pavilion)
+    for (let r = 1; r <= 4; r++) {
+      for (let c = 9; c <= 11; c++) {
+        coords.push({ x: c * 1.0, y: r * 1.0, z: 0 });
+      }
+    }
+    for (let r = 2; r <= 3; r++) {
+      coords.push({ x: 10.0, y: r * 1.0, z: 1 });
+    }
+    return VitaBoardGenerator._padToTarget(coords, targetCount);
+  }
+
+  // 23. Dragon Crest (Makara Serpentine Ridge)
+  static _genDragon(targetCount) {
+    const coords = [];
+    const spine = [
+      { c: 0, r: 4 }, { c: 1, r: 4 }, { c: 2, r: 3 }, { c: 3, r: 2 },
+      { c: 4, r: 2 }, { c: 5, r: 3 }, { c: 6, r: 4 }, { c: 7, r: 3 },
+      { c: 8, r: 2 }, { c: 9, r: 1 }, { c: 10, r: 1 }
+    ];
+    for (const pt of spine) {
+      coords.push({ x: pt.c * 1.0, y: pt.r * 1.0, z: 0 });
+      coords.push({ x: pt.c * 1.0, y: (pt.r + 1) * 1.0, z: 0 });
+      coords.push({ x: pt.c * 1.0, y: (pt.r - 1) * 1.0, z: 0 });
+      if (pt.c === 2 || pt.c === 8) {
+        coords.push({ x: pt.c * 1.0, y: (pt.r + 2) * 1.0, z: 0 });
+      }
+    }
+    for (let c = 2; c <= 8; c++) {
+      const match = spine.find(s => s.c === c);
+      if (match) coords.push({ x: match.c * 1.0 + 0.5, y: match.r * 1.0, z: 1 });
+    }
+    coords.push({ x: 8.5, y: 2.0, z: 2 }, { x: 9.0, y: 1.5, z: 2 });
+    coords.push({ x: 8.5, y: 1.5, z: 3 });
+    return VitaBoardGenerator._padToTarget(coords, targetCount);
+  }
+
+  // 24. Twin Pagoda Towers (Yugma Shikhara)
+  static _genTwinTowers(targetCount) {
+    const coords = [];
+    for (let c = 3; c <= 6; c++) {
+      coords.push({ x: c * 1.0, y: 3.0, z: 0 });
+      coords.push({ x: c * 1.0, y: 4.0, z: 0 });
+    }
+    for (let r = 1; r <= 5; r++) {
+      for (let c = 0; c <= 3; c++) coords.push({ x: c * 1.0, y: r * 1.0, z: 0 });
+    }
+    for (let r = 2; r <= 4; r++) {
+      for (let c = 1; c <= 2; c++) coords.push({ x: c * 1.0 + 0.5, y: r * 1.0, z: 1 });
+    }
+    coords.push({ x: 1.5, y: 3.0, z: 2 }, { x: 1.5, y: 3.0, z: 3 });
+    for (let r = 1; r <= 5; r++) {
+      for (let c = 6; c <= 9; c++) coords.push({ x: c * 1.0, y: r * 1.0, z: 0 });
+    }
+    for (let r = 2; r <= 4; r++) {
+      for (let c = 7; c <= 8; c++) coords.push({ x: c * 1.0 + 0.5, y: r * 1.0, z: 1 });
+    }
+    coords.push({ x: 7.5, y: 3.0, z: 2 }, { x: 7.5, y: 3.0, z: 3 });
+    return VitaBoardGenerator._padToTarget(coords, targetCount);
+  }
+
   // Sacred Epiphany 12-Petalled Lotus Mandala (4 Tiers, 48 Tiles)
   static getEpiphanyMandalaCoordinates(targetCount = 48) {
     const coords = [];
@@ -966,11 +1088,15 @@ export class VitaBoardGenerator {
 
   static FORMATIONS = [
     { name: 'Pyramid (Shikhara)', generator: VitaBoardGenerator._genPyramid },
+    { name: 'The Grand Turtle (Kurma)', generator: VitaBoardGenerator._genTurtle },
     { name: 'Twin Pillars (H-Gate)', generator: VitaBoardGenerator._genHGate },
-    { name: 'Lotus (Padma)', generator: VitaBoardGenerator._genLotus },
+    { name: 'Floating Archipelago (Dwipa)', generator: VitaBoardGenerator._genArchipelago },
+    { name: 'Lotus Blossom (Padma)', generator: VitaBoardGenerator._genLotus },
     { name: 'Citadel Fortress', generator: VitaBoardGenerator._genCitadel },
     { name: 'Butterfly Wings (Titli)', generator: VitaBoardGenerator._genButterfly },
+    { name: 'Dragon Crest (Makara)', generator: VitaBoardGenerator._genDragon },
     { name: 'Temple Cross (Vishwa)', generator: VitaBoardGenerator._genTempleCross },
+    { name: 'Twin Pagoda Towers', generator: VitaBoardGenerator._genTwinTowers },
     { name: 'Diamond (Vajra)', generator: VitaBoardGenerator._genDiamond },
     { name: 'Hourglass (Damaru)', generator: VitaBoardGenerator._genHourglass },
     { name: 'Constellation Star', generator: VitaBoardGenerator._genStar },
@@ -988,13 +1114,20 @@ export class VitaBoardGenerator {
     { name: 'Stupa Shrine (Chaitya)', generator: VitaBoardGenerator._genStupaShrine }
   ];
 
-  static getFormationName(levelNum = 1) {
+  static getFormationName(levelNum = 1, formationIndex = null) {
+    if (formationIndex !== null && formationIndex !== undefined && formationIndex >= 0 && formationIndex < this.FORMATIONS.length) {
+      return this.FORMATIONS[formationIndex].name;
+    }
     const idx = Math.max(0, (levelNum - 1)) % this.FORMATIONS.length;
     return this.FORMATIONS[idx].name;
   }
 
-  static createLevelLayout(levelNum = 1, tileCount = 36) {
-    const idx = Math.max(0, (levelNum - 1)) % this.FORMATIONS.length;
+  static createLevelLayout(levelNum = 1, tileCount = 36, formationIndex = null) {
+    let idx = formationIndex;
+    if (idx === null || idx === undefined || idx < 0 || idx >= this.FORMATIONS.length) {
+      // Unpredictable randomized selection: each session/play selects a surprising organic formation
+      idx = Math.floor(Math.random() * this.FORMATIONS.length);
+    }
     return this.FORMATIONS[idx].generator(tileCount);
   }
 
@@ -1137,7 +1270,7 @@ export class VitaBoardGenerator {
       for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++) coords.push({ x: c * 1.0 + 3.0, y: r * 1.0 + 2.0, z: 3 });
       coords.push({ x: 3.0, y: 2.5, z: 4 });
       coords.push({ x: 4.0, y: 2.5, z: 4 });
-    } else {
+    } else if (targetCount <= 108) {
       // 108 tiles (Grand Citadel Fortress): 54 on layer 0, 30 on layer 1, 16 on layer 2, 6 on layer 3, 2 peaks
       for (let r = 0; r < 6; r++) for (let c = 0; c < 9; c++) coords.push({ x: c * 1.0, y: r * 1.0, z: 0 });
       for (let r = 0; r < 5; r++) for (let c = 0; c < 6; c++) coords.push({ x: c * 1.0 + 1.5, y: r * 1.0 + 0.5, z: 1 });
@@ -1145,6 +1278,22 @@ export class VitaBoardGenerator {
       for (let r = 0; r < 2; r++) for (let c = 0; c < 3; c++) coords.push({ x: c * 1.0 + 3.0, y: r * 1.0 + 2.0, z: 3 });
       coords.push({ x: 3.5, y: 2.5, z: 4 });
       coords.push({ x: 4.5, y: 2.5, z: 4 });
+    } else if (targetCount <= 120) {
+      // 120 tiles (Grand Shikhara Monolith): 60 on layer 0, 35 on layer 1, 16 on layer 2, 8 on layer 3, 2 peaks
+      for (let r = 0; r < 6; r++) for (let c = 0; c < 10; c++) coords.push({ x: c * 1.0, y: r * 1.0, z: 0 });
+      for (let r = 0; r < 5; r++) for (let c = 0; c < 7; c++) coords.push({ x: c * 1.0 + 1.5, y: r * 1.0 + 0.5, z: 1 });
+      for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) coords.push({ x: c * 1.0 + 3.0, y: r * 1.0 + 1.0, z: 2 });
+      for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++) coords.push({ x: c * 1.0 + 3.0, y: r * 1.0 + 2.0, z: 3 });
+      coords.push({ x: 4.0, y: 2.5, z: 4 });
+      coords.push({ x: 5.0, y: 2.5, z: 4 });
+    } else {
+      // 144 tiles (The Grand Turtle / Mahjong Solitaire Pinnacle): 72 on layer 0, 42 on layer 1, 20 on layer 2, 8 on layer 3, 2 apex
+      for (let r = 0; r < 6; r++) for (let c = 0; c < 12; c++) coords.push({ x: c * 1.0, y: r * 1.0, z: 0 });
+      for (let r = 0; r < 5; r++) for (let c = 0; c < 8; c++) coords.push({ x: c * 1.0 + 2.0, y: r * 1.0 + 0.5, z: 1 });
+      for (let r = 0; r < 4; r++) for (let c = 0; c < 5; c++) coords.push({ x: c * 1.0 + 3.5, y: r * 1.0 + 1.0, z: 2 });
+      for (let r = 0; r < 2; r++) for (let c = 0; c < 5; c++) coords.push({ x: c * 1.0 + 3.5, y: r * 1.0 + 2.0, z: 3 });
+      coords.push({ x: 5.0, y: 2.5, z: 4 });
+      coords.push({ x: 6.0, y: 2.5, z: 4 });
     }
 
     return coords.slice(0, targetCount);
