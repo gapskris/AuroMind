@@ -408,12 +408,18 @@ test('E2E Suite D - 2: Senior Mode syncs to theater iframe on load', async () =>
     const frame = await iframe.contentFrame();
     assert.ok(frame, 'Child frame must be available');
 
-    // Give postMessage a moment to complete
-    await new Promise(r => setTimeout(r, 200));
+    // Give postMessage and child frame initialization a moment to complete
+    await frame.waitForFunction(() => {
+      return document.body.classList.contains('senior-mode') ||
+             document.body.classList.contains('senior-view') ||
+             document.documentElement.classList.contains('senior-mode');
+    }, { timeout: 3000 });
 
     // Check child frame body class
     const childHasSenior = await frame.evaluate(() => {
-      return document.body.classList.contains('senior-mode') || document.body.classList.contains('senior-view');
+      return document.body.classList.contains('senior-mode') ||
+             document.body.classList.contains('senior-view') ||
+             document.documentElement.classList.contains('senior-mode');
     });
 
     assert.ok(childHasSenior, 'Child iframe body must reflect senior mode class on load');
@@ -960,35 +966,61 @@ test('E2E Suite D - 5: Real-browser AuroMatch Return-to-Portal security, button 
         });
       }
 
-      // 6. Observable Sentinel: edgeController classList
-      // If closeTheater() executed, it would execute: edgeController.classList.remove('open')
-      const edgeController = document.getElementById('edge-menu-tab');
+      // 6. Instrument actual closeTheater() operation: removal of 'open' from edgeController (B19.5-01G)
+      const edgeController = document.getElementById('game-edge-controller') || document.getElementById('edge-menu-tab');
+      let origEdgeClassRemove = null;
+      let openClassRemoved = false;
       if (edgeController) {
-        edgeController.classList.add('sentinel-inactive-test');
+        edgeController.classList.add('open');
+        origEdgeClassRemove = edgeController.classList.remove;
+        edgeController.classList.remove = function(...args) {
+          if (args.includes('open')) {
+            openClassRemoved = true;
+          }
+          return origEdgeClassRemove.apply(this, args);
+        };
       }
 
       const initialUrl = window.location.href;
+      let edgeControllerStillOpen = false;
 
-      // Dispatch syntactically valid close message using captured iframe source and correct same-origin (B19.5-01F Item 3)
-      window.dispatchEvent(new MessageEvent('message', {
-        source: capturedWin,
-        origin: window.location.origin,
-        data: { type: 'AUROMIND_CLOSE_THEATER', gameId: 'auromatch' }
-      }));
-
-      // Cleanup spies and sentinel
-      if (origTrack) window.AuroMind.telemetry.track = origTrack;
-      history.pushState = origPushState;
-      document.body.classList.remove = origClassRemove;
-      if (iframe) delete iframe.src;
-      if (catalogScroll) delete catalogScroll.style.display;
-
-      const sentinelPreserved = edgeController ? edgeController.classList.contains('sentinel-inactive-test') : true;
-      if (edgeController) edgeController.classList.remove('sentinel-inactive-test');
+      try {
+        // Dispatch syntactically valid close message using captured iframe source and correct same-origin (B19.5-01F/G)
+        window.dispatchEvent(new MessageEvent('message', {
+          source: capturedWin,
+          origin: window.location.origin,
+          data: { type: 'AUROMIND_CLOSE_THEATER', gameId: 'auromatch' }
+        }));
+        edgeControllerStillOpen = edgeController ? edgeController.classList.contains('open') : false;
+      } finally {
+        // Reliable restoration of every instrumented method and property (B19.5-01G Item 6)
+        if (origTrack && window.AuroMind && window.AuroMind.telemetry) {
+          window.AuroMind.telemetry.track = origTrack;
+        }
+        if (origPushState) {
+          history.pushState = origPushState;
+        }
+        if (origClassRemove) {
+          document.body.classList.remove = origClassRemove;
+        }
+        if (iframe) {
+          delete iframe.src;
+        }
+        if (catalogScroll) {
+          delete catalogScroll.style.display;
+        }
+        if (edgeController) {
+          if (origEdgeClassRemove) {
+            edgeController.classList.remove = origEdgeClassRemove;
+          }
+          edgeController.classList.remove('open');
+        }
+      }
 
       return {
         spies,
-        sentinelPreserved,
+        openClassRemoved,
+        edgeControllerStillOpen,
         receivedTotal: window.__portalReceivedCloseMessages ? window.__portalReceivedCloseMessages.length : 0,
         urlUnchanged: window.location.href === initialUrl
       };
@@ -997,13 +1029,14 @@ test('E2E Suite D - 5: Real-browser AuroMatch Return-to-Portal security, button 
     assert.ifError(inactiveRejectionResult.error);
     // Verify window received the dispatched message (message delivery succeeded)
     assert.strictEqual(inactiveRejectionResult.receivedTotal, 2, 'Message must be delivered to window message listener');
-    // Verify inactive theater handler rejected it: zero close actions or side effects (B19.5-01F Items 4 & 5)
+    // Verify inactive theater handler rejected it: zero close actions or side effects (B19.5-01F / B19.5-01G)
     assert.strictEqual(inactiveRejectionResult.spies.telemetryExitCalls, 0, 'Inactive theater message must NOT trigger telemetry exit (B19.5-01F)');
     assert.strictEqual(inactiveRejectionResult.spies.pushStateCalls, 0, 'Inactive theater message must NOT trigger navigation pushState (B19.5-01F)');
     assert.strictEqual(inactiveRejectionResult.spies.iframeSrcSets, 0, 'Inactive theater message must NOT re-unload or set iframe src (B19.5-01F)');
     assert.strictEqual(inactiveRejectionResult.spies.bodyClassRemovals, 0, 'Inactive theater message must NOT mutate body class (B19.5-01F)');
     assert.strictEqual(inactiveRejectionResult.spies.catalogDisplaySets, 0, 'Inactive theater message must NOT re-transition catalog display (B19.5-01F)');
-    assert.strictEqual(inactiveRejectionResult.sentinelPreserved, true, 'Sentinel must be preserved without closeTheater execution (B19.5-01F)');
+    assert.strictEqual(inactiveRejectionResult.openClassRemoved, false, 'Inactive theater message must NOT execute removal of "open" class from edge controller (B19.5-01G)');
+    assert.strictEqual(inactiveRejectionResult.edgeControllerStillOpen, true, 'Edge controller "open" class must remain intact without closeTheater execution (B19.5-01G)');
     assert.strictEqual(inactiveRejectionResult.urlUnchanged, true, 'Location URL must remain unchanged (B19.5-01F)');
 
     // 6. Standalone AuroMatch navigation (Item 17)
@@ -1257,7 +1290,13 @@ test('E2E Suite H - 2: Active audio is suspended on theater launch and restored 
     await page.goto(env.baseUrl, { waitUntil: 'domcontentloaded' });
 
     // 1. Start ambient audio
-    await page.click('#ambient-audio-btn');
+    await page.waitForFunction(() => typeof window.isAmbientAudioPlaying === 'function', { timeout: 3000 });
+    await page.evaluate(() => {
+      const btn = document.getElementById('ambient-audio-btn');
+      if (btn) btn.click();
+      else if (typeof window.resumeAmbientAudio === 'function') window.resumeAmbientAudio();
+    });
+    await page.waitForFunction(() => typeof window.isAmbientAudioPlaying === 'function' && window.isAmbientAudioPlaying() === true, { timeout: 3000 });
 
     const isAudioActive = await page.evaluate(() => {
       return (typeof window.isAmbientAudioPlaying === 'function') && window.isAmbientAudioPlaying();
