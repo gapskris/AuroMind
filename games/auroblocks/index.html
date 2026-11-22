@@ -18,14 +18,52 @@
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="icon" type="image/png" sizes="192x192" href="./pwa-192x192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
-    <!-- AuroBlocks Runtime Initialization (B17.4 externalized for strict script-src 'self' CSP compliance) -->
-    <script src="./assets/auroblocks-init.js"></script>
-    <!-- AuroMind Shared Platform SDK Bridge -->
-    <script type="module" src="./assets/auroblocks-sdk-bridge.js"></script>
-    <script type="module" crossorigin src="./assets/index-BhaX7mct.js"></script>
+    <script>
+      (function () {
+        try {
+          if ('caches' in window) {
+            caches.keys().then(function (names) {
+              Promise.all(
+                names.map(function (name) {
+                  return caches.open(name).then(function (cache) {
+                    return cache.keys().then(function (reqs) {
+                      var deletions = [];
+                      for (var i = 0; i < reqs.length; i++) {
+                        var url = reqs[i].url || '';
+                        if (
+                          url.indexOf('/node_modules/') !== -1 ||
+                          url.indexOf('/src/') !== -1 ||
+                          url.indexOf('/@vite/') !== -1 ||
+                          url.indexOf('.tsx') !== -1
+                        ) {
+                          deletions.push(cache.delete(reqs[i]));
+                        }
+                      }
+                      return Promise.all(deletions).then(function (res) {
+                        return res.length > 0;
+                      });
+                    });
+                  });
+                })
+              ).then(function (results) {
+                var hadStaleDevCache = results.some(Boolean);
+                if (hadStaleDevCache && !sessionStorage.getItem('auroblocks_dev_cache_purged')) {
+                  sessionStorage.setItem('auroblocks_dev_cache_purged', '1');
+                  window.location.reload();
+                } else if (!hadStaleDevCache) {
+                  sessionStorage.removeItem('auroblocks_dev_cache_purged');
+                }
+              });
+            });
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <script type="module" crossorigin src="./assets/index-3o6enAB7.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-DqmwI8E_.css">
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"></div>
   </body>
 </html>
+

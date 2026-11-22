@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>AuroBlocks - Boulder Mode Visual Evidence</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+      background: radial-gradient(circle at 50% 30%, #171c26 0%, #0d1017 100%);
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      overflow-x: hidden;
+      padding: 16px;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 12px;
+    }
+    h1 {
+      font-size: 20px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #f59e0b;
+      text-shadow: 0 2px 10px rgba(245, 158, 11, 0.3);
+    }
+    p {
+      font-size: 13px;
+      color: #94a3b8;
+      margin-top: 4px;
+    }
+    #canvas-container {
+      position: relative;
+      border-radius: 16px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.06);
+      background: #11141c;
+      touch-action: none;
+    }
+    canvas {
+      display: block;
+      border-radius: 16px;
+    }
+    .info-bar {
+      margin-top: 14px;
+      display: flex;
+      gap: 16px;
+      font-size: 13px;
+      color: #cbd5e1;
+      background: rgba(255,255,255,0.04);
+      padding: 8px 16px;
+      border-radius: 20px;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .info-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .badge {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🪨 Boulder Mode — Real Stone Evidence</h1>
+    <p>Drag boulders onto the carved bedrock quarry grid. Observe 3D depth, stone grain & mortarless seams.</p>
+  </header>
+
+  <div id="canvas-container">
+    <canvas id="gameCanvas" width="440" height="580"></canvas>
+  </div>
+
+  <div class="info-bar">
+    <div class="info-item"><span class="badge" style="background:#eab308"></span> Quartz Granite</div>
+    <div class="info-item"><span class="badge" style="background:#ca8a04"></span> Sandstone</div>
+    <div class="info-item"><span class="badge" style="background:#475569"></span> River Slate</div>
+    <div class="info-item"><span class="badge" style="background:#1e293b"></span> Basalt</div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const DPR = window.devicePixelRatio || 1;
+    const W = 440;
+    const H = 580;
+
+    canvas.width = W * DPR;
+    canvas.height = H * DPR;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.scale(DPR, DPR);
+
+    // Grid Specs
+    const GRID_SIZE = 8;
+    const BOARD_SIZE = 344;
+    const CELL_SIZE = 38;
+    const GAP = 5;
+    const BOARD_X = (W - BOARD_SIZE) / 2;
+    const BOARD_Y = 24;
+
+    // Board State: 0 empty, >0 stone material
+    const board = new Uint8Array(GRID_SIZE * GRID_SIZE);
+
+    // Initial scenic placed boulders
+    // Top-left 2x2 granite monolith
+    board[0 * 8 + 0] = 1; board[0 * 8 + 1] = 1;
+    board[1 * 8 + 0] = 1; board[1 * 8 + 1] = 1;
+    // Top-right Sandstone L
+    board[0 * 8 + 6] = 2; board[0 * 8 + 7] = 2;
+    board[1 * 8 + 6] = 2;
+    // Center Basalt cobbles
+    board[3 * 8 + 3] = 4; board[3 * 8 + 4] = 4;
+    board[4 * 8 + 3] = 4; board[4 * 8 + 4] = 4;
+    // Row 6 River Slate bar
+    board[6 * 8 + 1] = 3; board[6 * 8 + 2] = 3; board[6 * 8 + 3] = 3;
+
+    // Boulder definitions
+    const BOULDER_TYPES = {
+      GRANITE_2X2: {
+        id: 'GRANITE_2X2',
+        name: 'Megalith Granite Monolith',
+        w: 2, h: 2,
+        rows: [0b11, 0b11],
+        mat: 1, // Quartz granite
+        weight: 'Colossal'
+      },
+      SANDSTONE_L: {
+        id: 'SANDSTONE_L',
+        name: 'Stratified Sandstone Crag',
+        w: 2, h: 2,
+        rows: [0b11, 0b10],
+        mat: 2, // Sandstone
+        weight: 'Medium'
+      },
+      SLATE_2X1: {
+        id: 'SLATE_2X1',
+        name: 'River Slate Slab',
+        w: 2, h: 1,
+        rows: [0b11],
+        mat: 3, // Slate
+        weight: 'Small Wedge'
+      }
+    };
+
+    // Staging tray slots
+    const traySlots = [
+      { x: 24, y: 410, w: 116, h: 130, piece: BOULDER_TYPES.GRANITE_2X2, placed: false },
+      { x: 162, y: 410, w: 116, h: 130, piece: BOULDER_TYPES.SANDSTONE_L, placed: false },
+      { x: 300, y: 410, w: 116, h: 130, piece: BOULDER_TYPES.SLATE_2X1, placed: false },
+    ];
+
+    let draggedSlot = null;
+    let dragPos = { x: 0, y: 0 };
+    let hoverAnchor = null;
+
+    // Web Audio Synthesizer
+    let audioCtx = null;
+    function playStoneThud(isHeavy) {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const t = audioCtx.currentTime;
+
+        // Sub-bass thud
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(isHeavy ? 110 : 160, t);
+        osc.frequency.exponentialRampToValueAtTime(30, t + 0.16);
+        gain.gain.setValueAtTime(isHeavy ? 0.5 : 0.25, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(t);
+        osc.stop(t + 0.18);
+
+        // Stone click noise
+        const buf = audioCtx.createBuffer(1, Math.floor(audioCtx.sampleRate * 0.08), audioCtx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+        const noise = audioCtx.createBufferSource();
+        noise.buffer = buf;
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(isHeavy ? 1100 : 1800, t);
+        filter.Q.setValueAtTime(2.2, t);
+        const ng = audioCtx.createGain();
+        ng.gain.setValueAtTime(0.3, t);
+        ng.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+        noise.connect(filter);
+        filter.connect(ng);
+        ng.connect(audioCtx.destination);
+        noise.start(t);
+      } catch (e) {}
+    }
+
+    // --- PROCEDURAL REAL STONE RENDERER ---
+    function drawRealStone(ctx, x, y, bw, bh, mat, isElevated, neighbors = {}) {
+      ctx.save();
+      const depth = isElevated ? 9 : 5;
+      const r = 4; // chiseled rock corner radius
+
+      const hasTop = Boolean(neighbors.top);
+      const hasBottom = Boolean(neighbors.bottom);
+      const hasLeft = Boolean(neighbors.left);
+      const hasRight = Boolean(neighbors.right);
+
+      // --- 1. 3D Extruded Front Depth (Physical Stone Slab Lip) ---
+      if (!hasBottom) {
+        ctx.fillStyle = '#141821';
+        ctx.beginPath();
+        ctx.moveTo(x, y + bh);
+        ctx.lineTo(x + bw, y + bh);
+        ctx.lineTo(x + bw, y + bh + depth);
+        ctx.lineTo(x, y + bh + depth);
+        ctx.closePath();
+        ctx.fill();
+
+        // Front cleft vertical chisel marks
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x + bw * 0.3, y + bh);
+        ctx.lineTo(x + bw * 0.3, y + bh + depth);
+        ctx.moveTo(x + bw * 0.7, y + bh);
+        ctx.lineTo(x + bw * 0.7, y + bh + depth);
+        ctx.stroke();
+
+        // Ambient occlusion shadow cast below
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.fillRect(x, y + bh + depth, bw, isElevated ? 8 : 3);
+      }
+
+      // --- 2. Main Stone Face Shading & Organic Textures ---
+      let baseGrad;
+      switch (mat) {
+        case 1: // Granite with Golden Quartz
+          baseGrad = ctx.createLinearGradient(x, y, x + bw, y + bh);
+          baseGrad.addColorStop(0, '#85929e');
+          baseGrad.addColorStop(0.5, '#5d6d7e');
+          baseGrad.addColorStop(1, '#34495e');
+          ctx.fillStyle = baseGrad;
+          ctx.fillRect(x, y, bw, bh);
+
+          // Granite mineral flecks
+          ctx.fillStyle = 'rgba(255,255,255,0.3)';
+          ctx.fillRect(x + bw * 0.2, y + bh * 0.25, 2, 2);
+          ctx.fillRect(x + bw * 0.65, y + bh * 0.7, 2, 2);
+          ctx.fillRect(x + bw * 0.8, y + bh * 0.3, 1.5, 1.5);
+          ctx.fillStyle = 'rgba(20,20,25,0.4)';
+          ctx.fillRect(x + bw * 0.35, y + bh * 0.6, 2.5, 2.5);
+          ctx.fillRect(x + bw * 0.7, y + bh * 0.2, 2, 2);
+
+          // Golden quartz fissure vein
+          ctx.strokeStyle = '#d4af37';
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.moveTo(x + bw * 0.15, y + bh * 0.1);
+          ctx.lineTo(x + bw * 0.45, y + bh * 0.45);
+          ctx.lineTo(x + bw * 0.35, y + bh * 0.65);
+          ctx.lineTo(x + bw * 0.75, y + bh * 0.9);
+          ctx.stroke();
+          ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+          ctx.lineWidth = 0.8;
+          ctx.stroke();
+          break;
+
+        case 2: // Stratified Sandstone
+          baseGrad = ctx.createLinearGradient(x, y, x, y + bh);
+          baseGrad.addColorStop(0, '#c68d4d');
+          baseGrad.addColorStop(0.3, '#a36830');
+          baseGrad.addColorStop(0.7, '#ba7f40');
+          baseGrad.addColorStop(1, '#855122');
+          ctx.fillStyle = baseGrad;
+          ctx.fillRect(x, y, bw, bh);
+
+          // Waving sedimentary strata
+          ctx.strokeStyle = 'rgba(60, 30, 8, 0.35)';
+          ctx.lineWidth = 1.6;
+          ctx.beginPath();
+          ctx.moveTo(x, y + bh * 0.35);
+          ctx.bezierCurveTo(x + bw * 0.3, y + bh * 0.28, x + bw * 0.7, y + bh * 0.42, x + bw, y + bh * 0.34);
+          ctx.moveTo(x, y + bh * 0.7);
+          ctx.bezierCurveTo(x + bw * 0.4, y + bh * 0.65, x + bw * 0.6, y + bh * 0.75, x + bw, y + bh * 0.68);
+          ctx.stroke();
+          break;
+
+        case 3: // River Slate
+          baseGrad = ctx.createLinearGradient(x, y, x + bw, y);
+          baseGrad.addColorStop(0, '#3a4b60');
+          baseGrad.addColorStop(0.6, '#293647');
+          baseGrad.addColorStop(1, '#1b2430');
+          ctx.fillStyle = baseGrad;
+          ctx.fillRect(x, y, bw, bh);
+
+          // Layered cleft striations
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(x + bw * 0.1, y + bh * 0.4);
+          ctx.lineTo(x + bw * 0.9, y + bh * 0.42);
+          ctx.moveTo(x + bw * 0.2, y + bh * 0.7);
+          ctx.lineTo(x + bw * 0.85, y + bh * 0.68);
+          ctx.stroke();
+          break;
+
+        case 4: // Volcanic Basalt
+          baseGrad = ctx.createRadialGradient(x + bw * 0.45, y + bh * 0.45, 2, x + bw * 0.5, y + bh * 0.5, bw * 0.75);
+          baseGrad.addColorStop(0, '#333b47');
+          baseGrad.addColorStop(1, '#181d24');
+          ctx.fillStyle = baseGrad;
+          ctx.fillRect(x, y, bw, bh);
+          break;
+      }
+
+      // --- 3. Interlocking Mortarless Dry-Stone Seam ---
+      if (hasRight) {
+        ctx.strokeStyle = 'rgba(10, 12, 16, 0.85)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x + bw, y);
+        ctx.lineTo(x + bw, y + bh);
+        ctx.stroke();
+
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(x + bw + 1, y);
+        ctx.lineTo(x + bw + 1, y + bh);
+        ctx.stroke();
+      }
+      if (hasBottom) {
+        ctx.strokeStyle = 'rgba(10, 12, 16, 0.85)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x, y + bh);
+        ctx.lineTo(x + bw, y + bh);
+        ctx.stroke();
+
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(x, y + bh + 1);
+        ctx.lineTo(x + bw, y + bh + 1);
+        ctx.stroke();
+      }
+
+      // --- 4. 3D Specular Sunlit Chamfers ---
+      // Top sunlit edge
+      if (!hasTop) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + bw, y);
+        ctx.lineTo(x + bw - 2, y + 2.5);
+        ctx.lineTo(x + 2, y + 2.5);
+        ctx.closePath();
+        ctx.fill();
+
+        // Sharp highlight gleam
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x + 1, y + 0.5);
+        ctx.lineTo(x + bw - 1, y + 0.5);
+        ctx.stroke();
+      }
+
+      // Left sunlit edge
+      if (!hasLeft) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.16)';
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + 2.5, y + 2);
+        ctx.lineTo(x + 2.5, y + bh - 2);
+        ctx.lineTo(x, y + bh);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Perimeter dark stone line
+      ctx.strokeStyle = 'rgba(10, 14, 20, 0.6)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, y + 0.5, bw - 1, bh - 1);
+
+      ctx.restore();
+    }
+
+    // --- MAIN RENDER LOOP ---
+    function render() {
+      ctx.clearRect(0, 0, W, H);
+
+      // --- 1. Ancient Quarry Bedrock Foundation Frame ---
+      ctx.save();
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+      ctx.shadowBlur = 28;
+      ctx.shadowOffsetY = 12;
+      ctx.fillStyle = '#1c222e';
+      ctx.strokeStyle = '#2d3748';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(BOARD_X - 12, BOARD_Y - 12, BOARD_SIZE + 24, BOARD_SIZE + 24, 14);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+
+      // Ancient border runes / carvings on foundation rim
+      ctx.fillStyle = 'rgba(212, 175, 55, 0.25)';
+      ctx.font = '9px monospace';
+      for (let i = 0; i < 8; i++) {
+        ctx.fillText('ᚠ ᚢ ᚦ', BOARD_X + i * 42 + 6, BOARD_Y - 3);
+        ctx.fillText('ᚱ ᚲ ᚷ', BOARD_X + i * 42 + 6, BOARD_Y + BOARD_SIZE + 9);
+      }
+
+      // --- 2. Bedrock Quarry Sockets (Carved recesses with sand bedding) ---
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+          const cx = BOARD_X + c * (CELL_SIZE + GAP);
+          const cy = BOARD_Y + r * (CELL_SIZE + GAP);
+          const mat = board[r * 8 + c];
+
+          if (mat === 0) {
+            // Empty carved rock socket
+            ctx.fillStyle = '#0f131a';
+            ctx.fillRect(cx, cy, CELL_SIZE, CELL_SIZE);
+
+            // Inner socket bevel shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.fillRect(cx, cy, CELL_SIZE, 3);
+            ctx.fillRect(cx, cy, 3, CELL_SIZE);
+
+            // Fine sand/gravel bedding granules
+            ctx.fillStyle = 'rgba(200, 170, 110, 0.22)';
+            ctx.fillRect(cx + 8, cy + 8, 1.5, 1.5);
+            ctx.fillRect(cx + 26, cy + 14, 1.5, 1.5);
+            ctx.fillRect(cx + 18, cy + 28, 1.5, 1.5);
+
+            // Central rune bindu mark
+            ctx.fillStyle = 'rgba(212, 175, 55, 0.15)';
+            ctx.beginPath();
+            ctx.arc(cx + CELL_SIZE / 2, cy + CELL_SIZE / 2, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Socket stone rim
+            ctx.strokeStyle = '#222938';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(cx, cy, CELL_SIZE, CELL_SIZE);
+          } else {
+            // Placed Boulder block
+            const hasTop = r > 0 && board[(r - 1) * 8 + c] === mat;
+            const hasBottom = r + 1 < GRID_SIZE && board[(r + 1) * 8 + c] === mat;
+            const hasLeft = c > 0 && board[r * 8 + (c - 1)] === mat;
+            const hasRight = c + 1 < GRID_SIZE && board[r * 8 + (c + 1)] === mat;
+
+            const bw = CELL_SIZE + (hasRight ? GAP : 0);
+            const bh = CELL_SIZE + (hasBottom ? GAP : 0);
+            drawRealStone(ctx, cx, cy, bw, bh, mat, false, {
+              top: hasTop, bottom: hasBottom, left: hasLeft, right: hasRight
+            });
+          }
+        }
+      }
+
+      // --- 3. Placement Hover Ghost Preview ---
+      if (hoverAnchor && draggedSlot) {
+        const piece = draggedSlot.piece;
+        const valid = canPlace(hoverAnchor.r, hoverAnchor.c, piece);
+        for (let pr = 0; pr < piece.h; pr++) {
+          for (let pc = 0; pc < piece.w; pc++) {
+            if ((piece.rows[pr] >> (piece.w - 1 - pc)) & 1) {
+              const tr = hoverAnchor.r + pr;
+              const tc = hoverAnchor.c + pc;
+              if (tr >= 0 && tr < 8 && tc >= 0 && tc < 8) {
+                const gx = BOARD_X + tc * (CELL_SIZE + GAP);
+                const gy = BOARD_Y + tr * (CELL_SIZE + GAP);
+                ctx.save();
+                if (valid) {
+                  ctx.fillStyle = 'rgba(212, 175, 55, 0.4)';
+                  ctx.fillRect(gx, gy, CELL_SIZE, CELL_SIZE);
+                  ctx.strokeStyle = '#f59e0b';
+                  ctx.lineWidth = 2;
+                  ctx.strokeRect(gx, gy, CELL_SIZE, CELL_SIZE);
+                } else {
+                  ctx.fillStyle = 'rgba(239, 68, 68, 0.4)';
+                  ctx.fillRect(gx, gy, CELL_SIZE, CELL_SIZE);
+                  ctx.strokeStyle = '#ef4444';
+                  ctx.lineWidth = 2;
+                  ctx.strokeRect(gx, gy, CELL_SIZE, CELL_SIZE);
+                }
+                ctx.restore();
+              }
+            }
+          }
+        }
+      }
+
+      // --- 4. Staging Tray (Heavy Stone Slab Pedestal) ---
+      for (let i = 0; i < traySlots.length; i++) {
+        const slot = traySlots[i];
+        // Stone pedestal card
+        ctx.save();
+        ctx.fillStyle = '#151a24';
+        ctx.strokeStyle = '#273244';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(slot.x, slot.y, slot.w, slot.h, 12);
+        ctx.fill();
+        ctx.stroke();
+
+        // Inner pedestal depression
+        ctx.fillStyle = '#0c0f16';
+        ctx.beginPath();
+        ctx.roundRect(slot.x + 6, slot.y + 6, slot.w - 12, slot.h - 12, 8);
+        ctx.fill();
+
+        // Weight tag
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(slot.piece.weight, slot.x + slot.w / 2, slot.y + slot.h - 10);
+        ctx.restore();
+
+        // Draw tray boulder piece (if not placed or being dragged)
+        if (!slot.placed && draggedSlot !== slot) {
+          const piece = slot.piece;
+          const pieceW = piece.w * 28 + (piece.w - 1) * 3;
+          const pieceH = piece.h * 28 + (piece.h - 1) * 3;
+          const startX = slot.x + (slot.w - pieceW) / 2;
+          const startY = slot.y + (slot.h - 20 - pieceH) / 2;
+
+          for (let pr = 0; pr < piece.h; pr++) {
+            for (let pc = 0; pc < piece.w; pc++) {
+              if ((piece.rows[pr] >> (piece.w - 1 - pc)) & 1) {
+                const bx = startX + pc * 31;
+                const by = startY + pr * 31;
+                const hasTop = pr > 0 && ((piece.rows[pr - 1] >> (piece.w - 1 - pc)) & 1) === 1;
+                const hasBottom = pr + 1 < piece.h && ((piece.rows[pr + 1] >> (piece.w - 1 - pc)) & 1) === 1;
+                const hasLeft = pc > 0 && ((piece.rows[pr] >> (piece.w - 1 - (pc - 1))) & 1) === 1;
+                const hasRight = pc + 1 < piece.w && ((piece.rows[pr] >> (piece.w - 1 - (pc + 1))) & 1) === 1;
+
+                drawRealStone(ctx, bx, by, 28 + (hasRight ? 3 : 0), 28 + (hasBottom ? 3 : 0), piece.mat, false, {
+                  top: hasTop, bottom: hasBottom, left: hasLeft, right: hasRight
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // --- 5. Actively Dragged Floating Boulder (High Elevation 3D Lift) ---
+      if (draggedSlot) {
+        const piece = draggedSlot.piece;
+        const pieceW = piece.w * CELL_SIZE + (piece.w - 1) * GAP;
+        const pieceH = piece.h * CELL_SIZE + (piece.h - 1) * GAP;
+        const startX = dragPos.x - pieceW / 2;
+        const startY = dragPos.y - pieceH / 2;
+
+        ctx.save();
+        // Dynamic heavy floating drop-shadow
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.65)';
+        ctx.shadowBlur = 26;
+        ctx.shadowOffsetY = 20;
+
+        for (let pr = 0; pr < piece.h; pr++) {
+          for (let pc = 0; pc < piece.w; pc++) {
+            if ((piece.rows[pr] >> (piece.w - 1 - pc)) & 1) {
+              const bx = startX + pc * (CELL_SIZE + GAP);
+              const by = startY + pr * (CELL_SIZE + GAP);
+              const hasTop = pr > 0 && ((piece.rows[pr - 1] >> (piece.w - 1 - pc)) & 1) === 1;
+              const hasBottom = pr + 1 < piece.h && ((piece.rows[pr + 1] >> (piece.w - 1 - pc)) & 1) === 1;
+              const hasLeft = pc > 0 && ((piece.rows[pr] >> (piece.w - 1 - (pc - 1))) & 1) === 1;
+              const hasRight = pc + 1 < piece.w && ((piece.rows[pr] >> (piece.w - 1 - (pc + 1))) & 1) === 1;
+
+              drawRealStone(ctx, bx, by, CELL_SIZE + (hasRight ? GAP : 0), CELL_SIZE + (hasBottom ? GAP : 0), piece.mat, true, {
+                top: hasTop, bottom: hasBottom, left: hasLeft, right: hasRight
+              });
+            }
+          }
+        }
+        ctx.restore();
+      }
+
+      requestAnimationFrame(render);
+    }
+
+    // Hit Testing & Drag Logic
+    function canPlace(ar, ac, piece) {
+      if (ar < 0 || ac < 0 || ar + piece.h > 8 || ac + piece.w > 8) return false;
+      for (let pr = 0; pr < piece.h; pr++) {
+        for (let pc = 0; pc < piece.w; pc++) {
+          if ((piece.rows[pr] >> (piece.w - 1 - pc)) & 1) {
+            if (board[(ar + pr) * 8 + (ac + pc)] !== 0) return false;
+          }
+        }
+      }
+      return true;
+    }
+
+    canvas.addEventListener('pointerdown', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) * (W / rect.width);
+      const y = (e.clientY - rect.top) * (H / rect.height);
+
+      for (let i = 0; i < traySlots.length; i++) {
+        const slot = traySlots[i];
+        if (!slot.placed && x >= slot.x && x <= slot.x + slot.w && y >= slot.y && y <= slot.y + slot.h) {
+          draggedSlot = slot;
+          dragPos = { x, y: y - 35 };
+          canvas.setPointerCapture(e.pointerId);
+          return;
+        }
+      }
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+      if (!draggedSlot) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) * (W / rect.width);
+      const y = (e.clientY - rect.top) * (H / rect.height);
+      dragPos = { x, y: y - 35 };
+
+      // Calculate candidate board anchor
+      const piece = draggedSlot.piece;
+      const pieceW = piece.w * CELL_SIZE + (piece.w - 1) * GAP;
+      const pieceH = piece.h * CELL_SIZE + (piece.h - 1) * GAP;
+      const pieceLeft = dragPos.x - pieceW / 2;
+      const pieceTop = dragPos.y - pieceH / 2;
+
+      const rawC = (pieceLeft - BOARD_X) / (CELL_SIZE + GAP);
+      const rawR = (pieceTop - BOARD_Y) / (CELL_SIZE + GAP);
+      const tc = Math.round(rawC);
+      const tr = Math.round(rawR);
+
+      if (tr >= 0 && tr <= 8 - piece.h && tc >= 0 && tc <= 8 - piece.w) {
+        hoverAnchor = { r: tr, c: tc };
+      } else {
+        hoverAnchor = null;
+      }
+    });
+
+    canvas.addEventListener('pointerup', () => {
+      if (!draggedSlot) return;
+      if (hoverAnchor && canPlace(hoverAnchor.r, hoverAnchor.c, draggedSlot.piece)) {
+        const piece = draggedSlot.piece;
+        for (let pr = 0; pr < piece.h; pr++) {
+          for (let pc = 0; pc < piece.w; pc++) {
+            if ((piece.rows[pr] >> (piece.w - 1 - pc)) & 1) {
+              board[(hoverAnchor.r + pr) * 8 + (hoverAnchor.c + pc)] = piece.mat;
+            }
+          }
+        }
+        draggedSlot.placed = true;
+        playStoneThud(piece.weight === 'Colossal');
+      }
+      draggedSlot = null;
+      hoverAnchor = null;
+    });
+
+    // Start loop
+    render();
+  </script>
+</body>
+</html>
