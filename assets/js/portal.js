@@ -571,6 +571,15 @@ function initTheaterMode() {
     if (!activeGameId || !gameUrls[activeGameId]) return;
 
     if (data.type === 'AUROMIND_CLOSE_THEATER' || data.action === 'EXIT_GAME') {
+      // Validate gameId if specified in close payload (B19.5-01C)
+      if (data.gameId && typeof data.gameId === 'string') {
+        const normPayload = data.gameId.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const normActive = activeGameId.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const isMatch = (normPayload === normActive) ||
+          (normPayload.includes('sanctuary') && normActive.includes('sanctuary')) ||
+          (normPayload.includes('word') && normActive.includes('word'));
+        if (!isMatch) return;
+      }
       closeTheater();
       return;
     }

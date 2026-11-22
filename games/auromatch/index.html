@@ -46,11 +46,15 @@
             // 1. Mandatory Source Validation: message MUST originate from expected parent window
             if (!window.parent || event.source !== window.parent) return;
 
-            // 2. Strict Origin Validation: exact match if valid origin available, allow 'null' only for opaque sandboxed origins
+            // 2. Strict Origin Validation: validate against trusted portal origin contract
+            // Disallow wildcard ('*'), empty (''), and opaque ('null') origins (B19.5-01C)
             var currentOrigin = window.location.origin;
-            var isTrustedOrigin = (currentOrigin && currentOrigin !== 'null')
-              ? (event.origin === currentOrigin)
-              : (event.origin === 'null' || event.origin === '');
+            var isTrustedOrigin = Boolean(
+              currentOrigin &&
+              currentOrigin !== 'null' &&
+              (currentOrigin.indexOf('http://') === 0 || currentOrigin.indexOf('https://') === 0) &&
+              event.origin === currentOrigin
+            );
             if (!isTrustedOrigin) return;
 
             // 3. Strict Payload and Type Allowlist Validation
@@ -84,8 +88,9 @@
             }
           }
 
-          window.__AUROMIND_SENIOR_HANDLER_ATTACHED__ = true;
+          // Register single authoritative listener and set flag only after successful registration (B19.5-01C)
           window.addEventListener('message', handleSeniorModeMessage);
+          window.__AUROMIND_SENIOR_HANDLER_ATTACHED__ = true;
         } catch(e) {}
       })();
     </script>
@@ -65203,13 +65208,31 @@ window.addEventListener('load', async () => {
         routeToScreen('welcome');
     };
     
-    window.exitToAuroMindPortal = () => {
-        if (window.parent && window.parent !== window) {
-            window.parent.postMessage({ type: 'AUROMIND_CLOSE_THEATER' }, '*');
-        } else {
-            window.location.href = 'https://gapskris.github.io/AuroMind/';
-        }
-    };
+    // Return to AuroMind Portal action (B17-GAP-05 / B17.4 / B19.5-01C)
+    // Delegate to authoritative implementation without wildcard targetOrigin
+    if (typeof window.exitToAuroMindPortal !== 'function') {
+        window.exitToAuroMindPortal = () => {
+            try {
+                if (window.parent && window.parent !== window) {
+                    const currentOrigin = window.location.origin;
+                    const isHttp = Boolean(
+                        currentOrigin &&
+                        currentOrigin !== 'null' &&
+                        (currentOrigin.indexOf('http://') === 0 || currentOrigin.indexOf('https://') === 0)
+                    );
+                    if (!isHttp) {
+                        window.location.href = '../../index.html';
+                        return;
+                    }
+                    window.parent.postMessage({ type: 'AUROMIND_CLOSE_THEATER', gameId: 'auromatch' }, currentOrigin);
+                } else {
+                    window.location.href = '../../index.html';
+                }
+            } catch (_err) {
+                window.location.href = '../../index.html';
+            }
+        };
+    }
 
     window.backFromSettings = () => {
         const prev = getPreviousScreen();

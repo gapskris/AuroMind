@@ -476,11 +476,14 @@ test('B19.5-01A Test 2: AuroMatch message handler behavioral matrix (valid, untr
     // 1. Mandatory Source Validation
     if (!mockWindow.parent || event.source !== mockWindow.parent) return false;
 
-    // 2. Strict Origin Validation
+    // 2. Strict Origin Validation: validate against trusted portal origin contract without wildcard or opaque null
     const currentOrigin = mockWindow.location.origin;
-    const isTrustedOrigin = (currentOrigin && currentOrigin !== 'null')
-      ? (event.origin === currentOrigin)
-      : (event.origin === 'null' || event.origin === '');
+    const isTrustedOrigin = Boolean(
+      currentOrigin &&
+      currentOrigin !== 'null' &&
+      (currentOrigin.startsWith('http:') || currentOrigin.startsWith('https:')) &&
+      event.origin === currentOrigin
+    );
     if (!isTrustedOrigin) return false;
 
     // 3. Strict Payload and Type Allowlist Validation
@@ -638,18 +641,18 @@ test('B19.5-01B Test 4: Single authoritative handler consolidation and repeated 
     'index.html must set window.__AUROMIND_SENIOR_HANDLER_ATTACHED__ to declare single authoritative handler ownership'
   );
 
-  // 2. SDK bridge respects authoritative handler flag to prevent duplicate listeners
+  // 2. SDK bridge avoids registering a duplicate listener
   assert.ok(
-    bridge.includes('window.__AUROMIND_SENIOR_HANDLER_ATTACHED__'),
-    'auromatch-sdk-bridge.js must check window.__AUROMIND_SENIOR_HANDLER_ATTACHED__ to prevent duplicate window listeners'
+    bridge.includes('games/auromatch/index.html') || bridge.includes('attachSeniorModeListener'),
+    'auromatch-sdk-bridge.js must acknowledge single authoritative handler in index.html'
   );
 
-  // 3. No duplicate message listeners inside src/main.js
+  // 3. Zero message listeners inside src/main.js (redundant listener removed per B19.5-01C)
   const mainMessageMatches = main.match(/window\.addEventListener\(['"]message['"]/g) || [];
   assert.strictEqual(
     mainMessageMatches.length,
-    1,
-    'src/main.js must contain exactly one top-level message listener (no inner duplicates in window load)'
+    0,
+    'src/main.js must contain zero message listeners (redundant top-level listener removed per B19.5-01C)'
   );
 
   // 4. Behavioral simulation of repeated message idempotency

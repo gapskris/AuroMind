@@ -488,7 +488,205 @@ test('E2E Suite D - 3: Mid-session Senior Mode toggle updates active theater ifr
   }
 });
 
-test('E2E Suite D - 4: Real-browser AuroMatch senior mode consolidation, security rejection, early init and standalone mode (B19.5-01B)', async () => {
+test('E2E Suite D - 4: Real-browser AuroMatch senior mode consolidation, listener count, idempotency and security (B19.5-01C)', async () => {
+  const { page, close } = await env.createInstrumentedPage();
+  try {
+    // Instrument window.addEventListener before application scripts execute to measure actual message listener count
+    await page.evaluateOnNewDocument(() => {
+      const origAdd = window.addEventListener;
+      window.addEventListener = function(type, listener, options) {
+        if (type === 'message') {
+          window.__actualMessageListeners = window.__actualMessageListeners || [];
+          window.__actualMessageListeners.push(listener);
+        }
+        return origAdd.call(this, type, listener, options);
+      };
+    });
+
+    await page.goto(env.baseUrl, { waitUntil: 'domcontentloaded' });
+
+    // 1. Launch AuroMatch in theater
+    await page.evaluate(() => {
+      const btn = document.querySelector('.btn-open[data-game-id="auromatch"]');
+      if (btn) btn.click();
+    });
+
+    await page.waitForSelector('#game-theater-view', { visible: true });
+    const iframe = await page.$('#game-viewport-iframe');
+    assert.ok(iframe, '#game-viewport-iframe must be mounted in theater view');
+
+    const frame = await iframe.contentFrame();
+    assert.ok(frame, 'Child frame must be available');
+    await frame.waitForFunction(() => typeof window.exitToAuroMindPortal === 'function', { timeout: 3000 });
+
+    // 2. Measure actual message listeners registered on window (Item 11)
+    const listenerCount = await frame.evaluate(() => (window.__actualMessageListeners ? window.__actualMessageListeners.length : 0));
+    assert.strictEqual(listenerCount, 1, 'Exactly one Senior Mode message listener must be registered on window');
+
+    // 3. Mark iframe identity to verify zero-reload lifecycle across toggles (Item 19)
+    await frame.evaluate(() => {
+      window.__FRAME_INSTANCE_IDENTITY__ = 'ORIGINAL_FRAME_INSTANCE_999';
+    });
+
+    // 4. Instrument real storage writes and manager transitions (Item 7)
+    await frame.evaluate(() => {
+      window.__localStorageWriteCount = 0;
+      const origSetItem = Storage.prototype.setItem;
+      Storage.prototype.setItem = function(key, val) {
+        if (key === 'auromind_senior_mode') {
+          window.__localStorageWriteCount++;
+        }
+        return origSetItem.call(this, key, val);
+      };
+
+      window.__managerTransitionCount = 0;
+      if (window.activeGameManager && typeof window.activeGameManager.toggleSeniorView === 'function') {
+        const origToggle = window.activeGameManager.toggleSeniorView.bind(window.activeGameManager);
+        window.activeGameManager.toggleSeniorView = function(...args) {
+          window.__managerTransitionCount++;
+          return origToggle(...args);
+        };
+      }
+    });
+
+    // 5. Security Rejections (Items 3, 4, 5, 6)
+    const securityCheck = await frame.evaluate(() => {
+      const initialSenior = document.documentElement.classList.contains('senior-mode');
+      const writesBefore = window.__localStorageWriteCount;
+      const transitionsBefore = window.__managerTransitionCount;
+
+      // Untrusted foreign source rejected (Item 3)
+      // window is not window.parent in iframe context, so passing window tests foreign source with valid EventTarget
+      window.dispatchEvent(new MessageEvent('message', {
+        source: window,
+        origin: window.location.origin,
+        data: { type: 'AUROMIND_SET_SENIOR_MODE', enabled: true }
+      }));
+
+      // Untrusted external origin rejected (Item 4)
+      window.dispatchEvent(new MessageEvent('message', {
+        source: window.parent,
+        origin: 'https://malicious-attacker.com',
+        data: { type: 'AUROMIND_SET_SENIOR_MODE', enabled: true }
+      }));
+
+      // Opaque null origin rejected (Item 4)
+      window.dispatchEvent(new MessageEvent('message', {
+        source: window.parent,
+        origin: 'null',
+        data: { type: 'AUROMIND_SET_SENIOR_MODE', enabled: true }
+      }));
+
+      // Non-boolean payload rejected (Item 5)
+      window.dispatchEvent(new MessageEvent('message', {
+        source: window.parent,
+        origin: window.location.origin,
+        data: { type: 'AUROMIND_SET_SENIOR_MODE', enabled: 'true' }
+      }));
+
+      // Unrelated message type rejected (Item 5)
+      window.dispatchEvent(new MessageEvent('message', {
+        source: window.parent,
+        origin: window.location.origin,
+        data: { type: 'UNRELATED_COMMAND', enabled: true }
+      }));
+
+      const unchanged = document.documentElement.classList.contains('senior-mode') === initialSenior;
+      const zeroWrites = window.__localStorageWriteCount === writesBefore;
+      const zeroTransitions = window.__managerTransitionCount === transitionsBefore;
+      return { unchanged, zeroWrites, zeroTransitions };
+    });
+
+    assert.ok(securityCheck.unchanged, 'Rejected messages must leave DOM and state unchanged');
+    assert.ok(securityCheck.zeroWrites, 'Rejected messages must produce 0 storage writes');
+    assert.ok(securityCheck.zeroTransitions, 'Rejected messages must produce 0 manager transitions');
+
+    // 6. Valid Senior Mode ON from portal (Item 1)
+    await page.evaluate(() => {
+      if (typeof window.applySeniorMode === 'function') {
+        window.applySeniorMode(true, true);
+      }
+    });
+    await new Promise(r => setTimeout(r, 250));
+
+    const stateOn = await frame.evaluate(() => {
+      const isDoc = document.documentElement.classList.contains('senior-mode');
+      const isBody = document.body.classList.contains('senior-mode');
+      const isMgr = window.activeGameManager ? window.activeGameManager.seniorView : null;
+      const isBoard = (window.activeGameManager && window.activeGameManager.boardRenderer)
+        ? window.activeGameManager.boardRenderer.seniorView
+        : null;
+      return { isDoc, isBody, isMgr, isBoard, writes: window.__localStorageWriteCount, transitions: window.__managerTransitionCount };
+    });
+
+    assert.strictEqual(stateOn.isDoc, true, 'document.documentElement must reflect senior-mode');
+    assert.strictEqual(stateOn.isBody, true, 'document.body must reflect senior-mode');
+    if (stateOn.isMgr !== null) assert.strictEqual(stateOn.isMgr, true, 'GameManager must reflect seniorView');
+    if (stateOn.isBoard !== null) assert.strictEqual(stateOn.isBoard, true, 'BoardRenderer must reflect seniorView (Item 9)');
+
+    // 7. Duplicate message idempotency (Item 7)
+    const writesAfterOn = stateOn.writes;
+    const transitionsAfterOn = stateOn.transitions;
+
+    // Send repeated ON message directly from parent
+    await page.evaluate(() => {
+      if (typeof window.applySeniorMode === 'function') {
+        window.applySeniorMode(true, true);
+      }
+    });
+    await new Promise(r => setTimeout(r, 200));
+
+    const duplicateCheck = await frame.evaluate(() => ({
+      writes: window.__localStorageWriteCount,
+      transitions: window.__managerTransitionCount
+    }));
+
+    assert.strictEqual(duplicateCheck.writes, writesAfterOn, 'Duplicate message must produce 0 additional storage writes (Item 7)');
+    assert.strictEqual(duplicateCheck.transitions, transitionsAfterOn, 'Duplicate message must produce 0 additional manager transitions (Item 7)');
+
+    // 8. Valid Senior Mode OFF from portal (Item 2)
+    await page.evaluate(() => {
+      if (typeof window.applySeniorMode === 'function') {
+        window.applySeniorMode(false, true);
+      }
+    });
+    await new Promise(r => setTimeout(r, 250));
+
+    const stateOff = await frame.evaluate(() => {
+      const isDoc = document.documentElement.classList.contains('senior-mode');
+      const isBody = document.body.classList.contains('senior-mode');
+      const isMgr = window.activeGameManager ? window.activeGameManager.seniorView : null;
+      return { isDoc, isBody, isMgr };
+    });
+
+    assert.strictEqual(stateOff.isDoc, false, 'document.documentElement must remove senior-mode');
+    assert.strictEqual(stateOff.isBody, false, 'document.body must remove senior-mode');
+    if (stateOff.isMgr !== null) assert.strictEqual(stateOff.isMgr, false, 'GameManager seniorView must be false');
+
+    // 9. Iframe identity check: verify zero reload or navigation occurred (Item 20)
+    const frameIdentity = await frame.evaluate(() => window.__FRAME_INSTANCE_IDENTITY__);
+    assert.strictEqual(frameIdentity, 'ORIGINAL_FRAME_INSTANCE_999', 'Iframe must not reload or navigate during Senior Mode toggles (Item 20)');
+
+    // 10. Standalone Senior Mode button verification (Item 10)
+    await page.goto(`${env.baseUrl}/games/auromatch/index.html`, { waitUntil: 'domcontentloaded' });
+    const standaloneBtnExists = await page.evaluate(() => !!(document.getElementById('btn-toggle-senior') || document.querySelector('.senior-toggle-btn')));
+    assert.ok(standaloneBtnExists, 'Senior mode button must exist in standalone AuroMatch (Item 10)');
+
+    const initialStandalone = await page.evaluate(() => document.documentElement.classList.contains('senior-mode'));
+    await page.evaluate(() => {
+      const btn = document.getElementById('btn-toggle-senior') || document.querySelector('.senior-toggle-btn');
+      if (btn) btn.click();
+      else if (typeof window.toggleSeniorViewMode === 'function') window.toggleSeniorViewMode();
+    });
+    await new Promise(r => setTimeout(r, 200));
+    const toggledStandalone = await page.evaluate(() => document.documentElement.classList.contains('senior-mode'));
+    assert.notStrictEqual(initialStandalone, toggledStandalone, 'Standalone Senior Mode button must toggle state');
+  } finally {
+    await close();
+  }
+});
+
+test('E2E Suite D - 5: Real-browser AuroMatch Return-to-Portal security, button action and lifecycle (B19.5-01C)', async () => {
   const { page, close } = await env.createInstrumentedPage();
   try {
     await page.goto(env.baseUrl, { waitUntil: 'domcontentloaded' });
@@ -507,73 +705,76 @@ test('E2E Suite D - 4: Real-browser AuroMatch senior mode consolidation, securit
     assert.ok(frame, 'Child frame must be available');
     await frame.waitForFunction(() => typeof window.exitToAuroMindPortal === 'function', { timeout: 3000 });
 
-    // 2. Authoritative handler check: window.__AUROMIND_SENIOR_HANDLER_ATTACHED__ is true
-    const isAuthoritativeAttached = await frame.evaluate(() => window.__AUROMIND_SENIOR_HANDLER_ATTACHED__);
-    assert.equal(isAuthoritativeAttached, true, 'AuroMatch must register single authoritative senior handler');
-
-    // 3. Security rejection check: message from foreign source or non-boolean is rejected
-    const rejectedNonBoolean = await frame.evaluate(() => {
-      const initial = document.documentElement.classList.contains('senior-mode');
-      // Simulate invalid dispatch with non-boolean payload
+    // 2. Foreign source cannot close theater (Item 13)
+    await page.evaluate(() => {
       window.dispatchEvent(new MessageEvent('message', {
-        source: window.parent,
+        source: window, // Foreign source (not theater iframe contentWindow)
         origin: window.location.origin,
-        data: { type: 'AUROMIND_SET_SENIOR_MODE', enabled: 'true' }
+        data: { type: 'AUROMIND_CLOSE_THEATER', gameId: 'auromatch' }
       }));
-      return document.documentElement.classList.contains('senior-mode') === initial;
     });
-    assert.equal(rejectedNonBoolean, true, 'Non-boolean payload must be rejected without mutating state');
+    await new Promise(r => setTimeout(r, 150));
+    let isTheaterVisible = await page.$eval('#game-theater-view', el => el.style.display !== 'none');
+    assert.ok(isTheaterVisible, 'Foreign source message must NOT close portal theater (Item 13)');
 
-    // 4. Mid-session toggle ON from portal -> updates without reload
+    // 3. Untrusted origin cannot close theater (Item 14)
     await page.evaluate(() => {
-      if (typeof window.applySeniorMode === 'function') {
-        window.applySeniorMode(true, true);
-      }
+      const activeIframe = document.getElementById('game-viewport-iframe');
+      window.dispatchEvent(new MessageEvent('message', {
+        source: activeIframe ? activeIframe.contentWindow : null,
+        origin: 'https://attacker-untrusted.com',
+        data: { type: 'AUROMIND_CLOSE_THEATER', gameId: 'auromatch' }
+      }));
     });
-    await new Promise(r => setTimeout(r, 250));
+    await new Promise(r => setTimeout(r, 150));
+    isTheaterVisible = await page.$eval('#game-theater-view', el => el.style.display !== 'none');
+    assert.ok(isTheaterVisible, 'Untrusted origin message must NOT close portal theater (Item 14)');
 
-    const stateOn = await frame.evaluate(() => {
-      const hasClass = document.documentElement.classList.contains('senior-mode') && document.body.classList.contains('senior-mode');
-      const mgrActive = window.activeGameManager ? window.activeGameManager.seniorView : null;
-      return { hasClass, mgrActive };
+    // 4. Mismatching game ID rejected (Item 15)
+    await page.evaluate(() => {
+      const activeIframe = document.getElementById('game-viewport-iframe');
+      window.dispatchEvent(new MessageEvent('message', {
+        source: activeIframe ? activeIframe.contentWindow : null,
+        origin: window.location.origin,
+        data: { type: 'AUROMIND_CLOSE_THEATER', gameId: 'mismatched_game_id' }
+      }));
     });
-    assert.equal(stateOn.hasClass, true, 'AuroMatch DOM must reflect senior-mode after portal toggle ON');
-    if (stateOn.mgrActive !== null) {
-      assert.equal(stateOn.mgrActive, true, 'activeGameManager.seniorView must be true after portal toggle ON');
+    await new Promise(r => setTimeout(r, 150));
+    isTheaterVisible = await page.$eval('#game-theater-view', el => el.style.display !== 'none');
+    assert.ok(isTheaterVisible, 'Mismatched game ID must NOT close portal theater (Item 15)');
+
+    // 5. Valid Return Button click returns to portal (Items 12, 16, 21)
+    const returnBtnExists = await frame.evaluate(() => !!document.getElementById('auromind-theater-return-btn'));
+    assert.ok(returnBtnExists, '#auromind-theater-return-btn must exist in iframe (Item 16)');
+
+    await frame.click('#auromind-theater-return-btn');
+    await page.waitForFunction(() => {
+      const tv = document.getElementById('game-theater-view');
+      return tv && tv.style.display === 'none';
+    }, { timeout: 3000 });
+
+    const catalogVisible = await page.$eval('.portal-content-scroll', el => el.style.display !== 'none');
+    assert.ok(catalogVisible, 'Catalog must be restored after returning to portal (Items 12, 21)');
+
+    // 6. Standalone AuroMatch navigation (Item 17)
+    const { page: standalonePage, close: closeStandalone } = await env.createInstrumentedPage();
+    try {
+      await standalonePage.goto(`${env.baseUrl}/games/auromatch/index.html`, { waitUntil: 'domcontentloaded' });
+      await standalonePage.waitForFunction(() => typeof window.exitToAuroMindPortal === 'function', { timeout: 3000 });
+      await Promise.all([
+        standalonePage.waitForNavigation({ waitUntil: 'domcontentloaded' }),
+        standalonePage.evaluate(() => window.exitToAuroMindPortal())
+      ]);
+      const currentUrl = standalonePage.url();
+      assert.ok(
+        currentUrl === `${env.baseUrl}/` ||
+        currentUrl === `${env.baseUrl}/index.html` ||
+        currentUrl.endsWith('/index.html'),
+        `Standalone exit must navigate to portal root (Item 17), actual: ${currentUrl}`
+      );
+    } finally {
+      await closeStandalone();
     }
-
-    // 5. Mid-session toggle OFF from portal -> updates without reload
-    await page.evaluate(() => {
-      if (typeof window.applySeniorMode === 'function') {
-        window.applySeniorMode(false, true);
-      }
-    });
-    await new Promise(r => setTimeout(r, 250));
-
-    const stateOff = await frame.evaluate(() => {
-      const hasClass = document.documentElement.classList.contains('senior-mode') || document.body.classList.contains('senior-mode');
-      const mgrActive = window.activeGameManager ? window.activeGameManager.seniorView : null;
-      return { hasClass, mgrActive };
-    });
-    assert.equal(stateOff.hasClass, false, 'AuroMatch DOM must clear senior-mode after portal toggle OFF');
-    if (stateOff.mgrActive !== null) {
-      assert.equal(stateOff.mgrActive, false, 'activeGameManager.seniorView must be false after portal toggle OFF');
-    }
-
-    // 6. Standalone AuroMatch mode verification
-    await page.goto(`${env.baseUrl}/games/auromatch/index.html`, { waitUntil: 'domcontentloaded' });
-    const standaloneBtnExists = await page.evaluate(() => !!(document.getElementById('btn-toggle-senior') || document.querySelector('.senior-toggle-btn')));
-    assert.ok(standaloneBtnExists, 'Senior mode button must exist in standalone AuroMatch');
-
-    const standaloneInitial = await page.evaluate(() => document.documentElement.classList.contains('senior-mode'));
-    await page.evaluate(() => {
-      const btn = document.getElementById('btn-toggle-senior') || document.querySelector('.senior-toggle-btn');
-      if (btn) btn.click();
-      else if (typeof window.toggleSeniorViewMode === 'function') window.toggleSeniorViewMode();
-    });
-    await new Promise(r => setTimeout(r, 200));
-    const standaloneToggled = await page.evaluate(() => document.documentElement.classList.contains('senior-mode'));
-    assert.notEqual(standaloneInitial, standaloneToggled, 'Clicking senior toggle button in standalone mode must toggle state');
   } finally {
     await close();
   }

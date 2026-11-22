@@ -27,17 +27,25 @@ import {
 import { ThemeManager, REALMS } from './controllers/themeManager.js';
 import { reshuffleBoard, renderBoard } from './ui/boardRenderer.js';
 
-// Return to AuroMind Portal action (B17-GAP-05 / B17.4 Remediation)
+// Return to AuroMind Portal action (B17-GAP-05 / B17.4 / B19.5-01C)
+// Authoritative return delegation without wildcard '*' target origin
 window.exitToAuroMindPortal = () => {
     try {
         if (window.parent && window.parent !== window) {
-            const targetOrigin = (window.location.origin && window.location.origin !== 'null' && (window.location.origin.startsWith('http:') || window.location.origin.startsWith('https:')))
-                ? window.location.origin
-                : '*';
+            const currentOrigin = window.location.origin;
+            const isHttp = Boolean(
+                currentOrigin &&
+                currentOrigin !== 'null' &&
+                (currentOrigin.indexOf('http://') === 0 || currentOrigin.indexOf('https://') === 0)
+            );
+            if (!isHttp) {
+                window.location.href = '../../index.html';
+                return;
+            }
             window.parent.postMessage({
                 type: 'AUROMIND_CLOSE_THEATER',
                 gameId: 'auromatch'
-            }, targetOrigin);
+            }, currentOrigin);
         } else {
             window.location.href = '../../index.html';
         }
@@ -46,46 +54,10 @@ window.exitToAuroMindPortal = () => {
     }
 };
 
-// Senior mode listener (B17-GAP-07 / B17.4 Remediation)
-window.addEventListener('message', (event) => {
-    // 1. Mandatory Source Validation: message MUST originate from expected parent window
-    if (!window.parent || event.source !== window.parent) return;
-
-    // 2. Origin Validation: exact match if valid origin available, allow 'null' only for opaque sandboxed origins
-    const currentOrigin = window.location.origin;
-    const isTrustedOrigin = (currentOrigin && currentOrigin !== 'null')
-        ? (event.origin === currentOrigin)
-        : (event.origin === 'null' || event.origin === '');
-    if (!isTrustedOrigin) return;
-
-    // 3. Strict Payload and Type Allowlist Validation
-    if (!event.data || typeof event.data !== 'object' || Array.isArray(event.data)) return;
-    if (event.data.type !== 'AUROMIND_SET_SENIOR_MODE') return;
-    if (typeof event.data.enabled !== 'boolean') return;
-
-    const isSenior = event.data.enabled;
-
-    // 4. Idempotency: Repeated messages do not cause redundant state transitions or persistence writes
-    if (window.__AUROMIND_SENIOR_MODE__ === isSenior &&
-        document.documentElement && document.documentElement.classList.contains('senior-mode') === isSenior &&
-        (!window.activeGameManager || window.activeGameManager.seniorView === isSenior)) {
-        return;
-    }
-
-    window.__AUROMIND_SENIOR_MODE__ = isSenior;
-    if (document.documentElement) {
-        document.documentElement.classList.toggle('senior-mode', isSenior);
-    }
-    if (document.body) {
-        document.body.classList.toggle('senior-mode', isSenior);
-    }
-    try {
-        localStorage.setItem('auromind_senior_mode', isSenior ? 'true' : 'false');
-    } catch (e) {}
-    if (window.activeGameManager && typeof window.activeGameManager.toggleSeniorView === 'function') {
-        window.activeGameManager.toggleSeniorView(isSenior);
-    }
-});
+// Senior mode message handling (B17-GAP-07 / B17.4 / B19.5-01C):
+// Authoritative listener is consolidated exclusively in games/auromatch/index.html.
+// Redundant top-level listener removed to guarantee single listener ownership across layers.
+// Required contract: AUROMIND_SET_SENIOR_MODE message validation enforces event.source !== window.parent.
 
 window.addEventListener('load', async () => {
     // 0. Auto-heal: restore all state from AuroMatchDB if localStorage was wiped (e.g. Safari 7-day ITP)
@@ -1783,14 +1755,24 @@ window.addEventListener('load', async () => {
     };
 
     /**
-     * Return to AuroMind Portal action (B17-GAP-05).
+     * Return to AuroMind Portal action (B17-GAP-05 / B19.5-01C).
+     * Authoritative implementation is in Assets/auromatch-sdk-bridge.js;
+     * delegates to existing window implementation or applies same strict origin contract without wildcard.
      */
     window.exitToAuroMindPortal = () => {
         try {
             if (window.parent && window.parent !== window) {
-                const targetOrigin = (window.location.origin && window.location.origin !== 'null' && (window.location.origin.startsWith('http:') || window.location.origin.startsWith('https:')))
-                    ? window.location.origin
-                    : '*';
+                const currentOrigin = window.location.origin;
+                const isHttp = Boolean(
+                    currentOrigin &&
+                    currentOrigin !== 'null' &&
+                    (currentOrigin.indexOf('http:') === 0 || currentOrigin.indexOf('https:') === 0)
+                );
+                if (!isHttp) {
+                    window.location.href = '../../index.html';
+                    return;
+                }
+                const targetOrigin = currentOrigin;
                 window.parent.postMessage({
                     type: 'AUROMIND_CLOSE_THEATER',
                     gameId: 'auromatch'

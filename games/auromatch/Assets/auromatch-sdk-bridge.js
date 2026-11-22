@@ -172,10 +172,17 @@ export function createAuroMatchGameAdapter() {
 export function exitToAuroMindPortal() {
   try {
     if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
-      const targetOrigin =
-        window.location.origin && window.location.origin !== 'null' && (window.location.origin.startsWith('http:') || window.location.origin.startsWith('https:'))
-          ? window.location.origin
-          : '*';
+      const currentOrigin = window.location.origin;
+      const isHttp = Boolean(
+        currentOrigin &&
+        currentOrigin !== 'null' &&
+        (currentOrigin.indexOf('http://') === 0 || currentOrigin.indexOf('https://') === 0)
+      );
+      if (!isHttp) {
+        window.location.href = '../../index.html';
+        return;
+      }
+      const targetOrigin = currentOrigin;
       window.parent.postMessage(
         {
           type: 'AUROMIND_CLOSE_THEATER',
@@ -265,55 +272,12 @@ function mountPortalReturnButton() {
 /**
  * Senior mode message listener.
  * Authoritative message validation and state synchronization is consolidated
- * in games/auromatch/index.html to ensure zero-FOUC early message handling and
- * eliminate duplicate event listeners across runtime layers (AP-SENIOR-01 / B19.5-01B).
+ * exclusively in games/auromatch/index.html to ensure single listener ownership (B19.5-01C).
+ * The SDK bridge explicitly does not register a duplicate window listener.
  */
 function attachSeniorModeListener() {
-  if (typeof window === 'undefined') return;
-  // If authoritative handler is already attached by index.html, avoid duplicate listener
-  if (window.__AUROMIND_SENIOR_HANDLER_ATTACHED__) return;
-
-  window.__AUROMIND_SENIOR_HANDLER_ATTACHED__ = true;
-  window.addEventListener('message', (event) => {
-    if (!window.parent || event.source !== window.parent) return;
-
-    const currentOrigin = window.location.origin;
-    const isTrustedOrigin =
-      currentOrigin && currentOrigin !== 'null'
-        ? event.origin === currentOrigin
-        : event.origin === 'null' || event.origin === '';
-    if (!isTrustedOrigin) return;
-
-    if (!event.data || typeof event.data !== 'object' || Array.isArray(event.data)) return;
-    if (event.data.type !== 'AUROMIND_SET_SENIOR_MODE') return;
-    if (typeof event.data.enabled !== 'boolean') return;
-
-    const isSenior = event.data.enabled;
-    if (
-      window.__AUROMIND_SENIOR_MODE__ === isSenior &&
-      document.documentElement &&
-      document.documentElement.classList.contains('senior-mode') === isSenior &&
-      (!window.activeGameManager || window.activeGameManager.seniorView === isSenior)
-    ) {
-      return;
-    }
-
-    window.__AUROMIND_SENIOR_MODE__ = isSenior;
-
-    if (document.documentElement) {
-      document.documentElement.classList.toggle('senior-mode', isSenior);
-    }
-    if (document.body) {
-      document.body.classList.toggle('senior-mode', isSenior);
-    }
-    try {
-      localStorage.setItem('auromind_senior_mode', isSenior ? 'true' : 'false');
-    } catch (e) {}
-
-    if (window.activeGameManager && typeof window.activeGameManager.toggleSeniorView === 'function') {
-      window.activeGameManager.toggleSeniorView(isSenior);
-    }
-  });
+  // Authoritative handler is registered exclusively by games/auromatch/index.html.
+  // Bridge explicitly avoids registering a second listener.
 }
 
 /**
