@@ -53,6 +53,43 @@ describe('AuroBlocks SW Scope Security - Structural Invariants', () => {
     assert.ok(swCode.includes('function isRequestInScope'), 'Must define isRequestInScope');
     assert.ok(swCode.includes('normalizedScope'), 'Must normalize scope trailing slash');
   });
+
+  test('AuroBlocks index.html enforces strict CSP and ordered SDK bridge integration', () => {
+    const indexPath = path.join(__dirname, 'games/auroblocks/index.html');
+    const html = fs.readFileSync(indexPath, 'utf8');
+
+    // CSP Invariant: Zero inline <script> tags
+    const inlineScriptMatch = html.match(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi);
+    assert.equal(
+      inlineScriptMatch,
+      null,
+      'AuroBlocks index.html must not contain unauthorized inline scripts violating CSP'
+    );
+
+    // Integration Invariant: Correct script loading order
+    const initIdx = html.indexOf('src="./assets/auroblocks-init.js"');
+    const bridgeIdx = html.indexOf('src="./assets/auroblocks-sdk-bridge.js"');
+    const bundleIdx = html.indexOf('src="./assets/index-BluMyXvX.js"');
+
+    assert.ok(initIdx !== -1, 'auroblocks-init.js must be linked');
+    assert.ok(bridgeIdx !== -1, 'auroblocks-sdk-bridge.js must be linked');
+    assert.ok(bundleIdx !== -1, 'Active bundle index-BluMyXvX.js must be linked');
+    assert.ok(initIdx < bridgeIdx, 'auroblocks-init.js must load before bridge');
+    assert.ok(bridgeIdx < bundleIdx, 'auroblocks-sdk-bridge.js must load before application bundle');
+
+    // Precache Manifest Invariant: Reconciled with active bundle
+    const precachePath = path.join(__dirname, 'games/auroblocks/precache-manifest.json');
+    const precache = JSON.parse(fs.readFileSync(precachePath, 'utf8'));
+    assert.ok(precache.assets.includes('./assets/index-BluMyXvX.js'), 'Precache must include active bundle');
+    assert.ok(precache.assets.includes('./assets/web-GBKL1FYn.js'), 'Precache must include active worker');
+    assert.ok(precache.assets.includes('./assets/index-DqmwI8E_.css'), 'Precache must include active CSS');
+
+    // Boulder Mode Invariant: 24 textures present
+    const boulderDir = path.join(__dirname, 'games/auroblocks/assets/boulder');
+    assert.ok(fs.existsSync(boulderDir), 'Boulder assets directory must exist');
+    const boulderFiles = fs.readdirSync(boulderDir);
+    assert.ok(boulderFiles.length >= 24, `Must preserve all boulder textures, found: ${boulderFiles.length}`);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -192,9 +229,13 @@ describe('AuroBlocks SW Scope Security - Scope Resolution & Boundary Matrix', ()
       standardHarness.isRequestInScope(new URL('https://portal.auromind.org/games/auroblocks/%2e%2e/auromatch/index.html'), scopeUrl),
       false
     );
-    // Encoded slash (%2e%2e%2f)
+    // Encoded slash (%2e%2e%2f and %2e%2e%2F)
     assert.equal(
       standardHarness.isRequestInScope(new URL('https://portal.auromind.org/games/auroblocks/%2e%2e%2fauromatch/index.html'), scopeUrl),
+      false
+    );
+    assert.equal(
+      standardHarness.isRequestInScope(new URL('https://portal.auromind.org/games/auroblocks/%2e%2e%2Fauromatch/index.html'), scopeUrl),
       false
     );
     // Repeated / nested percent encoding (%252e%252e)
@@ -202,9 +243,23 @@ describe('AuroBlocks SW Scope Security - Scope Resolution & Boundary Matrix', ()
       standardHarness.isRequestInScope(new URL('https://portal.auromind.org/games/auroblocks/%252e%252e/auromatch/index.html'), scopeUrl),
       false
     );
-    // Encoded backslash (%5c..%5c)
+    // Double-encoded traversal (%252e%252e%252f)
+    assert.equal(
+      standardHarness.isRequestInScope(new URL('https://portal.auromind.org/games/auroblocks/%252e%252e%252fauromatch/index.html'), scopeUrl),
+      false
+    );
+    // Encoded backslash (%5c..%5c and %5C..%5C)
     assert.equal(
       standardHarness.isRequestInScope(new URL('https://portal.auromind.org/games/auroblocks/%5c..%5cauromatch/index.html'), scopeUrl),
+      false
+    );
+    assert.equal(
+      standardHarness.isRequestInScope(new URL('https://portal.auromind.org/games/auroblocks/%5C..%5Cauromatch/index.html'), scopeUrl),
+      false
+    );
+    // Mixed slash and backslash traversal (%2f%5c..%2f)
+    assert.equal(
+      standardHarness.isRequestInScope(new URL('https://portal.auromind.org/games/auroblocks/%2f%5c..%2fauromatch/index.html'), scopeUrl),
       false
     );
   });
