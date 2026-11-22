@@ -264,10 +264,16 @@ function mountPortalReturnButton() {
 
 /**
  * Senior mode message listener.
+ * Authoritative message validation and state synchronization is consolidated
+ * in games/auromatch/index.html to ensure zero-FOUC early message handling and
+ * eliminate duplicate event listeners across runtime layers (AP-SENIOR-01 / B19.5-01B).
  */
 function attachSeniorModeListener() {
   if (typeof window === 'undefined') return;
+  // If authoritative handler is already attached by index.html, avoid duplicate listener
+  if (window.__AUROMIND_SENIOR_HANDLER_ATTACHED__) return;
 
+  window.__AUROMIND_SENIOR_HANDLER_ATTACHED__ = true;
   window.addEventListener('message', (event) => {
     if (!window.parent || event.source !== window.parent) return;
 
@@ -283,6 +289,15 @@ function attachSeniorModeListener() {
     if (typeof event.data.enabled !== 'boolean') return;
 
     const isSenior = event.data.enabled;
+    if (
+      window.__AUROMIND_SENIOR_MODE__ === isSenior &&
+      document.documentElement &&
+      document.documentElement.classList.contains('senior-mode') === isSenior &&
+      (!window.activeGameManager || window.activeGameManager.seniorView === isSenior)
+    ) {
+      return;
+    }
+
     window.__AUROMIND_SENIOR_MODE__ = isSenior;
 
     if (document.documentElement) {

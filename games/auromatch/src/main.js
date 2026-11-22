@@ -64,6 +64,14 @@ window.addEventListener('message', (event) => {
     if (typeof event.data.enabled !== 'boolean') return;
 
     const isSenior = event.data.enabled;
+
+    // 4. Idempotency: Repeated messages do not cause redundant state transitions or persistence writes
+    if (window.__AUROMIND_SENIOR_MODE__ === isSenior &&
+        document.documentElement && document.documentElement.classList.contains('senior-mode') === isSenior &&
+        (!window.activeGameManager || window.activeGameManager.seniorView === isSenior)) {
+        return;
+    }
+
     window.__AUROMIND_SENIOR_MODE__ = isSenior;
     if (document.documentElement) {
         document.documentElement.classList.toggle('senior-mode', isSenior);
@@ -1794,35 +1802,6 @@ window.addEventListener('load', async () => {
             window.location.href = '../../index.html';
         }
     };
-
-    // Senior mode listener (B17-GAP-07 / B17.4 Remediation)
-    window.addEventListener('message', (event) => {
-        // 1. Mandatory Source Validation: message MUST originate from expected parent window
-        if (!window.parent || event.source !== window.parent) return;
-
-        // 2. Origin Validation: exact match if valid origin available, allow 'null' only for opaque sandboxed origins
-        const currentOrigin = window.location.origin;
-        const isTrustedOrigin = (currentOrigin && currentOrigin !== 'null')
-            ? (event.origin === currentOrigin)
-            : (event.origin === 'null' || event.origin === '');
-        if (!isTrustedOrigin) return;
-
-        // 3. Strict Payload and Type Allowlist Validation
-        if (!event.data || typeof event.data !== 'object' || Array.isArray(event.data)) return;
-        if (event.data.type !== 'AUROMIND_SET_SENIOR_MODE') return;
-        if (typeof event.data.enabled !== 'boolean') return;
-
-        const isSenior = event.data.enabled;
-        window.__AUROMIND_SENIOR_MODE__ = isSenior;
-        document.documentElement.classList.toggle('senior-mode', isSenior);
-        document.body.classList.toggle('senior-mode', isSenior);
-        try {
-            localStorage.setItem('auromind_senior_mode', isSenior ? 'true' : 'false');
-        } catch (e) {}
-        if (window.activeGameManager && typeof window.activeGameManager.toggleSeniorView === 'function') {
-            window.activeGameManager.toggleSeniorView(isSenior);
-        }
-    });
 
     // Mount floating return pill when embedded in portal theater
     if (window.parent && window.parent !== window) {

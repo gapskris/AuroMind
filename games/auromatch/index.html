@@ -31,7 +31,7 @@
       })();
     </script>
 
-    <!-- Immediate Senior Mode Initialization & Portal Listener (Zero-FOUC B17-DEFECT-02 / B19.5-01A) -->
+    <!-- Immediate Senior Mode Initialization & Portal Listener (Zero-FOUC B17-DEFECT-02 / B19.5-01A / B19.5-01B) -->
     <script>
       (function() {
         try {
@@ -59,6 +59,14 @@
             if (typeof event.data.enabled !== 'boolean') return;
 
             var isSenior = event.data.enabled;
+
+            // 4. Idempotency: Repeated messages do not cause redundant state transitions or persistence writes
+            if (window.__AUROMIND_SENIOR_MODE__ === isSenior &&
+                document.documentElement && document.documentElement.classList.contains('senior-mode') === isSenior &&
+                (!window.activeGameManager || window.activeGameManager.seniorView === isSenior)) {
+              return;
+            }
+
             window.__AUROMIND_SENIOR_MODE__ = isSenior;
 
             if (document.documentElement) {
@@ -76,6 +84,7 @@
             }
           }
 
+          window.__AUROMIND_SENIOR_HANDLER_ATTACHED__ = true;
           window.addEventListener('message', handleSeniorModeMessage);
         } catch(e) {}
       })();
@@ -62997,6 +63006,14 @@ class GameManager {
       if (document.documentElement) document.documentElement.classList.toggle('senior-mode', this.seniorView);
       if (document.body) document.body.classList.toggle('senior-mode', this.seniorView);
     }
+    if (typeof window !== 'undefined') {
+      window.__AUROMIND_SENIOR_MODE__ = this.seniorView;
+    }
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('auromind_senior_mode', this.seniorView ? 'true' : 'false');
+      }
+    } catch (e) {}
     // Persist to storage
     if (profileState && profileState.settings) {
       profileState.settings.seniorViewActive = this.seniorView;

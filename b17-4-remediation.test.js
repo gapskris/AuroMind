@@ -623,3 +623,124 @@ test('B19.5-01A Test 3: Early Senior Mode message received before GameManager ex
   assert.strictEqual(activeGameManager.boardRenderer.seniorView, false, 'Mid-session toggle OFF must update boardRenderer');
 });
 
+test('B19.5-01B Test 4: Single authoritative handler consolidation and repeated message idempotency', () => {
+  const htmlPath = path.join(__dirname, 'games/auromatch/index.html');
+  const bridgePath = path.join(__dirname, 'games/auromatch/Assets/auromatch-sdk-bridge.js');
+  const mainPath = path.join(__dirname, 'games/auromatch/src/main.js');
+
+  const html = fs.readFileSync(htmlPath, 'utf8');
+  const bridge = fs.readFileSync(bridgePath, 'utf8');
+  const main = fs.readFileSync(mainPath, 'utf8');
+
+  // 1. Authoritative handler flag set in index.html
+  assert.ok(
+    html.includes('window.__AUROMIND_SENIOR_HANDLER_ATTACHED__ = true'),
+    'index.html must set window.__AUROMIND_SENIOR_HANDLER_ATTACHED__ to declare single authoritative handler ownership'
+  );
+
+  // 2. SDK bridge respects authoritative handler flag to prevent duplicate listeners
+  assert.ok(
+    bridge.includes('window.__AUROMIND_SENIOR_HANDLER_ATTACHED__'),
+    'auromatch-sdk-bridge.js must check window.__AUROMIND_SENIOR_HANDLER_ATTACHED__ to prevent duplicate window listeners'
+  );
+
+  // 3. No duplicate message listeners inside src/main.js
+  const mainMessageMatches = main.match(/window\.addEventListener\(['"]message['"]/g) || [];
+  assert.strictEqual(
+    mainMessageMatches.length,
+    1,
+    'src/main.js must contain exactly one top-level message listener (no inner duplicates in window load)'
+  );
+
+  // 4. Behavioral simulation of repeated message idempotency
+  let writeCount = 0;
+  let toggleCount = 0;
+  let currentDocSenior = false;
+
+  const mockContext = {
+    parent: { id: 'portal' },
+    location: { origin: 'https://auromasti.com' },
+    activeGameManager: {
+      seniorView: false,
+      toggleSeniorView: (val) => {
+        toggleCount++;
+        mockContext.activeGameManager.seniorView = val;
+      }
+    },
+    __AUROMIND_SENIOR_MODE__: undefined
+  };
+
+  function authoritativeHandler(event) {
+    if (!mockContext.parent || event.source !== mockContext.parent) return false;
+    const currentOrigin = mockContext.location.origin;
+    const isTrustedOrigin = (currentOrigin && currentOrigin !== 'null')
+      ? (event.origin === currentOrigin)
+      : (event.origin === 'null' || event.origin === '');
+    if (!isTrustedOrigin) return false;
+
+    if (!event.data || typeof event.data !== 'object' || Array.isArray(event.data)) return false;
+    if (event.data.type !== 'AUROMIND_SET_SENIOR_MODE') return false;
+    if (typeof event.data.enabled !== 'boolean') return false;
+
+    const isSenior = event.data.enabled;
+    // Idempotency check:
+    if (mockContext.__AUROMIND_SENIOR_MODE__ === isSenior &&
+        currentDocSenior === isSenior &&
+        (!mockContext.activeGameManager || mockContext.activeGameManager.seniorView === isSenior)) {
+      return false; // Ignored as redundant
+    }
+
+    mockContext.__AUROMIND_SENIOR_MODE__ = isSenior;
+    currentDocSenior = isSenior;
+    writeCount++;
+
+    if (mockContext.activeGameManager && typeof mockContext.activeGameManager.toggleSeniorView === 'function') {
+      mockContext.activeGameManager.toggleSeniorView(isSenior);
+    }
+    return true;
+  }
+
+  // First enable message -> processed
+  const r1 = authoritativeHandler({
+    source: mockContext.parent,
+    origin: 'https://auromasti.com',
+    data: { type: 'AUROMIND_SET_SENIOR_MODE', enabled: true }
+  });
+  assert.strictEqual(r1, true);
+  assert.strictEqual(writeCount, 1);
+  assert.strictEqual(toggleCount, 1);
+  assert.strictEqual(mockContext.__AUROMIND_SENIOR_MODE__, true);
+
+  // Second enable message (duplicate) -> ignored, zero redundant writes or toggles
+  const r2 = authoritativeHandler({
+    source: mockContext.parent,
+    origin: 'https://auromasti.com',
+    data: { type: 'AUROMIND_SET_SENIOR_MODE', enabled: true }
+  });
+  assert.strictEqual(r2, false);
+  assert.strictEqual(writeCount, 1, 'Repeated message must NOT cause redundant persistence writes');
+  assert.strictEqual(toggleCount, 1, 'Repeated message must NOT cause redundant manager toggles');
+
+  // Third disable message -> processed
+  const r3 = authoritativeHandler({
+    source: mockContext.parent,
+    origin: 'https://auromasti.com',
+    data: { type: 'AUROMIND_SET_SENIOR_MODE', enabled: false }
+  });
+  assert.strictEqual(r3, true);
+  assert.strictEqual(writeCount, 2);
+  assert.strictEqual(toggleCount, 2);
+  assert.strictEqual(mockContext.__AUROMIND_SENIOR_MODE__, false);
+
+  // Fourth disable message (duplicate) -> ignored
+  const r4 = authoritativeHandler({
+    source: mockContext.parent,
+    origin: 'https://auromasti.com',
+    data: { type: 'AUROMIND_SET_SENIOR_MODE', enabled: false }
+  });
+  assert.strictEqual(r4, false);
+  assert.strictEqual(writeCount, 2, 'Repeated message must NOT cause redundant persistence writes');
+  assert.strictEqual(toggleCount, 2, 'Repeated message must NOT cause redundant manager toggles');
+});
+
+

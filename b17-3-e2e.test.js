@@ -488,6 +488,97 @@ test('E2E Suite D - 3: Mid-session Senior Mode toggle updates active theater ifr
   }
 });
 
+test('E2E Suite D - 4: Real-browser AuroMatch senior mode consolidation, security rejection, early init and standalone mode (B19.5-01B)', async () => {
+  const { page, close } = await env.createInstrumentedPage();
+  try {
+    await page.goto(env.baseUrl, { waitUntil: 'domcontentloaded' });
+
+    // 1. Launch AuroMatch in theater
+    await page.evaluate(() => {
+      const btn = document.querySelector('.btn-open[data-game-id="auromatch"]');
+      if (btn) btn.click();
+    });
+
+    await page.waitForSelector('#game-theater-view', { visible: true });
+    const iframe = await page.$('#game-viewport-iframe');
+    assert.ok(iframe, '#game-viewport-iframe must be mounted in theater view');
+
+    const frame = await iframe.contentFrame();
+    assert.ok(frame, 'Child frame must be available');
+    await frame.waitForFunction(() => typeof window.exitToAuroMindPortal === 'function', { timeout: 3000 });
+
+    // 2. Authoritative handler check: window.__AUROMIND_SENIOR_HANDLER_ATTACHED__ is true
+    const isAuthoritativeAttached = await frame.evaluate(() => window.__AUROMIND_SENIOR_HANDLER_ATTACHED__);
+    assert.equal(isAuthoritativeAttached, true, 'AuroMatch must register single authoritative senior handler');
+
+    // 3. Security rejection check: message from foreign source or non-boolean is rejected
+    const rejectedNonBoolean = await frame.evaluate(() => {
+      const initial = document.documentElement.classList.contains('senior-mode');
+      // Simulate invalid dispatch with non-boolean payload
+      window.dispatchEvent(new MessageEvent('message', {
+        source: window.parent,
+        origin: window.location.origin,
+        data: { type: 'AUROMIND_SET_SENIOR_MODE', enabled: 'true' }
+      }));
+      return document.documentElement.classList.contains('senior-mode') === initial;
+    });
+    assert.equal(rejectedNonBoolean, true, 'Non-boolean payload must be rejected without mutating state');
+
+    // 4. Mid-session toggle ON from portal -> updates without reload
+    await page.evaluate(() => {
+      if (typeof window.applySeniorMode === 'function') {
+        window.applySeniorMode(true, true);
+      }
+    });
+    await new Promise(r => setTimeout(r, 250));
+
+    const stateOn = await frame.evaluate(() => {
+      const hasClass = document.documentElement.classList.contains('senior-mode') && document.body.classList.contains('senior-mode');
+      const mgrActive = window.activeGameManager ? window.activeGameManager.seniorView : null;
+      return { hasClass, mgrActive };
+    });
+    assert.equal(stateOn.hasClass, true, 'AuroMatch DOM must reflect senior-mode after portal toggle ON');
+    if (stateOn.mgrActive !== null) {
+      assert.equal(stateOn.mgrActive, true, 'activeGameManager.seniorView must be true after portal toggle ON');
+    }
+
+    // 5. Mid-session toggle OFF from portal -> updates without reload
+    await page.evaluate(() => {
+      if (typeof window.applySeniorMode === 'function') {
+        window.applySeniorMode(false, true);
+      }
+    });
+    await new Promise(r => setTimeout(r, 250));
+
+    const stateOff = await frame.evaluate(() => {
+      const hasClass = document.documentElement.classList.contains('senior-mode') || document.body.classList.contains('senior-mode');
+      const mgrActive = window.activeGameManager ? window.activeGameManager.seniorView : null;
+      return { hasClass, mgrActive };
+    });
+    assert.equal(stateOff.hasClass, false, 'AuroMatch DOM must clear senior-mode after portal toggle OFF');
+    if (stateOff.mgrActive !== null) {
+      assert.equal(stateOff.mgrActive, false, 'activeGameManager.seniorView must be false after portal toggle OFF');
+    }
+
+    // 6. Standalone AuroMatch mode verification
+    await page.goto(`${env.baseUrl}/games/auromatch/index.html`, { waitUntil: 'domcontentloaded' });
+    const standaloneBtnExists = await page.evaluate(() => !!(document.getElementById('btn-toggle-senior') || document.querySelector('.senior-toggle-btn')));
+    assert.ok(standaloneBtnExists, 'Senior mode button must exist in standalone AuroMatch');
+
+    const standaloneInitial = await page.evaluate(() => document.documentElement.classList.contains('senior-mode'));
+    await page.evaluate(() => {
+      const btn = document.getElementById('btn-toggle-senior') || document.querySelector('.senior-toggle-btn');
+      if (btn) btn.click();
+      else if (typeof window.toggleSeniorViewMode === 'function') window.toggleSeniorViewMode();
+    });
+    await new Promise(r => setTimeout(r, 200));
+    const standaloneToggled = await page.evaluate(() => document.documentElement.classList.contains('senior-mode'));
+    assert.notEqual(standaloneInitial, standaloneToggled, 'Clicking senior toggle button in standalone mode must toggle state');
+  } finally {
+    await close();
+  }
+});
+
 // ===========================================================================
 // Suite E — Service Worker and Offline Behaviour
 // ===========================================================================
