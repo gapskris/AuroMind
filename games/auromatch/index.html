@@ -47,15 +47,27 @@
             if (!window.parent || event.source !== window.parent) return;
 
             // 2. Strict Origin Validation: validate against trusted portal origin contract
-            // Disallow wildcard ('*'), empty (''), and opaque ('null') origins (B19.5-01C)
+            // Disallow wildcard ('*'), empty (''), and opaque ('null') origins (B19.5-01C / B19.5-01D)
             var currentOrigin = window.location.origin;
-            var isTrustedOrigin = Boolean(
-              currentOrigin &&
-              currentOrigin !== 'null' &&
-              (currentOrigin.indexOf('http://') === 0 || currentOrigin.indexOf('https://') === 0) &&
-              event.origin === currentOrigin
+            var isHttp = Boolean(
+              event.origin &&
+              event.origin !== 'null' &&
+              (event.origin.indexOf('http://') === 0 || event.origin.indexOf('https://') === 0)
             );
+            if (!isHttp) return;
+
+            var isTrustedOrigin = (event.origin === currentOrigin);
+            if (!isTrustedOrigin && typeof document !== 'undefined' && document.referrer) {
+              try {
+                var refOrigin = new URL(document.referrer).origin;
+                if (refOrigin && refOrigin !== 'null' && event.origin === refOrigin) {
+                  isTrustedOrigin = true;
+                }
+              } catch (_e) {}
+            }
             if (!isTrustedOrigin) return;
+
+            window.__AUROMIND_PARENT_ORIGIN__ = event.origin;
 
             // 3. Strict Payload and Type Allowlist Validation
             if (!event.data || typeof event.data !== 'object' || Array.isArray(event.data)) return;
@@ -65208,23 +65220,20 @@ window.addEventListener('load', async () => {
         routeToScreen('welcome');
     };
     
-    // Return to AuroMind Portal action (B17-GAP-05 / B17.4 / B19.5-01C)
-    // Delegate to authoritative implementation without wildcard targetOrigin
+    // Return to AuroMind Portal action (B17-GAP-05 / B17.4 / B19.5-01D)
+    // Delegate to authoritative implementation from Assets/auromatch-sdk-bridge.js
     if (typeof window.exitToAuroMindPortal !== 'function') {
         window.exitToAuroMindPortal = () => {
             try {
                 if (window.parent && window.parent !== window) {
-                    const currentOrigin = window.location.origin;
-                    const isHttp = Boolean(
-                        currentOrigin &&
-                        currentOrigin !== 'null' &&
-                        (currentOrigin.indexOf('http://') === 0 || currentOrigin.indexOf('https://') === 0)
-                    );
-                    if (!isHttp) {
+                    const targetOrigin = (typeof window.resolveParentPortalOrigin === 'function')
+                        ? window.resolveParentPortalOrigin()
+                        : ((window.location.origin && window.location.origin !== 'null' && (window.location.origin.startsWith('http:') || window.location.origin.startsWith('https:'))) ? window.location.origin : null);
+                    if (!targetOrigin) {
                         window.location.href = '../../index.html';
                         return;
                     }
-                    window.parent.postMessage({ type: 'AUROMIND_CLOSE_THEATER', gameId: 'auromatch' }, currentOrigin);
+                    window.parent.postMessage({ type: 'AUROMIND_CLOSE_THEATER', gameId: 'auromatch' }, targetOrigin);
                 } else {
                     window.location.href = '../../index.html';
                 }

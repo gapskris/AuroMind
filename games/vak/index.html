@@ -11704,7 +11704,7 @@ if (settingsModal) settingsModal.style.display = 'none';
 const threeDotsMenu = document.getElementById('three-dots-dropdown');
 if (threeDotsMenu) threeDotsMenu.style.display = 'none';
 if (window.parent && window.parent !== window) {
-window.parent.postMessage({ type: 'AUROMIND_CLOSE_THEATER' }, window.location.origin);
+window.parent.postMessage({ type: 'AUROMIND_CLOSE_THEATER', gameId: 'vak' }, window.location.origin);
 } else {
 window.location.href = new URL('../../index.html', window.location.href).href;
 }

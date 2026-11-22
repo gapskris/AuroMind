@@ -746,4 +746,107 @@ test('B19.5-01B Test 4: Single authoritative handler consolidation and repeated 
   assert.strictEqual(toggleCount, 2, 'Repeated message must NOT cause redundant manager toggles');
 });
 
+// ---------------------------------------------------------------------------
+// Group F: B19.5-01D — Final Messaging Security & Target Origin Closure
+// ---------------------------------------------------------------------------
+
+test('B19.5-01D Test 1: portal.js eliminates wildcard targetOrigin in Senior Mode broadcast and derives exact HTTP(S) origin', () => {
+  const portalJsPath = path.join(__dirname, 'assets/js/portal.js');
+  const content = fs.readFileSync(portalJsPath, 'utf8');
+
+  // Verify getExpectedIframeOrigin helper is defined
+  assert.ok(
+    content.includes('function getExpectedIframeOrigin(iframeEl)'),
+    'portal.js must define getExpectedIframeOrigin helper using URL API'
+  );
+
+  // Verify openGameInTheater uses targetOrigin derived from helper, not wildcard
+  const loadSnippetMatch = content.match(/theaterIframe\.onload\s*=\s*\(\)\s*=>\s*\{([\s\S]*?)\};/);
+  assert.ok(loadSnippetMatch, 'theaterIframe.onload must exist in portal.js');
+  assert.ok(
+    !loadSnippetMatch[1].includes("'*'"),
+    'theaterIframe.onload must NEVER send Senior Mode with wildcard "*"'
+  );
+  assert.ok(
+    loadSnippetMatch[1].includes('getExpectedIframeOrigin(theaterIframe)'),
+    'theaterIframe.onload must derive targetOrigin from getExpectedIframeOrigin'
+  );
+
+  // Verify applySeniorMode uses targetOrigin derived from helper, not wildcard
+  const seniorSnippetMatch = content.match(/function applySeniorMode[\s\S]*?\{([\s\S]*?)\n\s*window\.applySeniorMode/);
+  assert.ok(seniorSnippetMatch, 'applySeniorMode must exist in portal.js');
+  assert.ok(
+    !seniorSnippetMatch[1].includes("'*'"),
+    'applySeniorMode must NEVER broadcast Senior Mode with wildcard "*"'
+  );
+});
+
+test('B19.5-01D Test 2: portal.js message receiver requires string gameId and validates against exact alias map, rejecting opaque null & empty origins', () => {
+  const portalJsPath = path.join(__dirname, 'assets/js/portal.js');
+  const content = fs.readFileSync(portalJsPath, 'utf8');
+
+  // Verify explicit alias map exists and narrow
+  assert.ok(
+    content.includes('GAME_ID_ALIASES'),
+    'portal.js must define explicit GAME_ID_ALIASES map'
+  );
+  assert.ok(
+    content.includes("if (!data.gameId || typeof data.gameId !== 'string') return;"),
+    'portal.js must require data.gameId as non-empty string for theater close'
+  );
+
+  // Verify rejection of opaque and empty origins
+  assert.ok(
+    content.includes("event.origin === 'null'") && content.includes("event.origin === ''"),
+    'portal.js must explicitly check and reject opaque "null" and empty origins'
+  );
+
+  // Verify expectedOrigin match check
+  assert.ok(
+    content.includes('event.origin !== expectedOrigin'),
+    'portal.js must reject messages where event.origin does not match expectedOrigin'
+  );
+});
+
+test('B19.5-01D Test 3: auromatch-sdk-bridge.js resolveParentPortalOrigin resolves same-origin and cross-origin parent, rejecting null, empty and wildcard', async () => {
+  const bridgePath = path.join(__dirname, 'games/auromatch/Assets/auromatch-sdk-bridge.js');
+  const content = fs.readFileSync(bridgePath, 'utf8');
+
+  // Verify exported resolveParentPortalOrigin
+  assert.ok(
+    content.includes('export function resolveParentPortalOrigin()'),
+    'auromatch-sdk-bridge.js must export resolveParentPortalOrigin()'
+  );
+
+  // Verify it never uses wildcard target origin in postMessage
+  const exitSnippetMatch = content.match(/export function exitToAuroMindPortal\(\)\s*\{([\s\S]*?)\n\}/);
+  assert.ok(exitSnippetMatch, 'exitToAuroMindPortal must exist in auromatch-sdk-bridge.js');
+  assert.ok(
+    !exitSnippetMatch[1].includes("'*'"),
+    'exitToAuroMindPortal must NEVER use wildcard "*"'
+  );
+  assert.ok(
+    exitSnippetMatch[1].includes('resolveParentPortalOrigin()'),
+    'exitToAuroMindPortal must use resolveParentPortalOrigin()'
+  );
+});
+
+test('B19.5-01D Test 4: games/auromatch/src/main.js delegates return-to-portal exclusively to authoritative bridge implementation', () => {
+  const mainJsPath = path.join(__dirname, 'games/auromatch/src/main.js');
+  const content = fs.readFileSync(mainJsPath, 'utf8');
+
+  // Verify import from Assets/auromatch-sdk-bridge.js
+  assert.ok(
+    content.includes("import { exitToAuroMindPortal, resolveParentPortalOrigin } from '../Assets/auromatch-sdk-bridge.js';"),
+    'src/main.js must import exitToAuroMindPortal from Assets/auromatch-sdk-bridge.js'
+  );
+
+  // Verify assignment without inline duplicate implementation
+  assert.ok(
+    content.includes('window.exitToAuroMindPortal = exitToAuroMindPortal;'),
+    'src/main.js must delegate window.exitToAuroMindPortal to imported function'
+  );
+});
+
+
 

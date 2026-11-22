@@ -311,6 +311,23 @@ function initPortalServiceWorker() {
 // ==========================================================================
 // 1. IN-PORTAL GAME THEATER VIEW (KEEPS USERS INSIDE AUROMIND)
 // ==========================================================================
+// Helper: derive and validate expected iframe HTTP(S) origin using URL API (B19.5-01D)
+function getExpectedIframeOrigin(iframeEl) {
+  if (!iframeEl) return null;
+  const rawSrc = iframeEl.getAttribute('src') || iframeEl.src;
+  if (!rawSrc || rawSrc === 'about:blank') return null;
+  try {
+    const parsed = new URL(rawSrc, window.location.href);
+    if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.origin && parsed.origin !== 'null') {
+      return parsed.origin;
+    }
+  } catch (_e) {}
+  return null;
+}
+if (typeof window !== 'undefined') {
+  window.getExpectedIframeOrigin = getExpectedIframeOrigin;
+}
+
 function initTheaterMode() {
   const playButtons = document.querySelectorAll('.play-game-btn');
   const catalogScroll = document.querySelector('.portal-content-scroll');
@@ -375,10 +392,13 @@ function initTheaterMode() {
       theaterIframe.onload = () => {
         try {
           if (theaterIframe.contentWindow) {
-            theaterIframe.contentWindow.postMessage(
-              { type: 'AUROMIND_SET_SENIOR_MODE', enabled: document.body.classList.contains('senior-mode') },
-              '*'
-            );
+            const targetOrigin = getExpectedIframeOrigin(theaterIframe);
+            if (targetOrigin) {
+              theaterIframe.contentWindow.postMessage(
+                { type: 'AUROMIND_SET_SENIOR_MODE', enabled: document.body.classList.contains('senior-mode') },
+                targetOrigin
+              );
+            }
           }
         } catch (e) {}
       };
@@ -554,15 +574,26 @@ function initTheaterMode() {
     });
   }
 
+  // Narrow explicit alias map for game close message validation (B19.5-01D)
+  const GAME_ID_ALIASES = {
+    'auromatch': ['auromatch'],
+    'auroblocks': ['auroblocks'],
+    'auromandala': ['auromandala'],
+    'vak': ['vak', 'vakspeech', 'vak-speech'],
+    'wordriddle': ['wordriddle', 'word-riddle'],
+    'vak-sanctuary': ['vak-sanctuary', 'vak-living-sanctuary', 'vaksanctuary']
+  };
+
   // Listen to HTML5 PostMessage from child game iframes (Vak, AuroMatch, etc.)
   window.addEventListener('message', (event) => {
     // 1. Mandatory Source Validation: message MUST originate from active theater iframe contentWindow
     if (!theaterIframe || event.source !== theaterIframe.contentWindow) return;
 
-    // 2. Origin Validation: exact match for standard origins, permit 'null' for opaque sandboxed contexts
-    const isSameOrigin = (event.origin === window.location.origin);
-    const isOpaqueOrigin = (event.origin === 'null' || event.origin === '');
-    if (!isSameOrigin && !isOpaqueOrigin) return;
+    // 2. Strict Origin Validation: reject opaque ('null'), empty, and untrusted origins (B19.5-01D)
+    // Theater iframe deployment uses standard HTTP(S) origins and never sandboxes to opaque origins
+    if (!event.origin || event.origin === 'null' || event.origin === '') return;
+    const expectedOrigin = getExpectedIframeOrigin(theaterIframe);
+    if (!expectedOrigin || event.origin !== expectedOrigin) return;
 
     const data = event.data;
     if (!data || typeof data !== 'object' || Array.isArray(data)) return;
@@ -571,15 +602,12 @@ function initTheaterMode() {
     if (!activeGameId || !gameUrls[activeGameId]) return;
 
     if (data.type === 'AUROMIND_CLOSE_THEATER' || data.action === 'EXIT_GAME') {
-      // Validate gameId if specified in close payload (B19.5-01C)
-      if (data.gameId && typeof data.gameId === 'string') {
-        const normPayload = data.gameId.toLowerCase().replace(/[^a-z0-9]/g, '');
-        const normActive = activeGameId.toLowerCase().replace(/[^a-z0-9]/g, '');
-        const isMatch = (normPayload === normActive) ||
-          (normPayload.includes('sanctuary') && normActive.includes('sanctuary')) ||
-          (normPayload.includes('word') && normActive.includes('word'));
-        if (!isMatch) return;
-      }
+      // Require data.gameId as non-empty string and validate against exact active ID or narrow alias map (B19.5-01D)
+      if (!data.gameId || typeof data.gameId !== 'string') return;
+      const normPayload = data.gameId.trim().toLowerCase();
+      const validAliases = GAME_ID_ALIASES[activeGameId] || [activeGameId];
+      if (!validAliases.includes(normPayload)) return;
+
       closeTheater();
       return;
     }
@@ -842,14 +870,19 @@ function initSeniorMode() {
       } catch (err) {}
     }
 
-    // Broadcast Senior Mode state to active theater iframe
+    // Broadcast Senior Mode state to active theater iframe (B19.5-01D)
     const activeIframe = document.getElementById('game-viewport-iframe') || document.getElementById('game-theater-iframe');
     if (activeIframe && activeIframe.contentWindow) {
       try {
-        activeIframe.contentWindow.postMessage(
-          { type: 'AUROMIND_SET_SENIOR_MODE', enabled: isActive },
-          '*'
-        );
+        const targetOrigin = (typeof getExpectedIframeOrigin === 'function')
+          ? getExpectedIframeOrigin(activeIframe)
+          : (activeIframe.src && activeIframe.src !== 'about:blank' ? new URL(activeIframe.src, window.location.href).origin : null);
+        if (targetOrigin) {
+          activeIframe.contentWindow.postMessage(
+            { type: 'AUROMIND_SET_SENIOR_MODE', enabled: isActive },
+            targetOrigin
+          );
+        }
       } catch (err) {}
     }
   }

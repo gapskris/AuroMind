@@ -601,13 +601,34 @@ test('E2E Suite D - 4: Real-browser AuroMatch senior mode consolidation, listene
     assert.ok(securityCheck.zeroWrites, 'Rejected messages must produce 0 storage writes');
     assert.ok(securityCheck.zeroTransitions, 'Rejected messages must produce 0 manager transitions');
 
-    // 6. Valid Senior Mode ON from portal (Item 1)
+    // 6. Valid Senior Mode ON from portal - verify exact iframe origin targeting, never wildcard (B19.5-01D)
+    await page.evaluate(() => {
+      window.__seniorPostMessageTargets = [];
+      const iframe = document.getElementById('game-viewport-iframe');
+      if (iframe && iframe.contentWindow) {
+        const origPostMessage = iframe.contentWindow.postMessage;
+        iframe.contentWindow.postMessage = function(msg, targetOrigin, ...args) {
+          window.__seniorPostMessageTargets.push({ msg, targetOrigin });
+          return origPostMessage.call(this, msg, targetOrigin, ...args);
+        };
+      }
+    });
+
     await page.evaluate(() => {
       if (typeof window.applySeniorMode === 'function') {
         window.applySeniorMode(true, true);
       }
     });
     await new Promise(r => setTimeout(r, 250));
+
+    const postMessageDispatches = await page.evaluate(() => window.__seniorPostMessageTargets || []);
+    assert.ok(postMessageDispatches.length > 0, 'Portal must have dispatched Senior Mode postMessage');
+    for (const d of postMessageDispatches) {
+      assert.notStrictEqual(d.targetOrigin, '*', 'Portal must NEVER send Senior Mode with wildcard "*" target origin (B19.5-01D)');
+      assert.notStrictEqual(d.targetOrigin, 'null', 'Portal must NEVER send Senior Mode with "null" target origin (B19.5-01D)');
+      assert.notStrictEqual(d.targetOrigin, '', 'Portal must NEVER send Senior Mode with empty target origin (B19.5-01D)');
+      assert.strictEqual(d.targetOrigin, env.baseUrl, `Portal must send Senior Mode with exact iframe origin ${env.baseUrl}`);
+    }
 
     const stateOn = await frame.evaluate(() => {
       const isDoc = document.documentElement.classList.contains('senior-mode');
@@ -730,28 +751,105 @@ test('E2E Suite D - 5: Real-browser AuroMatch Return-to-Portal security, button 
     isTheaterVisible = await page.$eval('#game-theater-view', el => el.style.display !== 'none');
     assert.ok(isTheaterVisible, 'Untrusted origin message must NOT close portal theater (Item 14)');
 
-    // 4. Mismatching game ID rejected (Item 15)
+    // 3b. Opaque 'null' origin cannot close theater (B19.5-01D)
+    await page.evaluate(() => {
+      const activeIframe = document.getElementById('game-viewport-iframe');
+      window.dispatchEvent(new MessageEvent('message', {
+        source: activeIframe ? activeIframe.contentWindow : null,
+        origin: 'null',
+        data: { type: 'AUROMIND_CLOSE_THEATER', gameId: 'auromatch' }
+      }));
+    });
+    await new Promise(r => setTimeout(r, 150));
+    isTheaterVisible = await page.$eval('#game-theater-view', el => el.style.display !== 'none');
+    assert.ok(isTheaterVisible, 'Opaque "null" origin message must NOT close portal theater (B19.5-01D)');
+
+    // 3c. Empty origin cannot close theater (B19.5-01D)
+    await page.evaluate(() => {
+      const activeIframe = document.getElementById('game-viewport-iframe');
+      window.dispatchEvent(new MessageEvent('message', {
+        source: activeIframe ? activeIframe.contentWindow : null,
+        origin: '',
+        data: { type: 'AUROMIND_CLOSE_THEATER', gameId: 'auromatch' }
+      }));
+    });
+    await new Promise(r => setTimeout(r, 150));
+    isTheaterVisible = await page.$eval('#game-theater-view', el => el.style.display !== 'none');
+    assert.ok(isTheaterVisible, 'Empty origin message must NOT close portal theater (B19.5-01D)');
+
+    // 4. Missing gameId rejected (B19.5-01D)
     await page.evaluate(() => {
       const activeIframe = document.getElementById('game-viewport-iframe');
       window.dispatchEvent(new MessageEvent('message', {
         source: activeIframe ? activeIframe.contentWindow : null,
         origin: window.location.origin,
-        data: { type: 'AUROMIND_CLOSE_THEATER', gameId: 'mismatched_game_id' }
+        data: { type: 'AUROMIND_CLOSE_THEATER' }
       }));
     });
     await new Promise(r => setTimeout(r, 150));
     isTheaterVisible = await page.$eval('#game-theater-view', el => el.style.display !== 'none');
-    assert.ok(isTheaterVisible, 'Mismatched game ID must NOT close portal theater (Item 15)');
+    assert.ok(isTheaterVisible, 'Missing gameId message must NOT close portal theater (B19.5-01D)');
 
-    // 5. Valid Return Button click returns to portal (Items 12, 16, 21)
+    // 4b. Non-string gameId rejected (B19.5-01D)
+    await page.evaluate(() => {
+      const activeIframe = document.getElementById('game-viewport-iframe');
+      window.dispatchEvent(new MessageEvent('message', {
+        source: activeIframe ? activeIframe.contentWindow : null,
+        origin: window.location.origin,
+        data: { type: 'AUROMIND_CLOSE_THEATER', gameId: 9999 }
+      }));
+    });
+    await new Promise(r => setTimeout(r, 150));
+    isTheaterVisible = await page.$eval('#game-theater-view', el => el.style.display !== 'none');
+    assert.ok(isTheaterVisible, 'Non-string gameId message must NOT close portal theater (B19.5-01D)');
+
+    // 4c. Mismatching game ID rejected (Item 15)
+    await page.evaluate(() => {
+      const activeIframe = document.getElementById('game-viewport-iframe');
+      window.dispatchEvent(new MessageEvent('message', {
+        source: activeIframe ? activeIframe.contentWindow : null,
+        origin: window.location.origin,
+        data: { type: 'AUROMIND_CLOSE_THEATER', gameId: 'vak' }
+      }));
+    });
+    await new Promise(r => setTimeout(r, 150));
+    isTheaterVisible = await page.$eval('#game-theater-view', el => el.style.display !== 'none');
+    assert.ok(isTheaterVisible, 'Mismatched game ID (vak) must NOT close auromatch theater (Item 15 / B19.5-01D)');
+
+    // 5. Valid Return Button click returns to portal (Items 12, 16, 21 / B19.5-01D)
     const returnBtnExists = await frame.evaluate(() => !!document.getElementById('auromind-theater-return-btn'));
     assert.ok(returnBtnExists, '#auromind-theater-return-btn must exist in iframe (Item 16)');
+
+    // Verify resolveParentPortalOrigin in child frame resolves exact parent origin
+    const resolvedOrigin = await frame.evaluate(() => (typeof window.resolveParentPortalOrigin === 'function' ? window.resolveParentPortalOrigin() : null));
+    assert.strictEqual(resolvedOrigin, env.baseUrl, `resolveParentPortalOrigin must resolve exact parent origin ${env.baseUrl} (B19.5-01D)`);
+
+    // Record close message dispatch received on portal window
+    await page.evaluate(() => {
+      window.__portalReceivedCloseMessages = [];
+      window.addEventListener('message', (e) => {
+        if (e.data && e.data.type === 'AUROMIND_CLOSE_THEATER') {
+          window.__portalReceivedCloseMessages.push({
+            origin: e.origin,
+            data: e.data
+          });
+        }
+      });
+    });
 
     await frame.click('#auromind-theater-return-btn');
     await page.waitForFunction(() => {
       const tv = document.getElementById('game-theater-view');
       return tv && tv.style.display === 'none';
     }, { timeout: 3000 });
+
+    const receivedClose = await page.evaluate(() => window.__portalReceivedCloseMessages || []);
+    assert.strictEqual(receivedClose.length, 1, 'Return-to-Portal must close theater exactly once (B19.5-01D)');
+    assert.notStrictEqual(receivedClose[0].origin, '*', 'Return-to-Portal must NEVER use wildcard "*" target origin (B19.5-01D)');
+    assert.notStrictEqual(receivedClose[0].origin, 'null', 'Return-to-Portal must NEVER use "null" target origin (B19.5-01D)');
+    assert.notStrictEqual(receivedClose[0].origin, '', 'Return-to-Portal must NEVER use empty target origin (B19.5-01D)');
+    assert.strictEqual(receivedClose[0].origin, env.baseUrl, `Return-to-Portal must target verified parent origin ${env.baseUrl}`);
+    assert.strictEqual(receivedClose[0].data.gameId, 'auromatch', 'Return-to-Portal payload must include gameId: auromatch');
 
     const catalogVisible = await page.$eval('.portal-content-scroll', el => el.style.display !== 'none');
     assert.ok(catalogVisible, 'Catalog must be restored after returning to portal (Items 12, 21)');
@@ -1031,7 +1129,11 @@ test('E2E Suite H - 2: Active audio is suspended on theater launch and restored 
     const iframeElement = await page.$('#game-viewport-iframe');
     const frame = await iframeElement.contentFrame();
     await frame.evaluate(() => {
-      window.parent.postMessage({ type: 'AUROMIND_CLOSE_THEATER' }, '*');
+      if (typeof window.exitToAuroMindPortal === 'function') {
+        window.exitToAuroMindPortal();
+      } else {
+        window.parent.postMessage({ type: 'AUROMIND_CLOSE_THEATER', gameId: 'auroblocks' }, window.location.origin);
+      }
     });
 
     await new Promise(r => setTimeout(r, 200));
