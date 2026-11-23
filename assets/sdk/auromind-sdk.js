@@ -3302,9 +3302,9 @@ export function createAuroMindSDK(options = {}) {
 
           const isPlainInspectableObject = (val) => {
             if (val === null || typeof val !== 'object' || Array.isArray(val)) return false;
+            if (Object.getOwnPropertySymbols(val).length > 0) return false;
             const proto = Object.getPrototypeOf(val);
-            if (proto !== Object.prototype && proto !== null) return false;
-            return Object.prototype.toString.call(val) === '[object Object]';
+            return proto === Object.prototype || proto === null;
           };
 
           const inspectPayloadForForbiddenVault = (payload, extraVaultMarkers = []) => {
@@ -3416,10 +3416,14 @@ export function createAuroMindSDK(options = {}) {
           };
 
           const isPlainJsonObject = (val) => {
-            if (val === null || typeof val !== 'object' || Array.isArray(val)) return false;
-            const proto = Object.getPrototypeOf(val);
-            if (proto !== Object.prototype && proto !== null) return false;
-            return Object.prototype.toString.call(val) === '[object Object]';
+            try {
+              if (val === null || typeof val !== 'object' || Array.isArray(val)) return false;
+              if (Object.getOwnPropertySymbols(val).length > 0) return false;
+              const proto = Object.getPrototypeOf(val);
+              return proto === Object.prototype || proto === null;
+            } catch {
+              return false;
+            }
           };
 
           const buildValidatedRemoteEnvelope = async (gid, remoteRec) => {

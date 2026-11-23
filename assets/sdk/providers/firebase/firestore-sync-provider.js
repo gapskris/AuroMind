@@ -20,9 +20,28 @@ const MAX_PRIVACY_INSPECTION_NODES = 10000;
 
 function isPlainInspectableObject(val) {
   if (val === null || typeof val !== 'object' || Array.isArray(val)) return false;
+  if (Object.getOwnPropertySymbols(val).length > 0) return false;
   const proto = Object.getPrototypeOf(val);
-  if (proto !== Object.prototype && proto !== null) return false;
-  return Object.prototype.toString.call(val) === '[object Object]';
+  return proto === Object.prototype || proto === null;
+}
+
+function extractPlainDataProps(obj) {
+  try {
+    if (!isPlainInspectableObject(obj)) return { ok: false };
+    const propNames = Object.getOwnPropertyNames(obj);
+    const props = Object.create(null);
+    for (let i = 0; i < propNames.length; i++) {
+      const k = propNames[i];
+      const desc = Object.getOwnPropertyDescriptor(obj, k);
+      if (!desc || typeof desc.get === 'function' || typeof desc.set === 'function' || !Object.prototype.hasOwnProperty.call(desc, 'value')) {
+        return { ok: false };
+      }
+      props[k] = desc.value;
+    }
+    return { ok: true, props };
+  } catch {
+    return { ok: false };
+  }
 }
 
 /**
@@ -152,35 +171,52 @@ export function createFirestoreSyncProvider(client) {
       return Object.freeze({ status: 'disabled' });
     }
 
-    let envelope = envelopeOrOptions;
+    const PRIVACY_BLOCKED = Object.freeze({
+      status: 'disabled',
+      message: 'Sankalpa vault and local-only data are strictly excluded from cloud sync'
+    });
+
+    const outer = extractPlainDataProps(envelopeOrOptions);
+    if (!outer.ok) {
+      return PRIVACY_BLOCKED;
+    }
+
+    let envProps = outer.props;
     let userId = maybeUserId;
     let expectedRevision = maybeExpectedRevision;
 
-    if (envelopeOrOptions && typeof envelopeOrOptions === 'object' && envelopeOrOptions.envelope) {
-      envelope = envelopeOrOptions.envelope;
-      userId = envelopeOrOptions.userId || maybeUserId;
+    if (outer.props.envelope !== undefined) {
+      const nested = extractPlainDataProps(outer.props.envelope);
+      if (!nested.ok) {
+        return PRIVACY_BLOCKED;
+      }
+      if (payloadContainsForbiddenSankalpa(outer.props)) {
+        return PRIVACY_BLOCKED;
+      }
+      envProps = nested.props;
+      userId = outer.props.userId !== undefined ? outer.props.userId : maybeUserId;
       expectedRevision =
-        envelopeOrOptions.expectedRevision !== undefined
-          ? envelopeOrOptions.expectedRevision
+        outer.props.expectedRevision !== undefined
+          ? outer.props.expectedRevision
           : maybeExpectedRevision;
     }
 
-    if (!userId) {
+    if (typeof userId !== 'string' || userId.length === 0) {
       return Object.freeze({ status: 'disabled', message: 'User ID required for cloud sync' });
     }
+    if (typeof expectedRevision !== 'number' || !Number.isFinite(expectedRevision)) {
+      return PRIVACY_BLOCKED;
+    }
 
-    const gameId = envelope.gameId;
+    const gameId = envProps.gameId;
 
-    // Sacred Privacy Invariant: Sankalpa is strictly local-only
+    // Sacred Privacy Invariant: inspect complete envelope & payload before any Firestore call
     if (
       (typeof gameId === 'string' && /sankalpa/i.test(gameId)) ||
-      envelope.localOnly ||
-      payloadContainsForbiddenSankalpa(envelope.payload)
+      envProps.localOnly ||
+      payloadContainsForbiddenSankalpa(envProps)
     ) {
-      return Object.freeze({
-        status: 'disabled',
-        message: 'Sankalpa vault and local-only data are strictly excluded from cloud sync'
-      });
+      return PRIVACY_BLOCKED;
     }
 
     try {
@@ -216,14 +252,14 @@ export function createFirestoreSyncProvider(client) {
       const nowIso = new Date().toISOString();
 
       const newRecord = {
-        envelopeVersion: envelope.envelopeVersion || 1,
+        envelopeVersion: envProps.envelopeVersion || 1,
         gameId,
-        gameSchemaVersion: envelope.gameSchemaVersion || 1,
+        gameSchemaVersion: envProps.gameSchemaVersion || 1,
         revision: newRevision,
-        sourceGuestId: envelope.guestId || null,
-        checksum: envelope.checksum,
-        payload: envelope.payload,
-        clientUpdatedAt: envelope.clientUpdatedAt || nowIso,
+        sourceGuestId: envProps.guestId || null,
+        checksum: envProps.checksum,
+        payload: envProps.payload,
+        clientUpdatedAt: envProps.clientUpdatedAt || nowIso,
         serverUpdatedAt: nowIso
       };
 
@@ -242,8 +278,8 @@ export function createFirestoreSyncProvider(client) {
         const revPath = `users/${userId}/game_saves/${gameId}/revisions/rev_${newRevision}`;
         await client.firestore.setDocument(revPath, {
           revision: newRevision,
-          checksum: envelope.checksum,
-          payload: envelope.payload,
+          checksum: envProps.checksum,
+          payload: envProps.payload,
           archivedAt: nowIso
         });
       } catch {

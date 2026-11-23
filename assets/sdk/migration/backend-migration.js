@@ -23,9 +23,9 @@ const MAX_MIGRATION_INSPECTION_NODES = 10000;
 
 function isPlainInspectableObject(val) {
   if (val === null || typeof val !== 'object' || Array.isArray(val)) return false;
+  if (Object.getOwnPropertySymbols(val).length > 0) return false;
   const proto = Object.getPrototypeOf(val);
-  if (proto !== Object.prototype && proto !== null) return false;
-  return Object.prototype.toString.call(val) === '[object Object]';
+  return proto === Object.prototype || proto === null;
 }
 
 function readSafeDataProp(obj, key) {

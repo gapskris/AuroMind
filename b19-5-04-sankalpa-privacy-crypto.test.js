@@ -1492,6 +1492,216 @@ describe('Part 3 — Mandatory Sankalpa Privacy Boundary (Sync, Outbox, Provider
     assert.equal(destCalls, 0, 'Destination migration provider must NEVER be called for rejected hostile data');
     assert.equal(getterInvocationCount, 0, 'Migration privacy guard must NEVER invoke getters');
   });
+
+  test('Privacy-7: Symbol.toStringTag getters are never invoked and provider envelopes/options are descriptor-validated before reading any field', async () => {
+    let getterCount = 0;
+
+    // 1. Counting Symbol.toStringTag getter (MUST NOT be invoked!)
+    const countingTagObj = { score: 10 };
+    Object.defineProperty(countingTagObj, Symbol.toStringTag, {
+      get() {
+        getterCount += 1;
+        return 'Object';
+      }
+    });
+
+    // 2. Throwing Symbol.toStringTag getter (MUST NOT be invoked!)
+    const throwingTagObj = { score: 20 };
+    Object.defineProperty(throwingTagObj, Symbol.toStringTag, {
+      get() {
+        getterCount += 1;
+        throw new Error('SYMBOL_TOSTRINGTAG_BOOM');
+      }
+    });
+
+    // 3. Hostile Proxy whose getPrototypeOf trap throws
+    const throwingProtoProxy = new Proxy({}, {
+      getPrototypeOf() {
+        throw new Error('PROXY_GETPROTO_BOOM');
+      }
+    });
+
+    // 4. Symbol-keyed object
+    const symKeyed = { ok: true };
+    symKeyed[Symbol('k')] = 'v';
+
+    const symbolAndProxyCases = [
+      { label: 'counting Symbol.toStringTag getter', val: countingTagObj },
+      { label: 'throwing Symbol.toStringTag getter', val: throwingTagObj },
+      { label: 'nested counting Symbol.toStringTag getter', val: { inner: countingTagObj } },
+      { label: 'throwing getPrototypeOf proxy', val: throwingProtoProxy },
+      { label: 'symbol-keyed object', val: symKeyed }
+    ];
+
+    // Verify all 4 layers reject Symbol.toStringTag getters & hostile proxies with ZERO getter invocations
+    let sbCalls = 0;
+    const sbSync = createSupabaseSyncProvider({
+      isConfigured: () => true,
+      from() { sbCalls += 1; throw new Error('Supabase must not be called'); },
+      async rpc() { sbCalls += 1; throw new Error('Supabase RPC must not be called'); }
+    });
+    let fsCalls = 0;
+    const fsSync = createFirestoreSyncProvider({
+      isConfigured: () => true,
+      firestore: {
+        async getDocument() { fsCalls += 1; throw new Error('Firestore get must not be called'); },
+        async setDocument() { fsCalls += 1; throw new Error('Firestore set must not be called'); }
+      }
+    });
+
+    for (const tc of symbolAndProxyCases) {
+      // Supabase payload check
+      const sbRes = await sbSync.pushWithOptimisticLock({ gameId: 'vak', payload: tc.val }, 'u_sym', 0);
+      assert.equal(sbRes.status, 'disabled', `Supabase must reject "${tc.label}"`);
+
+      // Firestore payload check
+      const fsRes = await fsSync.pushWithOptimisticLock({ gameId: 'vak', payload: tc.val }, 'u_sym', 0);
+      assert.equal(fsRes.status, 'disabled', `Firestore must reject "${tc.label}"`);
+
+      // Migration validate & export
+      const vRes = await validateCanonicalData({ schemaVersion: 1, sourceUserId: 'u_sym', gameSaves: [{ gameId: 'vak', payload: tc.val }] });
+      assert.equal(vRes.valid, false, `Migration validateCanonicalData must reject "${tc.label}"`);
+
+      await assert.rejects(
+        async () => exportCanonicalData({
+          accountProvider: {
+            async exportUserData() {
+              return { profile: tc.val, gameSaves: [] };
+            }
+          }
+        }, 'u_sym'),
+        /MIGRATION_PRIVACY_INSPECTION_FAILED/,
+        `Migration exportCanonicalData must reject "${tc.label}"`
+      );
+
+      // SDK syncNow check
+      const storage = createMemoryStorage();
+      const fakeIdb = createFakeIndexedDB();
+      let sdkPushCalls = 0;
+      const authListeners = new Set();
+      const acct = {
+        userId: 'u_sdk_sym',
+        email: 'sym@example.com',
+        displayName: 'sym',
+        provider: 'email',
+        expiresAt: new Date(Date.now() + 3600_000).toISOString()
+      };
+      const auth = {
+        providerName: 'mock-auth',
+        isConfigured: () => true,
+        async getSession() { return { ...acct }; },
+        async getCurrentSession() { return { ...acct }; },
+        async signIn() {
+          for (const cb of authListeners) cb({ ...acct });
+          return { status: 'authenticated', account: { ...acct } };
+        },
+        async signOut() {},
+        onAuthStateChange(cb) { authListeners.add(cb); return () => authListeners.delete(cb); }
+      };
+      const cloudSync = {
+        providerName: 'mock-sync',
+        isConfigured: () => true,
+        async pullLatest() { return null; },
+        async pushWithOptimisticLock() { sdkPushCalls += 1; return { status: 'success', newRevision: 1 }; }
+      };
+      const sdk = createAuroMindSDK({ env: { localStorage: storage, indexedDB: fakeIdb, BroadcastChannel: null } });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth, cloudSync }
+      });
+      sdk.adapters.register({
+        gameId: 'auroblocks',
+        adapterVersion: '1.0.0',
+        contractVersion: 1,
+        integrationMode: 'native',
+        storage: { kind: 'ls', ownedDatabases: [], ownedLocalStorageKeys: ['sym_blocks'], localOnlyVaults: [] },
+        capabilities: { offlinePlay: true, localPersistence: true, cloudSyncEligible: true },
+        hasLocalProgress: () => true,
+        exportEnvelope: async (guestId) => ({
+          envelopeVersion: 1,
+          gameId: 'auroblocks',
+          gameSchemaVersion: 1,
+          guestId,
+          baseRevision: 0,
+          clientUpdatedAt: new Date().toISOString(),
+          isEmpty: false,
+          checksum: 'a'.repeat(64),
+          payload: tc.val
+        }),
+        applyEnvelope: async () => true
+      }, { mergeStrategy: AuroBlocksMergeStrategy });
+      await sdk.adapters.init('auroblocks');
+      await sdk.auth.signIn('email', { email: 'sym@example.com' });
+      sdk.sync.setConsent(true);
+
+      const syncRes = await sdk.sync.syncNow('auroblocks');
+      assert.equal(syncRes.results[0].action, 'blocked_local_only_vault', `SDK must block "${tc.label}"`);
+      assert.equal(sdkPushCalls, 0);
+      sdk.dispose();
+    }
+
+    assert.equal(getterCount, 0, 'Symbol.toStringTag getters MUST NEVER be invoked by any layer');
+
+    // 5. Hostile outer options & hostile nested envelopes passed directly to Supabase & Firestore pushWithOptimisticLock
+    const makeGetterProp = (base, propName, returnVal) => {
+      const obj = { ...base };
+      Object.defineProperty(obj, propName, {
+        enumerable: true,
+        get() {
+          getterCount += 1;
+          return returnVal;
+        }
+      });
+      return obj;
+    };
+
+    const throwingProxyEnv = new Proxy({}, {
+      ownKeys() { throw new Error('ENV_OWNKEYS_BOOM'); },
+      getOwnPropertyDescriptor() { throw new Error('ENV_DESC_BOOM'); }
+    });
+
+    const hostileEnvelopes = [
+      { label: 'getter on envelope.gameId', arg: makeGetterProp({ payload: { score: 1 } }, 'gameId', 'vak') },
+      { label: 'getter on envelope.payload', arg: makeGetterProp({ gameId: 'vak' }, 'payload', { score: 1 }) },
+      { label: 'getter on outer options.envelope', arg: makeGetterProp({ userId: 'u1', expectedRevision: 0 }, 'envelope', { gameId: 'vak', payload: {} }) },
+      { label: 'getter on outer options.userId', arg: makeGetterProp({ envelope: { gameId: 'vak', payload: {} }, expectedRevision: 0 }, 'userId', 'u1') },
+      { label: 'getter on outer options.expectedRevision', arg: makeGetterProp({ envelope: { gameId: 'vak', payload: {} }, userId: 'u1' }, 'expectedRevision', 0) },
+      { label: 'getter on nested envelope.gameId', arg: { userId: 'u1', expectedRevision: 0, envelope: makeGetterProp({ payload: {} }, 'gameId', 'vak') } },
+      { label: 'getter on nested envelope.payload', arg: { userId: 'u1', expectedRevision: 0, envelope: makeGetterProp({ gameId: 'vak' }, 'payload', {}) } },
+      { label: 'throwing proxy as outer options', arg: throwingProxyEnv },
+      { label: 'throwing proxy as nested envelope', arg: { userId: 'u1', expectedRevision: 0, envelope: throwingProxyEnv } },
+      { label: 'Symbol.toStringTag getter on outer envelope', arg: countingTagObj }
+    ];
+
+    for (const tc of hostileEnvelopes) {
+      const sbRes = await sbSync.pushWithOptimisticLock(tc.arg, 'u_env_test', 0);
+      assert.equal(sbRes.status, 'disabled', `Supabase must reject "${tc.label}" before reading fields`);
+      const fsRes = await fsSync.pushWithOptimisticLock(tc.arg, 'u_env_test', 0);
+      assert.equal(fsRes.status, 'disabled', `Firestore must reject "${tc.label}" before reading fields`);
+    }
+
+    assert.equal(sbCalls, 0, 'ZERO Supabase calls for hostile envelopes/options');
+    assert.equal(fsCalls, 0, 'ZERO Firestore calls for hostile envelopes/options');
+    assert.equal(getterCount, 0, 'ZERO getter executions across all hostile envelope/options cases');
+
+    // 6. Positive control: valid direct envelope AND valid options wrapper still work identically
+    let sbValidCalls = 0;
+    const sbValid = createSupabaseSyncProvider({
+      isConfigured: () => true,
+      async rpc(_fn, args) {
+        sbValidCalls += 1;
+        return { data: { ok: true, revision: args.p_expected_revision + 1 }, error: null };
+      }
+    });
+    const ok1 = await sbValid.pushWithOptimisticLock({ gameId: 'vak', checksum: 'b'.repeat(64), payload: { level: 3 } }, 'u_ok', 0);
+    const ok2 = await sbValid.pushWithOptimisticLock({ envelope: { gameId: 'vak', checksum: 'c'.repeat(64), payload: { level: 4 } }, userId: 'u_ok', expectedRevision: 1 });
+    assert.equal(ok1.status, 'success');
+    assert.equal(ok1.gameId, 'vak');
+    assert.equal(ok2.status, 'success');
+    assert.equal(ok2.newRevision, 2);
+    assert.equal(sbValidCalls, 2);
+  });
 });
 
 // =============================================================================

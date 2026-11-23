@@ -24,9 +24,28 @@ const MAX_PRIVACY_INSPECTION_NODES = 10000;
 
 function isPlainInspectableObject(val) {
   if (val === null || typeof val !== 'object' || Array.isArray(val)) return false;
+  if (Object.getOwnPropertySymbols(val).length > 0) return false;
   const proto = Object.getPrototypeOf(val);
-  if (proto !== Object.prototype && proto !== null) return false;
-  return Object.prototype.toString.call(val) === '[object Object]';
+  return proto === Object.prototype || proto === null;
+}
+
+function extractPlainDataProps(obj) {
+  try {
+    if (!isPlainInspectableObject(obj)) return { ok: false };
+    const propNames = Object.getOwnPropertyNames(obj);
+    const props = Object.create(null);
+    for (let i = 0; i < propNames.length; i++) {
+      const k = propNames[i];
+      const desc = Object.getOwnPropertyDescriptor(obj, k);
+      if (!desc || typeof desc.get === 'function' || typeof desc.set === 'function' || !Object.prototype.hasOwnProperty.call(desc, 'value')) {
+        return { ok: false };
+      }
+      props[k] = desc.value;
+    }
+    return { ok: true, props };
+  } catch {
+    return { ok: false };
+  }
 }
 
 /**
@@ -161,45 +180,62 @@ export function createSupabaseSyncProvider(client) {
       return Object.freeze({ status: 'disabled' });
     }
 
-    let envelope = envelopeOrOptions;
+    const PRIVACY_BLOCKED = Object.freeze({
+      status: 'disabled',
+      message: 'Sankalpa vault and local-only data are strictly excluded from cloud sync'
+    });
+
+    const outer = extractPlainDataProps(envelopeOrOptions);
+    if (!outer.ok) {
+      return PRIVACY_BLOCKED;
+    }
+
+    let envProps = outer.props;
     let userId = maybeUserId;
     let expectedRevision = maybeExpectedRevision;
 
-    if (envelopeOrOptions && typeof envelopeOrOptions === 'object' && envelopeOrOptions.envelope) {
-      envelope = envelopeOrOptions.envelope;
-      userId = envelopeOrOptions.userId || maybeUserId;
+    if (outer.props.envelope !== undefined) {
+      const nested = extractPlainDataProps(outer.props.envelope);
+      if (!nested.ok) {
+        return PRIVACY_BLOCKED;
+      }
+      if (payloadContainsForbiddenSankalpa(outer.props)) {
+        return PRIVACY_BLOCKED;
+      }
+      envProps = nested.props;
+      userId = outer.props.userId !== undefined ? outer.props.userId : maybeUserId;
       expectedRevision =
-        envelopeOrOptions.expectedRevision !== undefined
-          ? envelopeOrOptions.expectedRevision
+        outer.props.expectedRevision !== undefined
+          ? outer.props.expectedRevision
           : maybeExpectedRevision;
     }
 
-    if (!userId) {
+    if (typeof userId !== 'string' || userId.length === 0) {
       return Object.freeze({ status: 'disabled', message: 'User ID required for cloud sync' });
     }
+    if (typeof expectedRevision !== 'number' || !Number.isFinite(expectedRevision)) {
+      return PRIVACY_BLOCKED;
+    }
 
-    // Sacred privacy boundary: Sankalpa vault and local-only data are strictly excluded from cloud sync
+    // Sacred privacy boundary: inspect complete envelope & payload before any client/RPC call
     if (
-      (typeof envelope.gameId === 'string' && /sankalpa/i.test(envelope.gameId)) ||
-      envelope.localOnly === true ||
-      payloadContainsForbiddenSankalpa(envelope.payload)
+      (typeof envProps.gameId === 'string' && /sankalpa/i.test(envProps.gameId)) ||
+      envProps.localOnly === true ||
+      payloadContainsForbiddenSankalpa(envProps)
     ) {
-      return Object.freeze({
-        status: 'disabled',
-        message: 'Sankalpa vault and local-only data are strictly excluded from cloud sync'
-      });
+      return PRIVACY_BLOCKED;
     }
 
     try {
       const { data: res, error } = await client.rpc('upsert_game_save_checked', {
-        p_game_id: envelope.gameId,
-        p_envelope_version: envelope.envelopeVersion || 1,
-        p_game_schema_version: envelope.gameSchemaVersion || 1,
+        p_game_id: envProps.gameId,
+        p_envelope_version: envProps.envelopeVersion || 1,
+        p_game_schema_version: envProps.gameSchemaVersion || 1,
         p_expected_revision: expectedRevision,
-        p_source_guest_id: envelope.guestId || null,
-        p_checksum: envelope.checksum,
-        p_payload: envelope.payload,
-        p_client_updated_at: envelope.clientUpdatedAt || new Date().toISOString()
+        p_source_guest_id: envProps.guestId || null,
+        p_checksum: envProps.checksum,
+        p_payload: envProps.payload,
+        p_client_updated_at: envProps.clientUpdatedAt || new Date().toISOString()
       });
 
       if (error) {
@@ -222,7 +258,7 @@ export function createSupabaseSyncProvider(client) {
         return Object.freeze({
           status: 'success',
           newRevision: res.revision,
-          gameId: envelope.gameId
+          gameId: envProps.gameId
         });
       }
 
