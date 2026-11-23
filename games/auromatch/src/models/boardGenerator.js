@@ -202,6 +202,9 @@ export class VitaBoardGenerator {
           result.push({ x: rightX, y: midY, z: 0 });
           col++;
         }
+        if (result.length < targetCount) {
+          result.push({ x: minX - col, y: Math.round(cy), z: 0 });
+        }
       }
 
       return result.slice(0, targetCount);
@@ -541,6 +544,33 @@ export class VitaBoardGenerator {
 
   // 6. Temple Cross (Vishwa)
   static _genTempleCross(targetCount) {
+    if (targetCount === 60) {
+      const coords = [];
+      const cx = 3, cy = 3;
+      // Layer 0: 33 tiles (3-wide cross in 7x7 grid)
+      for (let r = 0; r <= 6; r++) {
+        for (let c = 0; c <= 6; c++) {
+          if ((c >= 2 && c <= 4) || (r >= 2 && r <= 4)) coords.push({ x: c * 1.0, y: r * 1.0, z: 0 });
+        }
+      }
+      // Layer 1: 17 tiles (9-tile central cross + 4 corner stepped diamonds + 4 diagonal hubs)
+      for (let r = 1; r <= 5; r++) coords.push({ x: 3.0, y: r * 1.0, z: 1 });
+      for (let c = 1; c <= 5; c++) {
+        if (c !== 3) coords.push({ x: c * 1.0, y: 3.0, z: 1 });
+      }
+      coords.push({ x: 2.0, y: 2.0, z: 1 }, { x: 4.0, y: 2.0, z: 1 }, { x: 2.0, y: 4.0, z: 1 }, { x: 4.0, y: 4.0, z: 1 });
+      coords.push({ x: 2.5, y: 3.0, z: 1 }, { x: 3.5, y: 3.0, z: 1 }, { x: 3.0, y: 2.5, z: 1 }, { x: 3.0, y: 3.5, z: 1 });
+
+      // Layer 2: 9 tiles (3x3 central shrine altar)
+      for (let r = 2; r <= 4; r++) {
+        for (let c = 2; c <= 4; c++) coords.push({ x: c * 1.0, y: r * 1.0, z: 2 });
+      }
+
+      // Layer 3: 1 tile (Apex Bindu)
+      coords.push({ x: cx * 1.0, y: cy * 1.0, z: 3 });
+      return coords;
+    }
+
     const coords = [];
     const cx = 3, cy = 3;
     for (let r = 0; r <= 6; r++) {
@@ -860,17 +890,24 @@ export class VitaBoardGenerator {
   // 20. Spiral Vortex (Kundalini)
   static _genSpiralVortex(targetCount) {
     const coords = [];
-    // S-curve spiral arm
-    for (let c = 0; c <= 4; c++) coords.push({ x: c * 1.0, y: 0.0, z: 0 });
-    for (let r = 1; r <= 2; r++) coords.push({ x: 4.0, y: r * 1.0, z: 0 });
-    for (let c = 2; c <= 4; c++) coords.push({ x: c * 1.0, y: 2.0, z: 0 });
-    for (let r = 2; r <= 4; r++) coords.push({ x: 2.0, y: r * 1.0, z: 0 });
-    for (let c = 2; c <= 6; c++) coords.push({ x: c * 1.0, y: 4.0, z: 0 });
-    for (let r = 0; r <= 4; r++) coords.push({ x: 6.0, y: r * 1.0, z: 0 });
-    // Raised spiral center
-    coords.push({ x: 3.0, y: 2.0, z: 1 });
-    coords.push({ x: 3.0, y: 2.0, z: 2 });
-    coords.push({ x: 3.0, y: 2.0, z: 3 });
+    const set = new Set();
+    const add = (x, y, z) => {
+      const k = `${x}_${y}_${z}`;
+      if (!set.has(k)) { set.add(k); coords.push({ x: x * 1.0, y: y * 1.0, z }); }
+    };
+    // S-curve spiral arm (22 clean non-duplicate base tiles)
+    for (let c = 0; c <= 4; c++) add(c, 0, 0);
+    for (let r = 1; r <= 2; r++) add(4, r, 0);
+    for (let c = 2; c <= 4; c++) add(c, 2, 0);
+    for (let r = 2; r <= 4; r++) add(2, r, 0);
+    for (let c = 2; c <= 6; c++) add(c, 4, 0);
+    for (let r = 0; r <= 4; r++) add(6, r, 0);
+    add(0, 1, 0);
+    add(0, 2, 0);
+    add(0, 3, 0);
+    // Raised spiral center (2 tiles, preserving even symmetry)
+    add(3, 2, 1);
+    add(3, 2, 2);
     return VitaBoardGenerator._padToTarget(coords, targetCount);
   }
 

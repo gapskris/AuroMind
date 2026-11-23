@@ -203,7 +203,7 @@ export class BoardRenderer {
 
     const availW = Math.max(260, containerW - 16);
 
-    // Sizing Parity: AvailH is unified across all gameplay modes (Pairs, Tile Club, Classic, Realms)
+    // Sizing Parity: AvailH is unified across all gameplay modes (Pairs, Triads, Classic, Realms)
     // so that switching between categories never causes the tile formation to jump or shrink.
     const promptDeduction = isMobile ? 24 : (isTablet ? 28 : 24);
 
@@ -239,10 +239,10 @@ export class BoardRenderer {
 
 
 
-    // Dynamic width bounds across viewports (Unified parity across Pairs, Tile Club, Classic, Realms)
+    // Dynamic width bounds across viewports (Unified parity across Pairs, Triads, Classic, Realms)
     let minAllowed, maxAllowed;
     if (isMobile) {
-      // Mobile Viewport (< 480px): Unified 72px ceiling ensures identical tile scale between Pairs & Tile Club
+      // Mobile Viewport (< 480px): Unified 72px ceiling ensures identical tile scale between Pairs & Triads
       minAllowed = isSenior ? 48 : 42;
       maxAllowed = isSenior ? 84 : (isRealmsMode || this.options.gameplayMode === 'botanical' ? 82 : 72);
     } else if (isTablet) {

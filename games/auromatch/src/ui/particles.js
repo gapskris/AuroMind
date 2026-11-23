@@ -258,7 +258,7 @@ export function triggerTileConvergenceSmash(el1, el2) {
 }
 
 /**
- * Visual Sparkling Dissolution for Tile Club Mode (3-tile match in tray)
+ * Visual Sparkling Dissolution for Triads Mode (3-tile match in tray)
  */
 export function triggerTrayTriadSparkle(matchedFloraId) {
     if (typeof document === 'undefined') return;

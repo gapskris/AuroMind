@@ -1,5 +1,5 @@
 // Dual-Mode Central Game Manager for AuroMatch
-// Supports Mode A (Vita Mahjong - Match-2 pairs) and Mode B (Tile Club - Match-3 7-slot tray)
+// Supports Mode A (Pairs Solitaire - Match-2 pairs) and Mode B (Triads - Match-3 7-slot tray)
 // Senior accessibility toggles, undo history stacks, and guaranteed solvability generation.
 
 import { VitaBoardGenerator } from '../models/boardGenerator.js';
@@ -47,54 +47,85 @@ export function getRankForLevel(level) {
 
 /**
  * Smooth S-Curve Tile Density Function across 520 Levels
+ * Uniform Expanded Tile Progression across All Themes and Levels (Up to 144 Tiles):
+ * - Level 1: 60 tiles (rich 4-layer foundation with apex, instead of 36)
+ * - Levels 2 – 10: 72 tiles (4–5 layers)
+ * - Levels 11 – 30: 96 tiles (multi-island formations)
+ * - Levels 31 – 75: 120 tiles (deep occlusions)
+ * - Levels 76 – 520+: 144 tiles (Classic Mahjong Solitaire Pinnacle)
+ * All counts strictly divisible by 6 (2 x 3), maintaining 100% mathematical solvability with zero deadlocks.
  */
 export function getTileCountForLevel(levelNum) {
-  if (levelNum === 1) return 60;          // Level 1: 60 tiles (Introductory Grand Solitaire with rich 4-tier apex)
-  if (levelNum <= 10) return 72;         // Levels 2-10: 72 tiles (Foundation)
-  if (levelNum <= 30) return 96;         // Levels 11-30: 96 tiles (Ascent)
-  if (levelNum <= 75) return 120;        // Levels 31-75: 120 tiles (Depth)
-  return 144;                            // Levels 76-520+: 144 tiles (The Grand Turtle / Mahjong Pinnacle)
+  const lvl = Math.max(1, Math.floor(levelNum || 1));
+  if (lvl === 1) return 60;          // Level 1: 60 tiles (Introductory Grand Solitaire with rich 4-tier apex)
+  if (lvl <= 10) return 72;         // Levels 2-10: 72 tiles (Foundation)
+  if (lvl <= 30) return 96;         // Levels 11-30: 96 tiles (Ascent)
+  if (lvl <= 75) return 120;        // Levels 31-75: 120 tiles (Depth)
+  return 144;                       // Levels 76-520+: 144 tiles (The Grand Turtle / Mahjong Pinnacle)
 }
 
 /**
- * 4-Tier Stacking Difficulty Curve for 50 Levels per Theme:
- * Tier 1: Levels 1–5 (Zen Ease): 24–36 tiles (12–18 pairs), 1–2 layers, high free-edge ratio.
- * Tier 2: Levels 6–20 (Moderate Flow): 48–64 tiles, 3 layers.
- * Tier 3: Levels 21–40 (Strategic Hard): 72–96 tiles, 4–5 layers.
- * Tier 4: Levels 41–50 (Master Monolith): 100–108 tiles, 5–6 layers.
+ * 20 Sacred / Secular Realms Progression:
+ * Enforces the uniform tile progression across every 50-level theme:
+ * - Level 1: 60 tiles
+ * - Levels 2 – 10: 72 tiles
+ * - Levels 11 – 30: 96 tiles
+ * - Levels 31 – 45: 120 tiles
+ * - Levels 46 – 50: 144 tiles
  */
 export function getRealmTileCount(levelNum) {
   const levelInRealm = ((levelNum - 1) % 50) + 1;
-  if (levelInRealm <= 2) return 24;      // Level 1-2: 24 tiles (12 pairs, peaceful start)
-  if (levelInRealm <= 4) return 30;      // Level 3-4: 30 tiles (15 pairs)
-  if (levelInRealm <= 5) return 36;      // Level 5: 36 tiles (18 pairs)
-  if (levelInRealm <= 10) return 48;     // Level 6-10: 48 tiles (24 pairs, 3 layers)
-  if (levelInRealm <= 15) return 56;     // Level 11-15: 56 tiles (28 pairs)
-  if (levelInRealm <= 20) return 64;     // Level 16-20: 64 tiles (32 pairs)
-  if (levelInRealm <= 28) return 72;     // Level 21-28: 72 tiles (36 pairs, 4-5 layers)
-  if (levelInRealm <= 34) return 84;     // Level 29-34: 84 tiles (42 pairs)
-  if (levelInRealm <= 40) return 96;     // Level 35-40: 96 tiles (48 pairs)
-  if (levelInRealm <= 45) return 102;    // Level 41-45: 102 tiles (51 pairs)
-  return 108;                            // Level 46-50: 108 tiles (54 pairs, Master Monolith)
+  if (levelInRealm === 1) return 60;
+  if (levelInRealm <= 10) return 72;
+  if (levelInRealm <= 30) return 96;
+  if (levelInRealm <= 45) return 120;
+  return 144;
 }
 
 /**
- * 4-Chapter 200-Level Smooth Learning & Progression Curve for Botanical Art:
- * Chapter 1 (Lv 1–25): Gentle Awakening (18–30 tiles, 1–2 layers, 4–8 motifs)
- * Chapter 2 (Lv 26–75): The Blossom (36–48 tiles, 2–3 layers, 16 core motifs)
- * Chapter 3 (Lv 76–140): Sacred Mandala (60–72 tiles, 3–4 layers, up to 20 motifs)
- * Chapter 4 (Lv 141–200): Grand Pichwai Temple (84–96 tiles, 4–5 layers, 24 motifs)
+ * Botanical Art Campaign Progression:
+ * Enforces the uniform tile progression across chapters:
+ * - Level 1: 60 tiles
+ * - Levels 2 – 10: 72 tiles
+ * - Levels 11 – 30: 96 tiles
+ * - Levels 31 – 45: 120 tiles
+ * - Levels 46 – 50+: 144 tiles
  */
 export function getBotanicalTileCount(levelNum) {
-  if (levelNum <= 5) return 18;      // Levels 1-5: 18 tiles (Introductory gentle start)
-  if (levelNum <= 15) return 24;     // Levels 6-15: 24 tiles
-  if (levelNum <= 25) return 30;     // Levels 16-25: 30 tiles (End Chapter 1)
-  if (levelNum <= 50) return 36;     // Levels 26-50: 36 tiles (Chapter 2 early)
-  if (levelNum <= 75) return 48;     // Levels 51-75: 48 tiles (Chapter 2 completion)
-  if (levelNum <= 110) return 60;    // Levels 76-110: 60 tiles (Chapter 3 early)
-  if (levelNum <= 140) return 72;    // Levels 111-140: 72 tiles (Chapter 3 completion)
-  if (levelNum <= 175) return 84;    // Levels 141-175: 84 tiles (Chapter 4 early)
-  return 96;                         // Levels 176-200: 96 tiles (Chapter 4 grand finale)
+  const levelInChapter = ((levelNum - 1) % 50) + 1;
+  if (levelInChapter === 1) return 60;
+  if (levelInChapter <= 10) return 72;
+  if (levelInChapter <= 30) return 96;
+  if (levelInChapter <= 45) return 120;
+  return 144;
+}
+
+/**
+ * Benchmark / Par Completion Times (in seconds):
+ * Based on uniform tile count progression:
+ * - 60 tiles (Level 1): 105s (01:45)
+ * - 72 tiles (Levels 2–10): 135s (02:15)
+ * - 96 tiles (Levels 11–30): 180s (03:00)
+ * - 120 tiles (Levels 31–75): 240s (04:00)
+ * - 144 tiles (Levels 76–520+): 300s (05:00)
+ */
+export function getTargetParTimeSec(tileCount) {
+  const count = Number(tileCount) || 60;
+  if (count <= 60) return 105;   // 01:45 (Level 1)
+  if (count <= 72) return 135;   // 02:15 (Levels 2-10)
+  if (count <= 96) return 180;   // 03:00 (Levels 11-30)
+  if (count <= 120) return 240;  // 04:00 (Levels 31-75)
+  return 300;                    // 05:00 (Levels 76-520+ / 144 tiles)
+}
+
+/**
+ * Format raw seconds as MM:SS (e.g. 75 -> '01:15')
+ */
+export function formatTimeMMSS(sec) {
+  const total = Math.max(0, Math.floor(sec || 0));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
 
@@ -125,6 +156,13 @@ export class GameManager {
     this.isPaused = false;
     this.isStageCompleted = false;
 
+    // Stage Timer & Speed Mastery (Contemplative forward count-up stopwatch)
+    this.stageStartTime = null;
+    this.stageElapsedBeforePause = 0;
+    this.stageTimerInterval = null;
+    this.isTimerRunning = false;
+    this.onTimerTick = options.onTimerTick || null;
+
     // Sacred Epiphany System tracking (Periodic 6-12 Level Window)
     this.levelsSinceLastEpiphany = 0;
     this.nextEpiphanyTarget = Math.floor(Math.random() * 7) + 6; // 6 to 12
@@ -142,12 +180,14 @@ export class GameManager {
   }
 
   resetActivePlayerState() {
+    this.stopStageTimer();
     this.player = {
       name: '',
       currentLevel: 1,
       sparks: 100,
       score: 0,
       focusIQ: 80,
+      records: {},
       isNewUser: true
     };
     this.profilesMap = {};
@@ -206,7 +246,7 @@ export class GameManager {
       }
     } catch (e) {}
 
-    // If currently in standard mode (Pairs or Tile Club), refresh current stage tiles and background
+    // If currently in standard mode (Pairs or Triads), refresh current stage tiles and background
     if (this.gameplayMode === 'vita' || this.gameplayMode === 'tile_club') {
       const stdTheme = ThemeManager.getStandardTheme(this.standardTheme);
       const artTiles = stdTheme.customTiles;
@@ -278,6 +318,7 @@ export class GameManager {
             sparks: typeof parsed.sparks === 'number' ? parsed.sparks : 100,
             score: typeof parsed.score === 'number' ? parsed.score : 0,
             focusIQ: typeof parsed.focusIQ === 'number' ? parsed.focusIQ : (80 + Math.min(120, (rawLevel - 1) * 2)),
+            records: (parsed.records && typeof parsed.records === 'object') ? parsed.records : {},
             goldenAuraLevelsRemaining: typeof parsed.goldenAuraLevelsRemaining === 'number' ? parsed.goldenAuraLevelsRemaining : 0,
             isNewUser: rawLevel === 1 && !parsed.hasProgress
           };
@@ -303,7 +344,7 @@ export class GameManager {
     } catch (e) {
       console.warn('Failed to load player state:', e);
     }
-    return { name: '', currentLevel: 1, sparks: 100, score: 0, focusIQ: 80, isNewUser: true };
+    return { name: '', currentLevel: 1, sparks: 100, score: 0, focusIQ: 80, records: {}, isNewUser: true };
   }
 
   savePlayerState() {
@@ -323,6 +364,9 @@ export class GameManager {
                 for (const m in stored.modeLevels) {
                   this.player.modeLevels[m] = Math.max(this.player.modeLevels[m] || 1, stored.modeLevels[m] || 1);
                 }
+              }
+              if (stored.records && typeof stored.records === 'object') {
+                this.player.records = { ...stored.records, ...(this.player.records || {}) };
               }
               if (stored.gameplayMode === this.gameplayMode && typeof stored.currentLevel === 'number' && stored.currentLevel > this.player.currentLevel) {
                 this.player.currentLevel = stored.currentLevel;
@@ -353,6 +397,7 @@ export class GameManager {
           sparks: this.player.sparks,
           score: this.player.score || 0,
           focusIQ: this.player.focusIQ || 80,
+          records: this.player.records || {},
           goldenAuraLevelsRemaining: this.player.goldenAuraLevelsRemaining || 0,
           epiphaniesUnlocked: this.epiphaniesUnlocked || [],
           hasProgress: this.player.currentLevel > 1 || this.player.sparks !== 100 || (this.player.score || 0) > 0
@@ -596,7 +641,7 @@ export class GameManager {
         }
       });
     } else {
-      // In standard modes (Pairs, Tile Club): Apply the active elevated shining 3D theme (Imperial Gold or Royal Lapis)
+      // In standard modes (Pairs, Triads): Apply the active elevated shining 3D theme (Imperial Gold or Royal Lapis)
       const stdTheme = ThemeManager.getStandardTheme(this.standardTheme);
       const artTiles = stdTheme.customTiles;
       const distinctFlora = Array.from(new Set(this.tiles.map(t => t.floraId)));
@@ -677,6 +722,7 @@ export class GameManager {
       }
     }
 
+    this.startStageTimer();
     this.notifyState();
   }
 
@@ -685,7 +731,8 @@ export class GameManager {
   }
 
   setGameplayMode(mode) {
-    if (mode === 'classic') mode = 'vita'; // Backward compatibility alias
+    if (mode === 'classic' || mode === 'pairs') mode = 'vita'; // Backward compatibility alias
+    if (mode === 'triads' || mode === 'triad') mode = 'tile_club'; // Backward compatibility alias
     if (this.gameplayMode === mode && this.tiles && this.tiles.length > 0) return;
 
     if (!this.player.modeLevels) {
@@ -1065,7 +1112,7 @@ export class GameManager {
   }
 
   /**
-   * Mode B: Tile Club (Match-3 Triad Matching with 7-Slot Holding Tray)
+   * Mode B: Triads (Match-3 Triad Matching with 7-Slot Holding Tray)
    */
   handleTileClubMatch3Click(tile) {
     if (this.tray.length >= 7) {
@@ -1309,13 +1356,117 @@ export class GameManager {
 
   togglePause() {
     this.isPaused = !this.isPaused;
+    if (this.isPaused) {
+      this.pauseStageTimer();
+    } else {
+      this.resumeStageTimer();
+    }
     this.notifyState();
+  }
+
+  pauseGame() {
+    if (!this.isPaused) {
+      this.isPaused = true;
+      this.pauseStageTimer();
+      this.notifyState();
+    }
+  }
+
+  resumeGame() {
+    if (this.isPaused) {
+      this.isPaused = false;
+      this.resumeStageTimer();
+      this.notifyState();
+    }
+  }
+
+  startStageTimer() {
+    this.stopStageTimer();
+    this.stageStartTime = Date.now();
+    this.stageElapsedBeforePause = 0;
+    this.isTimerRunning = true;
+    if (typeof window !== 'undefined') {
+      this.stageTimerInterval = setInterval(() => {
+        if (this.isTimerRunning && !this.isPaused && !this.isStageCompleted) {
+          const elapsed = this.getStageElapsedSec();
+          if (this.onTimerTick) {
+            this.onTimerTick(elapsed, formatTimeMMSS(elapsed));
+          }
+        }
+      }, 500);
+    }
+    if (this.onTimerTick) {
+      this.onTimerTick(0, '00:00');
+    }
+  }
+
+  pauseStageTimer() {
+    if (this.isTimerRunning && this.stageStartTime) {
+      this.stageElapsedBeforePause += (Date.now() - this.stageStartTime);
+      this.stageStartTime = null;
+    }
+  }
+
+  resumeStageTimer() {
+    if (this.isTimerRunning && !this.isPaused && !this.isStageCompleted && !this.stageStartTime) {
+      this.stageStartTime = Date.now();
+    }
+  }
+
+  stopStageTimer() {
+    if (this.isTimerRunning && this.stageStartTime) {
+      this.stageElapsedBeforePause += (Date.now() - this.stageStartTime);
+      this.stageStartTime = null;
+    }
+    this.isTimerRunning = false;
+    if (this.stageTimerInterval) {
+      clearInterval(this.stageTimerInterval);
+      this.stageTimerInterval = null;
+    }
+  }
+
+  getStageElapsedSec() {
+    let totalMs = this.stageElapsedBeforePause || 0;
+    if (this.isTimerRunning && this.stageStartTime && !this.isPaused) {
+      totalMs += (Date.now() - this.stageStartTime);
+    }
+    return Math.floor(totalMs / 1000);
   }
 
   checkStageCompletion() {
     const remaining = this.tiles.filter(t => !t.isMatched);
     if (remaining.length === 0 && this.tray.length === 0) {
       this.isStageCompleted = true;
+      this.stopStageTimer();
+      const elapsedSec = this.getStageElapsedSec();
+      const elapsedFormatted = formatTimeMMSS(elapsedSec);
+
+      const tileCount = this.tiles ? this.tiles.length : 60;
+      const parSec = getTargetParTimeSec(tileCount);
+      const parFormatted = formatTimeMMSS(parSec);
+      const isSwiftFlow = elapsedSec <= parSec;
+
+      const completedLevel = this.player.currentLevel;
+      const themeId = (this.activeRealm && this.activeRealm.id) ? this.activeRealm.id : (this.standardTheme || 'std');
+      const recordKey = `${this.gameplayMode}_${themeId}_lvl${completedLevel}`;
+
+      if (!this.player.records) this.player.records = {};
+      const prevRecord = this.player.records[recordKey] || null;
+      const isNewRecord = !prevRecord || (elapsedSec < prevRecord.bestTimeSec);
+
+      const newBestTimeSec = isNewRecord ? elapsedSec : prevRecord.bestTimeSec;
+      this.player.records[recordKey] = {
+        bestTimeSec: newBestTimeSec,
+        bestTimeFormatted: formatTimeMMSS(newBestTimeSec),
+        lastTimeSec: elapsedSec,
+        lastTimeFormatted: elapsedFormatted,
+        parSec,
+        parFormatted,
+        clearsCount: ((prevRecord && prevRecord.clearsCount) || 0) + 1,
+        swiftCount: ((prevRecord && prevRecord.swiftCount) || 0) + (isSwiftFlow ? 1 : 0),
+        lastClearedAt: Date.now()
+      };
+
       playAshramMeditationGong();
 
       // Sparks economy
@@ -1326,7 +1477,15 @@ export class GameManager {
         cleanSolve = true;
       }
 
-      const completedLevel = this.player.currentLevel;
+      let timeBonusSparks = 0;
+      if (isSwiftFlow) {
+        timeBonusSparks += 10; // +10 Swift Flow bonus (under par)
+      }
+      if (isNewRecord) {
+        timeBonusSparks += 15; // +15 Personal Record celebration bonus
+      }
+      earnedSparks += timeBonusSparks;
+
       // Sequential Chapter Unlock check for 20 Themes (every 50 levels)
       const isChapterComplete = (this.gameplayMode === 'realms') && (completedLevel % 50 === 0);
       const completedChapterNum = Math.floor((completedLevel - 1) / 50) + 1;
@@ -1403,7 +1562,15 @@ export class GameManager {
           oldRank,
           newRank,
           focusIQ: this.player.focusIQ,
-          totalSparks: this.player.sparks
+          totalSparks: this.player.sparks,
+          elapsedSec,
+          elapsedFormatted,
+          parSec,
+          parFormatted,
+          isSwiftFlow,
+          isNewRecord,
+          timeBonusSparks,
+          themeName: (this.activeRealm && this.activeRealm.name) ? this.activeRealm.name : 'Sanctuary'
         });
       }
 

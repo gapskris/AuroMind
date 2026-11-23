@@ -172,7 +172,7 @@ window.addEventListener('load', async () => {
             }
         }
 
-        // 3. Render tray slots for Mode B (Tile Club Triads)
+        // 3. Render tray slots for Mode B (Triads)
         const trayEl = document.getElementById('tray');
         const trayCounter = document.getElementById('tray-slot-counter');
         const trayGuidance = document.querySelector('.tray-guidance-text');
@@ -767,7 +767,7 @@ window.addEventListener('load', async () => {
             return;
         }
         activeGameManager.setGameplayMode(mode);
-        window.showToastMessage("📥 Tile Club: Collect 3 identical tiles into the holding tray to clear!");
+        window.showToastMessage("📥 Triads: Collect 3 identical tiles into the holding tray to clear!");
     };
 
     window.openRealmsBrowser = () => {
@@ -1602,7 +1602,7 @@ window.addEventListener('load', async () => {
                 if (storedMode === 'botanical') {
                     formation = 'Botanical Art';
                 } else if (storedMode === 'tile_club') {
-                    formation = 'Tile Club';
+                    formation = 'Triads';
                 } else if (storedMode === 'realms' && activeGameManager && activeGameManager.currentRealm) {
                     formation = activeGameManager.currentRealm.name;
                 } else if (storedMode === 'vita' || storedMode === 'classic') {
@@ -1841,7 +1841,7 @@ window.addEventListener('load', async () => {
         const mode = activeGameManager.gameplayMode;
         if (mode === 'tile_club') {
             if (iconEl) iconEl.textContent = '📥';
-            textEl.textContent = 'Tile Club (Triad)';
+            textEl.textContent = 'Triads (Match-3)';
         } else if (mode === 'botanical') {
             if (iconEl) iconEl.textContent = '🌸';
             textEl.textContent = 'Botanical Art';
