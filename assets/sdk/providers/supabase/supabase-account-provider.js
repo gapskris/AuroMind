@@ -3,11 +3,30 @@
  *
  * Implements user data export and account deletion workflows with strict
  * ownership verification, column-level grant alignment, and fail-closed
- * deletion error reporting.
+ * Edge Function deletion validation (zero client-table deletion fallback).
  */
 
 const PUBLIC_PROFILE_COLUMNS = 'user_id,display_name,preferred_locale,is_public,created_at,updated_at';
 const PRIVATE_SETTINGS_COLUMNS = 'preferences,analytics_opt_in,cloud_sync_opt_in,updated_at';
+
+function isConfirmedAccountDeletionPayload(payload, expectedUserId) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return false;
+  }
+  if (payload.ok !== true) {
+    return false;
+  }
+  if (payload.error !== undefined && payload.error !== null) {
+    return false;
+  }
+  if (payload.deleted === false) {
+    return false;
+  }
+  if (payload.deletedUserId !== undefined && payload.deletedUserId !== null) {
+    return typeof payload.deletedUserId === 'string' && payload.deletedUserId.trim() === expectedUserId;
+  }
+  return payload.deleted === true;
+}
 
 export function createSupabaseAccountProvider(client) {
   function isConfigured() {
@@ -53,56 +72,40 @@ export function createSupabaseAccountProvider(client) {
 
   async function deleteUserData(targetUserId = null) {
     if (!isConfigured()) return false;
+    if (typeof client.requestWithTimeout !== 'function' || !client.url) {
+      return false;
+    }
     const activeUser = client.auth?.getUser?.();
     // Cross-account isolation: refuse deletion for a mismatched userId
     if (activeUser?.id && targetUserId && targetUserId !== activeUser.id) {
       return false;
     }
-    const userId = targetUserId || activeUser?.id;
+    const rawUserId = targetUserId || activeUser?.id;
+    const userId = typeof rawUserId === 'string' ? rawUserId.trim() : '';
     if (!userId) return false;
 
     try {
-      let edgeFunctionSucceeded = false;
-      let allowLegacyTableFallback = false;
+      // Authoritative path ONLY: delete-account Edge Function (atomically deletes auth.users + cascades FKs).
+      // Never fall back to deleting dependent tables directly if the Edge Function is missing (404) or fails.
+      const res = await client.requestWithTimeout(`${client.url}/functions/v1/delete-account`, {
+        method: 'POST',
+        headers: client.getStandardHeaders ? client.getStandardHeaders() : {},
+        body: JSON.stringify({ userId })
+      });
 
-      // Primary authoritative path: delete-account Edge Function (atomically cascades auth.users)
-      if (client.requestWithTimeout && client.url) {
-        const res = await client.requestWithTimeout(`${client.url}/functions/v1/delete-account`, {
-          method: 'POST',
-          headers: client.getStandardHeaders ? client.getStandardHeaders() : {},
-          body: JSON.stringify({ userId })
-        });
-        if (res && res.ok) {
-          let payload = null;
-          try {
-            if (typeof res.json === 'function') payload = await res.json();
-          } catch {}
-          if (payload && payload.ok === false) {
-            return false;
-          }
-          edgeFunctionSucceeded = true;
-        } else if (res && res.status === 404) {
-          // Only fall back to direct table cleanup when Edge Function route is absent in legacy test mocks
-          allowLegacyTableFallback = true;
-        } else {
-          // Real server rejection (401/403/500): fail closed so caller does not falsely clear session
-          return false;
-        }
-      } else {
-        allowLegacyTableFallback = true;
+      if (!res || !res.ok || typeof res.status !== 'number' || res.status < 200 || res.status >= 300) {
+        return false;
+      }
+      if (typeof res.json !== 'function') {
+        return false;
       }
 
-      if (!edgeFunctionSucceeded && allowLegacyTableFallback) {
-        const [savesDel, linksDel] = await Promise.all([
-          client.from('game_saves').delete().eq('user_id', userId),
-          client.from('guest_identity_links').delete().eq('user_id', userId)
-        ]);
-        if (savesDel?.error || linksDel?.error) {
-          return false;
-        }
+      const payload = await res.json();
+      if (!isConfirmedAccountDeletionPayload(payload, userId)) {
+        return false;
       }
 
-      // Sign out client session ONLY after remote deletion succeeded
+      // Sign out client session ONLY after confirmed Edge Function account deletion
       if (client.auth && typeof client.auth.signOut === 'function') {
         await client.auth.signOut();
       }

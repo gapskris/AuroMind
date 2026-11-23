@@ -671,31 +671,72 @@ describe('B19.5-06 Part 3 — Avatar & Artwork Storage Ownership & Orphan Cleanu
 // =============================================================================
 
 describe('B19.5-06 Part 4 — Account Deletion Consistency & Storage RLS Migration', () => {
-  test('9. Account deletion fails closed when delete-account Edge Function errors, and cleans dependent records on success without losing guestId/saves', async () => {
+  test('9. Account deletion fails closed on 404, 401/403/500, network failure, and malformed/contradictory responses with zero fallback table deletes or sign-out; cleans dependent records only on confirmed success', async () => {
     const storage = createMemoryStorage();
     const nowMs = 1_760_000_000_000;
     const expSec = Math.floor((nowMs + 3600_000) / 1000);
     const uidA = '11111111-1111-4111-8111-111111111111';
-    let edgeDeleteStatus = 500;
 
-    const mockFetch = makeFetchRouter(({ url, method }) => {
-      if (url.includes('/auth/v1/token?grant_type=password')) {
+    let edgeBehavior = { type: 'status', status: 404, body: { message: 'Function not found' } };
+    let restDeleteCalls = 0;
+    let logoutCalls = 0;
+
+    const mockFetch = async (url, options = {}) => {
+      const urlStr = String(url);
+      const method = (options.method || 'GET').toUpperCase();
+
+      if (urlStr.includes('/auth/v1/token?grant_type=password')) {
         return {
+          ok: true,
           status: 200,
-          body: { access_token: createJwt({ sub: uidA, exp: expSec }), expires_at: expSec, user: { id: uidA, email: 'del@test.com' } }
+          headers: new Map([['content-type', 'application/json']]),
+          json: async () => ({
+            access_token: createJwt({ sub: uidA, exp: expSec }),
+            expires_at: expSec,
+            user: { id: uidA, email: 'del@test.com' }
+          })
         };
       }
-      if (url.includes('/functions/v1/delete-account') && method === 'POST') {
+      if (urlStr.includes('/rest/v1/') && method === 'DELETE') {
+        restDeleteCalls += 1;
         return {
-          status: edgeDeleteStatus,
-          body: edgeDeleteStatus === 200 ? { ok: true, deletedUserId: uidA } : { ok: false, error: 'DB_ERROR' }
+          ok: true,
+          status: 204,
+          headers: new Map(),
+          json: async () => ({})
         };
       }
-      if (url.includes('/auth/v1/logout')) {
-        return { status: 204, body: {} };
+      if (urlStr.includes('/auth/v1/logout')) {
+        logoutCalls += 1;
+        return {
+          ok: true,
+          status: 204,
+          headers: new Map(),
+          json: async () => ({})
+        };
       }
-      return null;
-    });
+      if (urlStr.includes('/functions/v1/delete-account') && method === 'POST') {
+        if (edgeBehavior.type === 'network_error') {
+          throw new Error('Network disconnected');
+        }
+        if (edgeBehavior.type === 'invalid_json') {
+          return {
+            ok: true,
+            status: 200,
+            headers: new Map([['content-type', 'application/json']]),
+            json: async () => { throw new SyntaxError('Unexpected token < in JSON'); }
+          };
+        }
+        const st = edgeBehavior.status;
+        return {
+          ok: st >= 200 && st < 300,
+          status: st,
+          headers: new Map([['content-type', 'application/json']]),
+          json: async () => edgeBehavior.body
+        };
+      }
+      return { ok: false, status: 404, headers: new Map(), json: async () => ({ message: 'Not Found' }) };
+    };
 
     const bundle = createSupabaseProviders({ url: 'https://test.supabase.co', anonKey: ANON_JWT, fetch: mockFetch, storage, now: () => nowMs });
     const sdk = createAuroMindSDK({ env: { localStorage: storage, indexedDB: null, now: () => new Date(nowMs) } });
@@ -717,16 +758,61 @@ describe('B19.5-06 Part 4 — Account Deletion Consistency & Storage RLS Migrati
     assert.equal(await bundle.accountProvider.exportUserData('22222222-2222-4222-8222-222222222222'), null);
     assert.equal(await bundle.accountProvider.deleteUserData('22222222-2222-4222-8222-222222222222'), false);
 
-    // 1. Server returns 500 -> deleteAccount MUST return false and preserve session/profile for retry
-    const failedDel = await sdk.auth.deleteAccount();
-    assert.equal(failedDel, false);
-    assert.equal(sdk.auth.getAccount()?.userId, uidA, 'Session must remain intact when remote delete fails');
-    assert.equal(sdk.player.getDisplayName(), 'Soon Deleted');
+    function assertAccountAndDependentStateIntact(contextLabel) {
+      assert.equal(restDeleteCalls, 0, `${contextLabel}: must NEVER fall back to deleting dependent REST tables`);
+      assert.equal(logoutCalls, 0, `${contextLabel}: must NEVER sign out on failed deletion`);
+      assert.equal(sdk.auth.getAccount()?.userId, uidA, `${contextLabel}: active session must remain intact`);
+      assert.equal(sdk.player.getDisplayName(), 'Soon Deleted', `${contextLabel}: local profile must remain intact`);
+      assert.ok(storage.getItem(`${LS_PROFILE_KEY}.user.${uidA}`), `${contextLabel}: stored profile must remain intact`);
+      assert.ok(storage.getItem(`${LS_SYNC_META_KEY}.user.${uidA}`), `${contextLabel}: sync metadata must remain intact`);
+      assert.equal(storage.getItem(`${LS_SYNC_CONSENT_KEY}.user.${uidA}`), 'true', `${contextLabel}: sync consent must remain intact`);
+    }
 
-    // 2. Server returns 200 -> deleteAccount cleans user profile, sync meta, sync consent & signs out, preserving guestId + game saves
-    edgeDeleteStatus = 200;
+    // 1. HTTP 404 (missing Edge Function) -> MUST fail closed with zero fallback table deletes or sign-out
+    edgeBehavior = { type: 'status', status: 404, body: { message: 'Function not found' } };
+    assert.equal(await sdk.auth.deleteAccount(), false);
+    assertAccountAndDependentStateIntact('HTTP 404');
+
+    // 2. HTTP 401, 403, 500 -> MUST fail closed
+    for (const status of [401, 403, 500]) {
+      edgeBehavior = { type: 'status', status, body: { ok: false, error: `ERR_${status}` } };
+      assert.equal(await sdk.auth.deleteAccount(), false);
+      assertAccountAndDependentStateIntact(`HTTP ${status}`);
+    }
+
+    // 3. Network failure -> MUST fail closed (both auth.deleteAccount and player.deleteUserData)
+    edgeBehavior = { type: 'network_error' };
+    assert.equal(await sdk.auth.deleteAccount(), false);
+    assert.equal(await sdk.player.deleteUserData(), false);
+    assertAccountAndDependentStateIntact('Network failure');
+
+    // 4. Malformed JSON and contradictory 200 OK payloads -> MUST fail closed
+    edgeBehavior = { type: 'invalid_json' };
+    assert.equal(await sdk.auth.deleteAccount(), false);
+    assertAccountAndDependentStateIntact('Invalid JSON');
+
+    const contradictoryPayloads = [
+      null,
+      [],
+      {},
+      { ok: false, deleted: true },
+      { ok: true }, // missing both deletedUserId and deleted: true
+      { ok: true, deleted: false },
+      { ok: true, deletedUserId: '22222222-2222-4222-8222-222222222222' }, // wrong user ID
+      { ok: true, deletedUserId: uidA, error: 'PARTIAL_FAILURE' }, // contradictory error field
+      { ok: true, deletedUserId: uidA, deleted: false }
+    ];
+    for (const badBody of contradictoryPayloads) {
+      edgeBehavior = { type: 'status', status: 200, body: badBody };
+      assert.equal(await sdk.auth.deleteAccount(), false, `Expected false for payload ${JSON.stringify(badBody)}`);
+      assertAccountAndDependentStateIntact(`Contradictory payload ${JSON.stringify(badBody)}`);
+    }
+
+    // 5. Confirmed 200 OK deletion for authenticated user -> cleans profile, sync meta, sync consent & signs out, preserving guestId + saves
+    edgeBehavior = { type: 'status', status: 200, body: { ok: true, deletedUserId: uidA } };
     const okDel = await sdk.auth.deleteAccount();
     assert.equal(okDel, true);
+    assert.equal(restDeleteCalls, 0, 'Authoritative Edge Function handles DB cascade without client table deletes');
     assert.equal(sdk.auth.getAccount(), null);
     assert.equal(storage.getItem(`${LS_PROFILE_KEY}.user.${uidA}`), null);
     assert.equal(storage.getItem(`${LS_SYNC_META_KEY}.user.${uidA}`), null);

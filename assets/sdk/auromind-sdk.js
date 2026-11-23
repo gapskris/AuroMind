@@ -4865,12 +4865,36 @@ export function createAuroMindSDK(options = {}) {
     },
     async deleteUserData() {
       const activeAccount = getActiveAccountSanitized({ expireSideEffects: false });
+      const hasRemoteAccountProvider = Boolean(providers.accountProvider && providers.accountProvider.isConfigured());
+      if (hasRemoteAccountProvider) {
+        if (!activeAccount) return false;
+        let remoteDeleted = false;
+        try {
+          remoteDeleted = Boolean(await providers.accountProvider.deleteUserData(activeAccount.userId));
+        } catch {
+          remoteDeleted = false;
+        }
+        if (!remoteDeleted) {
+          // Fail closed: do not wipe local account state or sign out when remote deletion fails
+          return false;
+        }
+      }
+
       const activeKey = getProfileOwnerKey(activeAccount);
       cachedPlayerProfile = null;
       memoryProfiles.delete(activeKey);
       lsRemoveRaw(activeKey);
       if (activeKey !== LS_PROFILE_KEY) {
         // Keep guest profile isolated when deleting an authenticated user's profile
+        if (activeAccount?.userId) {
+          memorySyncMetadataByUser.delete(activeAccount.userId);
+          const userSyncMetaKey = getSyncMetaStorageKey(activeAccount.userId);
+          if (userSyncMetaKey) lsRemoveRaw(userSyncMetaKey);
+          const userSyncConsentKey = getSyncConsentStorageKey(activeAccount.userId);
+          if (userSyncConsentKey && userSyncConsentKey !== LS_SYNC_CONSENT_KEY) {
+            lsRemoveRaw(userSyncConsentKey);
+          }
+        }
       } else {
         memoryProfiles.delete(LS_PROFILE_KEY);
       }
@@ -4881,10 +4905,8 @@ export function createAuroMindSDK(options = {}) {
       localEntitlements = [];
       lsRemoveRaw(LS_ENTITLEMENTS_KEY);
 
-      if (providers.accountProvider && providers.accountProvider.isConfigured()) {
-        try {
-          await providers.accountProvider.deleteUserData();
-        } catch {}
+      if (hasRemoteAccountProvider && activeAccount) {
+        await authService.signOut();
       }
       return true;
     }
