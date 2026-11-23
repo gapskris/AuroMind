@@ -22,6 +22,7 @@ import {
   canonicalizeObject,
   computeEnvelopeChecksum,
   computePayloadChecksum,
+  computePayloadChecksumSync,
   quarantineCorruptSave,
   createLocalMockBridge
 } from './auromind-adapters.js';
@@ -35,6 +36,7 @@ export {
   canonicalizeObject,
   computeEnvelopeChecksum,
   computePayloadChecksum,
+  computePayloadChecksumSync,
   quarantineCorruptSave,
   createLocalMockBridge
 };
@@ -1183,10 +1185,29 @@ export function createAuroMindSDK(options = {}) {
   let syncMetadataOwnerUserId = null;
   const memorySyncMetadataByUser = new Map();
 
+  function encodeAccountScopeKeySegment(rawId) {
+    if (typeof rawId !== 'string') return null;
+    const trimmed = rawId.trim();
+    if (!trimmed) return null;
+    // Preserve exact backwards-compatible segment for ordinary safe ASCII IDs (UUIDs, usr_alice, etc.)
+    if (/^[a-zA-Z0-9_-]{1,64}$/.test(trimmed) && !trimmed.startsWith('u_')) {
+      return trimmed;
+    }
+    // Collision-resistant deterministic SHA-256 segment for special-char, Unicode, or long IDs
+    const digest = computePayloadChecksumSync({ scopeId: trimmed });
+    return `u_${digest.slice(0, 32)}`;
+  }
+
   function getSyncMetaStorageKey(userId) {
-    if (typeof userId !== 'string' || !userId.trim()) return null;
-    const safeId = userId.trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 96);
+    const safeId = encodeAccountScopeKeySegment(userId);
+    if (!safeId) return null;
     return `${LS_SYNC_META_KEY}.user.${safeId}`;
+  }
+
+  function getSyncConsentStorageKey(userId) {
+    const safeId = encodeAccountScopeKeySegment(userId);
+    if (!safeId) return LS_SYNC_CONSENT_KEY;
+    return `${LS_SYNC_CONSENT_KEY}.user.${safeId}`;
   }
 
   function sanitizeSyncMetadataObject(raw) {
@@ -1250,6 +1271,40 @@ export function createAuroMindSDK(options = {}) {
     return syncMetadata;
   }
 
+  function refreshActiveSyncConsent(accountOverride = undefined, { allowLegacyFallback = false, consumeLegacyOnMigrate = false } = {}) {
+    const activeAcct =
+      accountOverride !== undefined
+        ? accountOverride
+        : (capabilities.authEnabled ? sanitizeAccountRecord(currentAccount, getNow().getTime()) : null);
+    const activeUserId = activeAcct?.userId || null;
+    if (!activeUserId) {
+      const guestRes = lsGetRaw(LS_SYNC_CONSENT_KEY);
+      syncConsent = guestRes.ok && guestRes.raw === 'true';
+      return syncConsent;
+    }
+    const scopedKey = getSyncConsentStorageKey(activeUserId);
+    const scopedRes = lsGetRaw(scopedKey);
+    if (scopedRes.ok && scopedRes.raw !== null) {
+      syncConsent = scopedRes.raw === 'true';
+      return syncConsent;
+    }
+    if (allowLegacyFallback) {
+      const legacyRes = lsGetRaw(LS_SYNC_CONSENT_KEY);
+      if (legacyRes.ok && legacyRes.raw !== null) {
+        syncConsent = legacyRes.raw === 'true';
+        if (consumeLegacyOnMigrate) {
+          try {
+            lsSetRaw(scopedKey, String(syncConsent));
+            lsRemoveRaw(LS_SYNC_CONSENT_KEY);
+          } catch {}
+        }
+        return syncConsent;
+      }
+    }
+    syncConsent = false;
+    return syncConsent;
+  }
+
   function loadPersistedSyncState() {
     try {
       const cRes = lsGetRaw(LS_SYNC_CONSENT_KEY);
@@ -1272,9 +1327,10 @@ export function createAuroMindSDK(options = {}) {
 
   function persistSyncState() {
     try {
-      lsSetRaw(LS_SYNC_CONSENT_KEY, String(syncConsent));
-      lsSetRaw(LS_OUTBOX_KEY, JSON.stringify(Array.from(syncOutbox)));
       const activeAcct = capabilities.authEnabled ? sanitizeAccountRecord(currentAccount, getNow().getTime()) : null;
+      const consentKey = activeAcct?.userId ? getSyncConsentStorageKey(activeAcct.userId) : LS_SYNC_CONSENT_KEY;
+      lsSetRaw(consentKey, String(syncConsent));
+      lsSetRaw(LS_OUTBOX_KEY, JSON.stringify(Array.from(syncOutbox)));
       if (activeAcct && activeAcct.userId && syncMetadataOwnerUserId === activeAcct.userId) {
         persistSyncMetadataForUser(activeAcct.userId, syncMetadata);
       }
@@ -1676,8 +1732,10 @@ export function createAuroMindSDK(options = {}) {
       ? accountOverride
       : (capabilities.authEnabled ? sanitizeAccountRecord(currentAccount, getNow().getTime()) : null);
     if (acct && acct.userId) {
-      const safeId = acct.userId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 96);
-      return `${LS_PROFILE_KEY}.user.${safeId}`;
+      const safeId = encodeAccountScopeKeySegment(acct.userId);
+      if (safeId) {
+        return `${LS_PROFILE_KEY}.user.${safeId}`;
+      }
     }
     return LS_PROFILE_KEY;
   }
@@ -1729,16 +1787,20 @@ export function createAuroMindSDK(options = {}) {
     currentAccount = nextAccount;
 
     if (accountChanged) {
-      // Strictly isolate cached profile, entitlements, and persisted sync metadata across every account transition
+      // Strictly isolate cached profile, entitlements, sync consent, and persisted sync metadata across every transition
       cachedPlayerProfile = null;
       cachedEntitlements = Object.freeze([]);
+      pendingAuthFlow = null;
       // Remove any legacy unscoped flat LS_SYNC_META_KEY so stale metadata can never reappear on reinit
       lsRemoveRaw(LS_SYNC_META_KEY);
-      // Load ONLY the new account's namespaced sync metadata (or {} in guest mode); never touch syncOutbox or saves
+      // Load ONLY the new account's namespaced sync metadata & consent:
+      // - Guest -> Account carries over an explicit pre-login consent once into that account's scoped key
+      // - Account A -> Account B NEVER inherits Account A's consent
       refreshActiveSyncMetadata(nextAccount);
-      if (!nextAccount) {
-        pendingAuthFlow = null;
-      }
+      refreshActiveSyncConsent(nextAccount, {
+        allowLegacyFallback: !prevUserId && Boolean(nextUserId),
+        consumeLegacyOnMigrate: !prevUserId && Boolean(nextUserId)
+      });
       if (broadcast) {
         broadcastPlatformEvent('AUTH_STATE_CHANGED', {
           mode: nextAccount ? 'authenticated' : 'guest',
@@ -1952,8 +2014,23 @@ export function createAuroMindSDK(options = {}) {
       onlineEventHandler = () => {
         observedOnline = true;
         emitOfflineStateChange(true);
-        if (syncConsent && currentAccount && capabilities.cloudSyncEnabled) {
-          syncService.syncNow().catch(() => {});
+        const maybeSync = () => {
+          if (syncConsent && currentAccount && capabilities.cloudSyncEnabled) {
+            syncService.syncNow().catch(() => {});
+          }
+        };
+        if (
+          capabilities.authEnabled &&
+          providers.auth &&
+          providers.auth.isConfigured() &&
+          !getActiveAccountSanitized({ expireSideEffects: false }) &&
+          typeof providers.auth.hasRefreshableSession === 'function' &&
+          providers.auth.hasRefreshableSession() &&
+          typeof providers.auth.refreshSession === 'function'
+        ) {
+          authService.refreshSession().then(maybeSync).catch(() => {});
+        } else {
+          maybeSync();
         }
       };
       try {
@@ -1982,6 +2059,10 @@ export function createAuroMindSDK(options = {}) {
     if (!broadcastChannel && typeof BC === 'function') {
       try {
         broadcastChannel = new BC(BROADCAST_CHANNEL_NAME);
+        // In Node.js, unref the underlying MessagePort so an undisposed instance never blocks process exit
+        if (typeof broadcastChannel.unref === 'function') {
+          broadcastChannel.unref();
+        }
         storageHealth.broadcastChannelSupported = true;
         broadcastChannel.onmessage = (event) => {
           const data = event?.data;
@@ -2510,6 +2591,59 @@ export function createAuroMindSDK(options = {}) {
       pendingAuthFlow = null;
       return Object.freeze({ ok: true, cancelled: true });
     },
+    async refreshSession() {
+      if (!capabilities.authEnabled || !providers.auth.isConfigured()) {
+        return Object.freeze({
+          ok: false,
+          account: null,
+          errorCode: 'NOT_CONFIGURED',
+          message: 'Authentication is disabled or no AuthProvider is configured.'
+        });
+      }
+      if (typeof providers.auth.refreshSession !== 'function') {
+        return Object.freeze({
+          ok: false,
+          account: null,
+          errorCode: 'METHOD_NOT_SUPPORTED',
+          message: 'Session refresh is not supported by the active AuthProvider.'
+        });
+      }
+      return runSerializedAuthOp(async (opEpoch) => {
+        const res = await providers.auth.refreshSession();
+        if (opEpoch !== authEpoch) {
+          return Object.freeze({
+            ok: false,
+            account: null,
+            stale: true,
+            errorCode: 'AUTH_SUPERSEDED',
+            message: 'Session refresh was superseded by a newer session change.'
+          });
+        }
+        if (res && res.ok && res.account) {
+          const sanitized = applyAccountTransition(res.account, { broadcast: true, reason: 'token_refreshed' });
+          if (!sanitized) {
+            applyAccountTransition(null, { broadcast: true, reason: 'session_expired' });
+            return Object.freeze({
+              ok: false,
+              account: null,
+              errorCode: 'INVALID_OR_EXPIRED_SESSION',
+              message: 'Refreshed session was invalid or already expired.'
+            });
+          }
+          return Object.freeze({ ok: true, account: sanitized });
+        }
+        if (res && res.retryable !== true && currentAccount) {
+          applyAccountTransition(null, { broadcast: true, reason: 'refresh_failed' });
+        }
+        return Object.freeze({
+          ok: false,
+          account: null,
+          retryable: Boolean(res?.retryable),
+          errorCode: res?.errorCode || 'REFRESH_FAILED',
+          message: res?.message || 'Unable to refresh session.'
+        });
+      });
+    },
     async validateSession() {
       if (!capabilities.authEnabled) {
         if (currentAccount) {
@@ -2522,6 +2656,17 @@ export function createAuroMindSDK(options = {}) {
           const fresh = await providers.auth.getCurrentSession();
           const sanitized = sanitizeAccountRecord(fresh, getNow().getTime());
           if (!sanitized) {
+            // Attempt token refresh if provider holds a refreshable session
+            if (
+              typeof providers.auth.hasRefreshableSession === 'function' &&
+              providers.auth.hasRefreshableSession() &&
+              typeof providers.auth.refreshSession === 'function'
+            ) {
+              const refreshed = await this.refreshSession();
+              if (refreshed && refreshed.ok && refreshed.account) {
+                return Object.freeze({ valid: true, account: refreshed.account, refreshed: true, reason: 'REFRESHED' });
+              }
+            }
             if (currentAccount) {
               applyAccountTransition(null, { broadcast: true, reason: 'session_expired' });
             }
@@ -2906,16 +3051,33 @@ export function createAuroMindSDK(options = {}) {
       const activeAccount = getActiveAccountSanitized({ expireSideEffects: true });
       if (!activeAccount) return false;
       const userProfileKey = getProfileOwnerKey(activeAccount);
-      let remoteDeleted = false;
-      if (providers.accountProvider && providers.accountProvider.isConfigured()) {
+      const userSyncMetaKey = getSyncMetaStorageKey(activeAccount.userId);
+      const userSyncConsentKey = getSyncConsentStorageKey(activeAccount.userId);
+      const hasRemoteAccountProvider = Boolean(providers.accountProvider && providers.accountProvider.isConfigured());
+      let remoteDeleted = !hasRemoteAccountProvider;
+      if (hasRemoteAccountProvider) {
         try {
-          remoteDeleted = await providers.accountProvider.deleteUserData();
-        } catch {}
+          remoteDeleted = Boolean(await providers.accountProvider.deleteUserData(activeAccount.userId));
+        } catch (err) {
+          loggingService.warn('auth', 'Remote account deletion failed; preserving session for retry', {
+            error: err?.message || String(err)
+          });
+          remoteDeleted = false;
+        }
+      }
+      if (!remoteDeleted) {
+        // Fail closed on remote deletion failure: do not destroy local profile or claim account was deleted
+        return false;
       }
       memoryProfiles.delete(userProfileKey);
       lsRemoveRaw(userProfileKey);
+      memorySyncMetadataByUser.delete(activeAccount.userId);
+      if (userSyncMetaKey) lsRemoveRaw(userSyncMetaKey);
+      if (userSyncConsentKey && userSyncConsentKey !== LS_SYNC_CONSENT_KEY) {
+        lsRemoveRaw(userSyncConsentKey);
+      }
       await this.signOut();
-      return remoteDeleted;
+      return true;
     },
     onAuthStateChange(listener) {
       if (typeof listener !== 'function') return () => {};
@@ -5186,7 +5348,9 @@ export function createAuroMindSDK(options = {}) {
       'remoteConfig',
       'telemetryTransport',
       'purchaseProvider',
-      'accountProvider'
+      'accountProvider',
+      'profileProvider',
+      'storageProvider'
     ];
     for (const key of Object.keys(nextProviders)) {
       if (!allowed.includes(key)) {
@@ -5274,6 +5438,17 @@ export function createAuroMindSDK(options = {}) {
           try {
             const restored = await providers.auth.getCurrentSession();
             currentAccount = sanitizeAccountRecord(restored, getNow().getTime());
+            if (
+              !currentAccount &&
+              typeof providers.auth.hasRefreshableSession === 'function' &&
+              providers.auth.hasRefreshableSession() &&
+              typeof providers.auth.refreshSession === 'function'
+            ) {
+              const refreshed = await providers.auth.refreshSession();
+              if (refreshed && refreshed.ok && refreshed.account) {
+                currentAccount = sanitizeAccountRecord(refreshed.account, getNow().getTime());
+              }
+            }
           } catch (authRestoreErr) {
             currentAccount = null;
             loggingService.warn('auth', 'Session restoration failed non-fatally; continuing in guest mode', {
@@ -5290,9 +5465,10 @@ export function createAuroMindSDK(options = {}) {
           currentAccount = null;
         }
 
-        // Load strictly account-scoped sync metadata (or {} in guest mode) & clear any stale legacy flat key
+        // Load strictly account-scoped sync metadata & consent (or guest defaults) & clear legacy flat metadata
         lsRemoveRaw(LS_SYNC_META_KEY);
         refreshActiveSyncMetadata(currentAccount);
+        refreshActiveSyncConsent(currentAccount, { allowLegacyFallback: true });
 
         // Non-destructively hydrate any pending mutations from durable IDB outbox
         try {

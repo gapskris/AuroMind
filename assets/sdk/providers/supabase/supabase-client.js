@@ -62,6 +62,8 @@ export function createSupabaseClient(config = {}) {
 
   let activeSession = null;
   let pendingOAuthStateMemory = null;
+  let sessionEpoch = 0;
+  let refreshInFlight = null;
   const consumedOAuthCodes = new Set();
   const authListeners = new Set();
 
@@ -87,6 +89,20 @@ export function createSupabaseClient(config = {}) {
     return null;
   }
 
+  function hasRefreshTokenRecord(session) {
+    return Boolean(
+      session &&
+        typeof session === 'object' &&
+        !Array.isArray(session) &&
+        typeof session.refresh_token === 'string' &&
+        session.refresh_token.trim().length > 0 &&
+        session.user &&
+        typeof session.user === 'object' &&
+        typeof session.user.id === 'string' &&
+        session.user.id.trim().length > 0
+    );
+  }
+
   function isSessionValid(session) {
     if (!session || typeof session !== 'object' || Array.isArray(session)) return false;
     if (typeof session.access_token !== 'string' || session.access_token.trim().length === 0) return false;
@@ -100,21 +116,31 @@ export function createSupabaseClient(config = {}) {
     return true;
   }
 
-  function loadStoredSession() {
+  function readRawStoredSession() {
     if (!storage) return null;
     try {
       const raw = storage.getItem(sessionKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (isSessionValid(parsed)) {
-          return parsed;
-        }
-        // Purge corrupted or expired session immediately
-        try {
-          storage.removeItem(sessionKey);
-        } catch {}
-      }
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
     } catch {
+      try {
+        storage.removeItem(sessionKey);
+      } catch {}
+      return null;
+    }
+  }
+
+  function loadStoredSession() {
+    if (!storage) return null;
+    const parsed = readRawStoredSession();
+    if (!parsed) return null;
+    if (isSessionValid(parsed)) {
+      return parsed;
+    }
+    // Retain refreshable session in storage ONLY when a refresh_token is present so refreshSession() can recover it;
+    // purge expired non-refreshable or corrupted sessions immediately.
+    if (!hasRefreshTokenRecord(parsed)) {
       try {
         storage.removeItem(sessionKey);
       } catch {}
@@ -125,7 +151,7 @@ export function createSupabaseClient(config = {}) {
   function saveSession(session) {
     if (session && !isSessionValid(session)) {
       activeSession = null;
-      if (storage) {
+      if (storage && !hasRefreshTokenRecord(session)) {
         try {
           storage.removeItem(sessionKey);
         } catch {}
@@ -226,7 +252,7 @@ export function createSupabaseClient(config = {}) {
       'Content-Type': 'application/json',
       ...extraHeaders
     };
-    if (activeSession && activeSession.access_token) {
+    if (activeSession && isSessionValid(activeSession)) {
       headers.Authorization = `Bearer ${activeSession.access_token}`;
     } else {
       headers.Authorization = `Bearer ${anonKey}`;
@@ -247,7 +273,13 @@ export function createSupabaseClient(config = {}) {
         }
       }
       if (activeSession && !isSessionValid(activeSession)) {
-        saveSession(null);
+        const keepForRefresh = hasRefreshTokenRecord(activeSession);
+        activeSession = null;
+        if (!keepForRefresh && storage) {
+          try {
+            storage.removeItem(sessionKey);
+          } catch {}
+        }
         emitAuthEvent('SIGNED_OUT', null);
         return null;
       }
@@ -262,10 +294,78 @@ export function createSupabaseClient(config = {}) {
       const sess = this.getSession();
       return sess && sess.user ? Object.freeze({ ...sess.user }) : null;
     },
+    hasRefreshableSession() {
+      if (hasRefreshTokenRecord(activeSession)) return true;
+      const raw = readRawStoredSession();
+      return hasRefreshTokenRecord(raw);
+    },
+    async refreshSession() {
+      if (!isConfigured()) {
+        return { ok: false, error: 'SUPABASE_NOT_CONFIGURED' };
+      }
+      const candidate = hasRefreshTokenRecord(activeSession) ? activeSession : readRawStoredSession();
+      if (!hasRefreshTokenRecord(candidate)) {
+        return { ok: false, error: 'NO_REFRESH_TOKEN' };
+      }
+      if (refreshInFlight) {
+        return refreshInFlight;
+      }
+      const opEpoch = sessionEpoch;
+      refreshInFlight = (async () => {
+        try {
+          const res = await requestWithTimeout(`${url}/auth/v1/token?grant_type=refresh_token`, {
+            method: 'POST',
+            headers: {
+              apikey: anonKey,
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${anonKey}`
+            },
+            body: JSON.stringify({ refresh_token: candidate.refresh_token })
+          });
+          let data = null;
+          try {
+            data = await res.json();
+          } catch {}
+          if (opEpoch !== sessionEpoch) {
+            return { ok: false, stale: true, error: 'SESSION_SUPERSEDED' };
+          }
+          if (!res.ok) {
+            if (res.status === 400 || res.status === 401 || res.status === 403) {
+              // Revoked or expired refresh token: purge immediately and fail closed
+              saveSession(null);
+              emitAuthEvent('SIGNED_OUT', null);
+              return {
+                ok: false,
+                retryable: false,
+                error: data?.message || data?.error_description || 'REFRESH_TOKEN_INVALID'
+              };
+            }
+            return {
+              ok: false,
+              retryable: true,
+              error: data?.message || data?.error_description || `HTTP_${res.status}`
+            };
+          }
+          if (!saveSession(data)) {
+            saveSession(null);
+            emitAuthEvent('SIGNED_OUT', null);
+            return { ok: false, retryable: false, error: 'INVALID_OR_EXPIRED_SESSION' };
+          }
+          emitAuthEvent('TOKEN_REFRESHED', data);
+          return { ok: true, user: data.user, session: data };
+        } catch (err) {
+          return { ok: false, retryable: true, error: err.message || 'NETWORK_ERROR' };
+        } finally {
+          refreshInFlight = null;
+        }
+      })();
+      return refreshInFlight;
+    },
     async signUp({ email, password, options = {} }) {
       if (!isConfigured()) {
         return { ok: false, error: 'SUPABASE_NOT_CONFIGURED' };
       }
+      const opEpoch = sessionEpoch;
       try {
         const res = await requestWithTimeout(`${url}/auth/v1/signup`, {
           method: 'POST',
@@ -277,6 +377,9 @@ export function createSupabaseClient(config = {}) {
           })
         });
         const data = await res.json();
+        if (opEpoch !== sessionEpoch) {
+          return { ok: false, stale: true, error: 'SESSION_SUPERSEDED' };
+        }
         if (!res.ok) {
           return { ok: false, error: data.message || data.error_description || 'SIGNUP_FAILED' };
         }
@@ -295,6 +398,7 @@ export function createSupabaseClient(config = {}) {
       if (!isConfigured()) {
         return { ok: false, error: 'SUPABASE_NOT_CONFIGURED' };
       }
+      const opEpoch = sessionEpoch;
       try {
         const res = await requestWithTimeout(`${url}/auth/v1/token?grant_type=password`, {
           method: 'POST',
@@ -302,6 +406,9 @@ export function createSupabaseClient(config = {}) {
           body: JSON.stringify({ email, password })
         });
         const data = await res.json();
+        if (opEpoch !== sessionEpoch) {
+          return { ok: false, stale: true, error: 'SESSION_SUPERSEDED' };
+        }
         if (!res.ok) {
           return { ok: false, error: data.message || data.error_description || 'SIGNIN_FAILED' };
         }
@@ -353,6 +460,7 @@ export function createSupabaseClient(config = {}) {
       if (!normalizedToken || normalizedToken.length < 4 || normalizedToken.length > 16) {
         return { ok: false, error: 'INVALID_OTP_TOKEN' };
       }
+      const opEpoch = sessionEpoch;
       try {
         const res = await requestWithTimeout(`${url}/auth/v1/verify`, {
           method: 'POST',
@@ -364,6 +472,9 @@ export function createSupabaseClient(config = {}) {
           })
         });
         const data = await res.json();
+        if (opEpoch !== sessionEpoch) {
+          return { ok: false, stale: true, error: 'SESSION_SUPERSEDED' };
+        }
         if (!res.ok) {
           return { ok: false, error: data.message || data.error_description || 'OTP_VERIFICATION_FAILED' };
         }
@@ -492,6 +603,7 @@ export function createSupabaseClient(config = {}) {
 
       consumedOAuthCodes.add(replayKey);
       savePendingOAuthState(null);
+      const opEpoch = sessionEpoch;
 
       try {
         const res = await requestWithTimeout(`${url}/auth/v1/token?grant_type=pkce`, {
@@ -503,6 +615,9 @@ export function createSupabaseClient(config = {}) {
           })
         });
         const data = await res.json();
+        if (opEpoch !== sessionEpoch) {
+          return { ok: false, stale: true, error: 'SESSION_SUPERSEDED' };
+        }
         if (!res.ok) {
           return { ok: false, error: data.message || data.error_description || 'OAUTH_EXCHANGE_FAILED' };
         }
@@ -538,17 +653,25 @@ export function createSupabaseClient(config = {}) {
       }
     },
     async signOut() {
+      sessionEpoch += 1;
+      refreshInFlight = null;
+      const tokenToRevoke = activeSession && isSessionValid(activeSession) ? activeSession.access_token : null;
       savePendingOAuthState(null);
-      if (isConfigured() && activeSession?.access_token) {
+      // Clear activeSession and persisted storage IMMEDIATELY before awaiting remote logout
+      saveSession(null);
+      emitAuthEvent('SIGNED_OUT', null);
+      if (isConfigured() && tokenToRevoke) {
         try {
           await requestWithTimeout(`${url}/auth/v1/logout`, {
             method: 'POST',
-            headers: getStandardHeaders()
+            headers: {
+              apikey: anonKey,
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${tokenToRevoke}`
+            }
           });
         } catch {}
       }
-      saveSession(null);
-      emitAuthEvent('SIGNED_OUT', null);
       return { ok: true };
     },
     onAuthStateChange(listener) {
@@ -557,6 +680,232 @@ export function createSupabaseClient(config = {}) {
         return () => authListeners.delete(listener);
       }
       return () => {};
+    }
+  };
+
+  // --- Storage REST APIs (Bucket Object Operations) ---
+  function normalizeStorageObjectPath(objectPath) {
+    if (typeof objectPath !== 'string') return null;
+    const trimmed = objectPath.trim();
+    if (!trimmed || trimmed.startsWith('/') || trimmed.includes('\\') || /[\u0000-\u001f\u007f]/.test(trimmed)) {
+      return null;
+    }
+    const segments = trimmed.split('/');
+    if (segments.some((seg) => !seg || seg === '.' || seg === '..')) {
+      return null;
+    }
+    return segments.join('/');
+  }
+
+  function encodeStoragePath(normalizedPath) {
+    return normalizedPath.split('/').map((seg) => encodeURIComponent(seg)).join('/');
+  }
+
+  const storageApi = {
+    from(bucketId) {
+      const safeBucket = typeof bucketId === 'string' && /^[a-z0-9][a-z0-9_-]{0,62}$/.test(bucketId.trim())
+        ? bucketId.trim()
+        : null;
+
+      function invalidBucketResult() {
+        return { data: null, error: new SupabaseClientError('INVALID_STORAGE_BUCKET', 400) };
+      }
+
+      async function writeObject(method, objectPath, body, opts = {}) {
+        if (!isConfigured()) {
+          return { data: null, error: new SupabaseClientError('SUPABASE_NOT_CONFIGURED', 503) };
+        }
+        if (!safeBucket) return invalidBucketResult();
+        const normPath = normalizeStorageObjectPath(objectPath);
+        if (!normPath) {
+          return { data: null, error: new SupabaseClientError('INVALID_OBJECT_PATH', 400) };
+        }
+        try {
+          const headers = getStandardHeaders({
+            'Content-Type': opts.contentType || 'application/octet-stream',
+            'cache-control': String(opts.cacheControl ?? '3600')
+          });
+          if (method === 'POST' && opts.upsert === true) {
+            headers['x-upsert'] = 'true';
+          }
+          const res = await requestWithTimeout(
+            `${url}/storage/v1/object/${encodeURIComponent(safeBucket)}/${encodeStoragePath(normPath)}`,
+            { method, headers, body }
+          );
+          let data = null;
+          try {
+            if (typeof res.json === 'function') data = await res.json();
+          } catch {}
+          if (!res.ok) {
+            return {
+              data: null,
+              error: new SupabaseClientError(data?.message || data?.error || `HTTP ${res.status}`, res.status, data)
+            };
+          }
+          return { data: data || { Key: `${safeBucket}/${normPath}`, path: normPath }, error: null };
+        } catch (err) {
+          return { data: null, error: err };
+        }
+      }
+
+      return Object.freeze({
+        upload(objectPath, body, opts = {}) {
+          return writeObject('POST', objectPath, body, opts);
+        },
+        update(objectPath, body, opts = {}) {
+          return writeObject('PUT', objectPath, body, opts);
+        },
+        async download(objectPath) {
+          if (!isConfigured()) {
+            return { data: null, error: new SupabaseClientError('SUPABASE_NOT_CONFIGURED', 503) };
+          }
+          if (!safeBucket) return invalidBucketResult();
+          const normPath = normalizeStorageObjectPath(objectPath);
+          if (!normPath) {
+            return { data: null, error: new SupabaseClientError('INVALID_OBJECT_PATH', 400) };
+          }
+          try {
+            const headers = getStandardHeaders();
+            delete headers['Content-Type'];
+            const res = await requestWithTimeout(
+              `${url}/storage/v1/object/authenticated/${encodeURIComponent(safeBucket)}/${encodeStoragePath(normPath)}`,
+              { method: 'GET', headers }
+            );
+            if (!res.ok) {
+              let errBody = null;
+              try {
+                if (typeof res.json === 'function') errBody = await res.json();
+              } catch {}
+              return {
+                data: null,
+                error: new SupabaseClientError(errBody?.message || `HTTP ${res.status}`, res.status, errBody)
+              };
+            }
+            const bytes = typeof res.arrayBuffer === 'function'
+              ? new Uint8Array(await res.arrayBuffer())
+              : (typeof res.json === 'function' ? await res.json() : null);
+            return { data: bytes, error: null };
+          } catch (err) {
+            return { data: null, error: err };
+          }
+        },
+        async createSignedUrl(objectPath, expiresInSeconds = 300) {
+          if (!isConfigured()) {
+            return { data: null, error: new SupabaseClientError('SUPABASE_NOT_CONFIGURED', 503) };
+          }
+          if (!safeBucket) return invalidBucketResult();
+          const normPath = normalizeStorageObjectPath(objectPath);
+          if (!normPath) {
+            return { data: null, error: new SupabaseClientError('INVALID_OBJECT_PATH', 400) };
+          }
+          const boundedExpires = Math.max(1, Math.min(3600, Math.floor(Number(expiresInSeconds) || 300)));
+          try {
+            const res = await requestWithTimeout(
+              `${url}/storage/v1/object/sign/${encodeURIComponent(safeBucket)}/${encodeStoragePath(normPath)}`,
+              {
+                method: 'POST',
+                headers: getStandardHeaders(),
+                body: JSON.stringify({ expiresIn: boundedExpires })
+              }
+            );
+            let data = null;
+            try {
+              if (typeof res.json === 'function') data = await res.json();
+            } catch {}
+            if (!res.ok) {
+              return {
+                data: null,
+                error: new SupabaseClientError(data?.message || `HTTP ${res.status}`, res.status, data)
+              };
+            }
+            const signedPath = data?.signedURL || data?.signedUrl || null;
+            const signedUrl = signedPath
+              ? (signedPath.startsWith('http') ? signedPath : `${url}/storage/v1${signedPath.startsWith('/') ? '' : '/'}${signedPath}`)
+              : null;
+            return { data: { signedUrl }, error: null };
+          } catch (err) {
+            return { data: null, error: err };
+          }
+        },
+        async remove(paths = []) {
+          if (!isConfigured()) {
+            return { data: null, error: new SupabaseClientError('SUPABASE_NOT_CONFIGURED', 503) };
+          }
+          if (!safeBucket) return invalidBucketResult();
+          const rawList = Array.isArray(paths) ? paths : [paths];
+          const normalized = [];
+          for (const p of rawList) {
+            const norm = normalizeStorageObjectPath(p);
+            if (!norm) {
+              return { data: null, error: new SupabaseClientError('INVALID_OBJECT_PATH', 400) };
+            }
+            normalized.push(norm);
+          }
+          if (normalized.length === 0) {
+            return { data: [], error: null };
+          }
+          try {
+            const res = await requestWithTimeout(
+              `${url}/storage/v1/object/${encodeURIComponent(safeBucket)}`,
+              {
+                method: 'DELETE',
+                headers: getStandardHeaders(),
+                body: JSON.stringify({ prefixes: normalized })
+              }
+            );
+            let data = null;
+            try {
+              if (typeof res.json === 'function') data = await res.json();
+            } catch {}
+            if (!res.ok && res.status !== 404) {
+              return {
+                data: null,
+                error: new SupabaseClientError(data?.message || `HTTP ${res.status}`, res.status, data)
+              };
+            }
+            return { data: data || normalized.map((name) => ({ name })), error: null, status: res.status };
+          } catch (err) {
+            return { data: null, error: err };
+          }
+        },
+        async list(prefix = '', opts = {}) {
+          if (!isConfigured()) {
+            return { data: null, error: new SupabaseClientError('SUPABASE_NOT_CONFIGURED', 503) };
+          }
+          if (!safeBucket) return invalidBucketResult();
+          const normPrefix = prefix === '' ? '' : normalizeStorageObjectPath(prefix);
+          if (prefix !== '' && !normPrefix) {
+            return { data: null, error: new SupabaseClientError('INVALID_OBJECT_PATH', 400) };
+          }
+          try {
+            const res = await requestWithTimeout(
+              `${url}/storage/v1/object/list/${encodeURIComponent(safeBucket)}`,
+              {
+                method: 'POST',
+                headers: getStandardHeaders(),
+                body: JSON.stringify({
+                  prefix: normPrefix,
+                  limit: Math.max(1, Math.min(1000, Number(opts.limit) || 100)),
+                  offset: Math.max(0, Number(opts.offset) || 0)
+                })
+              }
+            );
+            let data = null;
+            try {
+              if (typeof res.json === 'function') data = await res.json();
+            } catch {}
+            if (!res.ok) {
+              return {
+                data: null,
+                error: new SupabaseClientError(data?.message || `HTTP ${res.status}`, res.status, data)
+              };
+            }
+            return { data: Array.isArray(data) ? data : [], error: null };
+          } catch (err) {
+            return { data: null, error: err };
+          }
+        }
+      });
     }
   };
 
@@ -677,6 +1026,7 @@ export function createSupabaseClient(config = {}) {
     from,
     rpc,
     functions,
+    storage: storageApi,
     checkHealth,
     requestWithTimeout,
     getStandardHeaders

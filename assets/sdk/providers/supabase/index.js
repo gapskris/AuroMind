@@ -17,6 +17,8 @@ import { createSupabaseTelemetryTransport } from './supabase-telemetry-transport
 import { createSupabaseEntitlementsProvider } from './supabase-entitlements-provider.js';
 import { createSupabaseRemoteConfigProvider } from './supabase-remote-config-provider.js';
 import { createSupabaseAccountProvider } from './supabase-account-provider.js';
+import { createSupabaseProfileProvider } from './supabase-profile-provider.js';
+import { createSupabaseStorageProvider } from './supabase-storage-provider.js';
 
 export function createSupabaseProviders(config = {}) {
   const client = createSupabaseClient(config);
@@ -28,7 +30,9 @@ export function createSupabaseProviders(config = {}) {
     telemetryTransport: createSupabaseTelemetryTransport(client),
     entitlements: createSupabaseEntitlementsProvider(client),
     remoteConfig: createSupabaseRemoteConfigProvider(client),
-    accountProvider: createSupabaseAccountProvider(client)
+    accountProvider: createSupabaseAccountProvider(client),
+    profileProvider: createSupabaseProfileProvider(client),
+    storageProvider: createSupabaseStorageProvider(client)
   });
 }
 

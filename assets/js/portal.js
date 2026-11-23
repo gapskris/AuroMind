@@ -98,6 +98,27 @@ function initPortalSDK() {
       }
 
       portalSdkInitCount += 1;
+      const SDK_PROVIDER_SLOTS = [
+        'auth',
+        'cloudSync',
+        'entitlements',
+        'analytics',
+        'remoteConfig',
+        'telemetryTransport',
+        'purchaseProvider',
+        'accountProvider',
+        'profileProvider',
+        'storageProvider'
+      ];
+      const pickSdkProviders = (bundle) => {
+        if (!bundle || typeof bundle !== 'object') return {};
+        const picked = {};
+        for (const slot of SDK_PROVIDER_SLOTS) {
+          if (bundle[slot]) picked[slot] = bundle[slot];
+        }
+        return picked;
+      };
+
       let customProviders = {};
       try {
         const { createConfiguredProviders } = await import('../sdk/config/backend-config.js');
@@ -117,6 +138,7 @@ function initPortalSDK() {
           }
         }
       }
+      customProviders = pickSdkProviders(customProviders);
 
       const ctx = await sdk.init({
         gameId: 'portal',

@@ -248,9 +248,56 @@ export function createSupabaseAuthProvider(client) {
     await client.auth.signOut();
   }
 
+  function hasRefreshableSession() {
+    if (!isConfigured()) return false;
+    return typeof client.auth.hasRefreshableSession === 'function'
+      ? Boolean(client.auth.hasRefreshableSession())
+      : false;
+  }
+
+  async function refreshSession() {
+    if (!isConfigured()) {
+      return Object.freeze({
+        ok: false,
+        account: null,
+        errorCode: 'SUPABASE_NOT_CONFIGURED',
+        message: 'Supabase provider is not configured.'
+      });
+    }
+    if (typeof client.auth.refreshSession !== 'function') {
+      return Object.freeze({
+        ok: false,
+        account: null,
+        errorCode: 'METHOD_NOT_SUPPORTED',
+        message: 'Session refresh is not supported by this client.'
+      });
+    }
+    const res = await client.auth.refreshSession();
+    if (res && res.ok && res.session) {
+      return Object.freeze({
+        ok: true,
+        account: mapAccount(res.session)
+      });
+    }
+    return Object.freeze({
+      ok: false,
+      account: null,
+      retryable: Boolean(res?.retryable),
+      errorCode: res?.error || 'REFRESH_FAILED',
+      message: res?.message || res?.error || 'Session refresh failed.'
+    });
+  }
+
   async function linkGuestIdentity(guestId, account) {
     if (!isConfigured() || !guestId || !account?.userId) {
-      return Object.freeze({ linked: false });
+      return Object.freeze({ linked: false, error: 'INVALID_INPUT' });
+    }
+    if (typeof guestId !== 'string' || !/^guest_[0-9a-f-]{36}$/i.test(guestId)) {
+      return Object.freeze({ linked: false, error: 'INVALID_GUEST_ID' });
+    }
+    const activeUser = typeof client.auth?.getUser === 'function' ? client.auth.getUser() : null;
+    if (activeUser?.id && activeUser.id !== account.userId) {
+      return Object.freeze({ linked: false, error: 'ACCOUNT_MISMATCH' });
     }
 
     try {
@@ -290,6 +337,8 @@ export function createSupabaseAuthProvider(client) {
     providerName: 'supabase-auth',
     isConfigured,
     getCurrentSession,
+    hasRefreshableSession,
+    refreshSession,
     signIn,
     signUp,
     verifyOtp,

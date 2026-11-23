@@ -812,6 +812,9 @@ describe('B19.5-02 Part 1 — Identity, Auth, Profile & Security (Unit/Integrati
     });
 
     const sdk = createAuroMindSDK({ env: { localStorage: storage, indexedDB: null } });
+    let sdkReinitGuest = null;
+    let sdkReinitAlice = null;
+    try {
     await sdk.init({
       gameId: 'portal',
       capabilities: { authEnabled: true, cloudSyncEnabled: true },
@@ -880,7 +883,7 @@ describe('B19.5-02 Part 1 — Identity, Auth, Profile & Security (Unit/Integrati
 
     // 6. Reinitialize brand-new SDK instance after logout (even if legacy flat LS_SYNC_META_KEY existed)
     storage.setItem(LS_SYNC_META_KEY, JSON.stringify({ lastSyncAt: '2026-01-01T00:00:00.000Z', auromatch: { revision: 99 } }));
-    const sdkReinitGuest = createAuroMindSDK({ env: { localStorage: storage, indexedDB: null } });
+    sdkReinitGuest = createAuroMindSDK({ env: { localStorage: storage, indexedDB: null } });
     await sdkReinitGuest.init({
       gameId: 'portal',
       capabilities: { authEnabled: true, cloudSyncEnabled: true },
@@ -891,10 +894,11 @@ describe('B19.5-02 Part 1 — Identity, Auth, Profile & Security (Unit/Integrati
     assert.equal(storage.getItem(LS_SYNC_META_KEY), null, 'Stale legacy flat key must be cleared on reinit');
     assert.ok(sdkReinitGuest.sync.getSyncStatus().pendingGames.includes('auroblocks'), 'Pending outbox survives reinit');
     sdkReinitGuest.dispose();
+    sdkReinitGuest = null;
 
     // 7. Reinitialize SDK as Alice (same-account reload) -> Alice's valid metadata IS preserved
     activeSession = { userId: 'usr_sync_alice', email: 'alice@auromasti.test' };
-    const sdkReinitAlice = createAuroMindSDK({ env: { localStorage: storage, indexedDB: null } });
+    sdkReinitAlice = createAuroMindSDK({ env: { localStorage: storage, indexedDB: null } });
     await sdkReinitAlice.init({
       gameId: 'portal',
       capabilities: { authEnabled: true, cloudSyncEnabled: true },
@@ -903,6 +907,12 @@ describe('B19.5-02 Part 1 — Identity, Auth, Profile & Security (Unit/Integrati
     assert.equal(sdkReinitAlice.sync.getSyncStatus().lastSyncAt, aliceStatus.lastSyncAt);
     assert.equal(sdkReinitAlice.sync.getSyncStatus().metadata.auromatch?.revision, 7);
     sdkReinitAlice.dispose();
+    sdkReinitAlice = null;
+    } finally {
+      try { sdk.dispose(); } catch {}
+      try { sdkReinitGuest?.dispose(); } catch {}
+      try { sdkReinitAlice?.dispose(); } catch {}
+    }
   });
 
   test('14. Multi-tab sync metadata isolation: two tabs switching accounts never expose another account sync metadata', async () => {
@@ -934,6 +944,7 @@ describe('B19.5-02 Part 1 — Identity, Auth, Profile & Security (Unit/Integrati
     const tabA = createAuroMindSDK({ env: { localStorage: sharedStorage, indexedDB: null, BroadcastChannel: FakeBC } });
     const tabB = createAuroMindSDK({ env: { localStorage: sharedStorage, indexedDB: null, BroadcastChannel: FakeBC } });
 
+    try {
     await tabA.init({ gameId: 'portal', capabilities: { authEnabled: true, cloudSyncEnabled: true }, providers: { auth: makeTabAuth(), cloudSync: mockCloudSync } });
     await tabB.init({ gameId: 'portal', capabilities: { authEnabled: true, cloudSyncEnabled: true }, providers: { auth: makeTabAuth(), cloudSync: mockCloudSync } });
 
@@ -984,9 +995,10 @@ describe('B19.5-02 Part 1 — Identity, Auth, Profile & Security (Unit/Integrati
     assert.equal(tabB.auth.getAccount(), null);
     assert.equal(tabB.sync.getSyncStatus().lastSyncAt, null);
     assert.deepEqual(tabB.sync.getSyncStatus().metadata, {});
-
-    tabA.dispose();
-    tabB.dispose();
+    } finally {
+      try { tabA.dispose(); } catch {}
+      try { tabB.dispose(); } catch {}
+    }
   });
 });
 

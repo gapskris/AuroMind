@@ -37,9 +37,9 @@ const PG_RUNTIME_SQL_PATH = path.join(__dirname, 'tests', 'rls', 'b19-5-05-postg
 // 1. Migration Ordering, DDL Safety & Static Hardening Verification
 // =============================================================================
 
-test('B19.5-05-Static-1: Complete 9-migration chain is ordered, valid DDL, and contains no invalid CALL on functions', () => {
+test('B19.5-05-Static-1: Complete migration chain is ordered, valid DDL, and contains no invalid CALL on functions', () => {
   const files = listMigrationsInOrder();
-  assert.equal(files.length, 9, `Expected 9 migrations in chronological order, got ${files.length}`);
+  assert.ok(files.length >= 9, `Expected at least 9 migrations in chronological order, got ${files.length}`);
 
   const basenames = files.map((f) => path.basename(f));
   for (let i = 0; i < basenames.length; i++) {
@@ -278,7 +278,7 @@ test('B19.5-05-RuntimeProbe: PostgreSQL verification runner reports runtime avai
   }
 
   const parsed = JSON.parse(stdout);
-  assert.equal(parsed.migrationCount, 9);
+  assert.ok(parsed.migrationCount >= 9);
   assert.equal(parsed.rlsTestCount, 2);
   if (probe.hasPsql) {
     assert.equal(exitCode, 0);

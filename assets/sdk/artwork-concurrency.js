@@ -333,9 +333,12 @@ export function createLocalArtworkStore({
   accountScope = 'guest',
   cloudSyncOptIn = false
 } = {}) {
-  const safeScope = typeof accountScope === 'string' && accountScope.trim()
-    ? accountScope.trim().replace(/[^a-zA-Z0-9._-]/g, '_')
-    : 'guest';
+  const rawScope = typeof accountScope === 'string' ? accountScope.trim() : '';
+  const safeScope = !rawScope
+    ? 'guest'
+    : (/^[a-zA-Z0-9._-]{1,64}$/.test(rawScope) && !rawScope.startsWith('u_')
+        ? rawScope
+        : `u_${computePayloadChecksumSync({ artworkScope: rawScope }).slice(0, 32)}`);
   const resolvedKey = storageKey || `${DEFAULT_ARTWORK_STORE_KEY}:${safeScope}`;
 
   let artworks = {};
@@ -533,14 +536,33 @@ export class StorageDeletionQueue {
     this.queue = new Map();
   }
 
-  enqueue({ bucketId = 'user-artwork', objectPath, artworkId, snapshotId = null }) {
+  enqueue({ bucketId = 'user-artwork', objectPath, artworkId, snapshotId = null, ownerUserId = null }) {
+    if (typeof objectPath !== 'string') {
+      throw new Error('INVALID_OBJECT_PATH: objectPath must be a non-empty string');
+    }
+    const trimmedPath = objectPath.trim();
+    const segments = trimmedPath.split('/');
+    if (
+      !trimmedPath ||
+      trimmedPath.startsWith('/') ||
+      trimmedPath.includes('\\') ||
+      segments.some((s) => !s || s === '.' || s === '..')
+    ) {
+      throw new Error('INVALID_OBJECT_PATH: objectPath contains unsafe or traversal segments');
+    }
+    if (ownerUserId !== null && ownerUserId !== undefined) {
+      if (typeof ownerUserId !== 'string' || !ownerUserId.trim() || segments[0] !== ownerUserId.trim()) {
+        throw new Error('CROSS_USER_STORAGE_FORBIDDEN: objectPath prefix must match ownerUserId');
+      }
+    }
     const id = generateUuid();
     const job = {
       id,
       bucketId,
-      objectPath,
+      objectPath: trimmedPath,
       artworkId,
       snapshotId,
+      ownerUserId: ownerUserId || null,
       attempts: 0,
       maxAttempts: MAX_STORAGE_PURGE_RETRIES,
       status: 'pending',
