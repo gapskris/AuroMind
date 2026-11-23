@@ -3295,47 +3295,104 @@ export function createAuroMindSDK(options = {}) {
             } catch {}
           };
 
-          const MANDATORY_LOCAL_ONLY_MARKERS = [
-            'sankalpa_e2ee_vault',
-            'auromasti-sankalpa-backup',
-            'auromind_sankalpa_vault',
-            'sankalpa_reflections'
-          ];
+          const MANDATORY_LOCAL_ONLY_VALUE_RE =
+            /(?:sankalpa_e2ee_vault|auromasti-sankalpa-backup|auromind_sankalpa_vault|sankalpa_reflections)/i;
+          const MAX_PRIVACY_INSPECTION_DEPTH = 64;
+          const MAX_PRIVACY_INSPECTION_NODES = 10000;
 
-          const findSankalpaKeyRecursive = (node, depth = 0) => {
-            if (depth > 8 || node === null || node === undefined || typeof node !== 'object') return null;
-            if (Array.isArray(node)) {
-              for (const item of node) {
-                const found = findSankalpaKeyRecursive(item, depth + 1);
-                if (found) return found;
+          const inspectPayloadForForbiddenVault = (payload, extraVaultMarkers = []) => {
+            if (payload === null || payload === undefined) return null;
+            const extraLower = extraVaultMarkers
+              .filter((m) => typeof m === 'string' && m.length > 0)
+              .map((m) => ({ raw: m, lower: m.toLowerCase() }));
+
+            const checkString = (str) => {
+              const markerMatch = MANDATORY_LOCAL_ONLY_VALUE_RE.exec(str);
+              if (markerMatch) return markerMatch[0].toLowerCase();
+              const lower = str.toLowerCase();
+              for (const ex of extraLower) {
+                if (lower.includes(ex.lower)) return ex.raw;
               }
               return null;
+            };
+
+            if (typeof payload === 'string') {
+              return checkString(payload);
             }
-            for (const [k, v] of Object.entries(node)) {
-              if (/sankalpa/i.test(k)) return k;
-              if (typeof v === 'string') {
-                for (const marker of MANDATORY_LOCAL_ONLY_MARKERS) {
-                  if (v.toLowerCase().includes(marker)) return marker;
+            if (typeof payload !== 'object') return null;
+
+            const activeAncestors = new Set();
+            const completed = new WeakSet();
+            const stack = [{ node: payload, depth: 0, phase: 'enter' }];
+            let inspectedNodes = 0;
+
+            while (stack.length > 0) {
+              const { node, depth, phase } = stack.pop();
+              if (phase === 'exit') {
+                activeAncestors.delete(node);
+                completed.add(node);
+                continue;
+              }
+              if (depth > MAX_PRIVACY_INSPECTION_DEPTH) {
+                return 'PRIVACY_INSPECTION_DEPTH_EXCEEDED';
+              }
+              inspectedNodes += 1;
+              if (inspectedNodes > MAX_PRIVACY_INSPECTION_NODES) {
+                return 'PRIVACY_INSPECTION_NODE_LIMIT_EXCEEDED';
+              }
+              if (node === null || node === undefined) continue;
+              if (typeof node === 'string') {
+                const hit = checkString(node);
+                if (hit) return hit;
+                continue;
+              }
+              if (typeof node !== 'object') continue;
+              if (activeAncestors.has(node)) {
+                return 'PRIVACY_INSPECTION_CYCLE_DETECTED';
+              }
+              if (completed.has(node)) continue;
+              activeAncestors.add(node);
+              stack.push({ node, depth, phase: 'exit' });
+
+              if (Array.isArray(node)) {
+                for (let i = 0; i < node.length; i++) {
+                  const item = node[i];
+                  if (typeof item === 'string') {
+                    const hit = checkString(item);
+                    if (hit) return hit;
+                  } else if (item && typeof item === 'object') {
+                    stack.push({ node: item, depth: depth + 1, phase: 'enter' });
+                  }
                 }
-              } else if (v && typeof v === 'object') {
-                const found = findSankalpaKeyRecursive(v, depth + 1);
-                if (found) return found;
+              } else {
+                const keys = Object.keys(node);
+                for (let i = 0; i < keys.length; i++) {
+                  const k = keys[i];
+                  if (/sankalpa/i.test(k)) return k;
+                  const kLower = k.toLowerCase();
+                  for (const ex of extraLower) {
+                    if (kLower.includes(ex.lower)) return ex.raw;
+                  }
+                  const v = node[k];
+                  if (typeof v === 'string') {
+                    const hit = checkString(v);
+                    if (hit) return hit;
+                  } else if (v && typeof v === 'object') {
+                    stack.push({ node: v, depth: depth + 1, phase: 'enter' });
+                  }
+                }
               }
             }
             return null;
           };
 
           const payloadHasForbiddenVault = (payload, caps) => {
-            const mandatoryHit = findSankalpaKeyRecursive(payload);
-            if (mandatoryHit) return mandatoryHit;
-            if (!caps || !caps.hasLocalOnlyVaults || !Array.isArray(caps.localOnlyVaults)) return false;
-            const payloadStr = JSON.stringify(payload || {});
-            for (const vaultKey of caps.localOnlyVaults) {
-              if (payloadStr.includes(vaultKey)) {
-                return vaultKey;
-              }
-            }
-            return false;
+            const declaredVaults =
+              caps && caps.hasLocalOnlyVaults && Array.isArray(caps.localOnlyVaults)
+                ? caps.localOnlyVaults
+                : [];
+            const hit = inspectPayloadForForbiddenVault(payload, declaredVaults);
+            return hit || false;
           };
 
           const isPlainJsonObject = (val) => {

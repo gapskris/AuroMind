@@ -16,19 +16,71 @@ const KNOWN_SYNC_GAME_IDS = new Set([
   'auroblocks'
 ]);
 
-const SANKALPA_FORBIDDEN_MARKER_RE = /(?:sankalpa|auromasti-sankalpa-backup|auromind_sankalpa_vault)/i;
+const SANKALPA_FORBIDDEN_KEY_RE = /(?:sankalpa|auromasti-sankalpa-backup|auromind_sankalpa_vault)/i;
+const SANKALPA_FORBIDDEN_VALUE_RE =
+  /(?:sankalpa_e2ee_vault|auromasti-sankalpa-backup|auromind_sankalpa_vault|sankalpa_reflections)/i;
+const MAX_PRIVACY_INSPECTION_DEPTH = 64;
+const MAX_PRIVACY_INSPECTION_NODES = 10000;
 
-function payloadContainsForbiddenSankalpa(payload, depth = 0) {
-  if (depth > 8 || payload === null || payload === undefined || typeof payload !== 'object') return false;
-  if (Array.isArray(payload)) {
-    return payload.some((item) => payloadContainsForbiddenSankalpa(item, depth + 1));
-  }
-  for (const [k, v] of Object.entries(payload)) {
-    if (SANKALPA_FORBIDDEN_MARKER_RE.test(k)) return true;
-    if (typeof v === 'string' && /(?:sankalpa_e2ee_vault|auromasti-sankalpa-backup|auromind_sankalpa_vault)/i.test(v)) {
-      return true;
+/**
+ * Iterative, cycle-safe, fail-closed Sankalpa privacy inspector.
+ * Returns true if any forbidden Sankalpa key/marker is found at any depth OR
+ * if the structure exceeds safe inspection bounds (never silently accepts uninspected data).
+ */
+function payloadContainsForbiddenSankalpa(payload) {
+  if (payload === null || payload === undefined) return false;
+  if (typeof payload === 'string') return SANKALPA_FORBIDDEN_VALUE_RE.test(payload);
+  if (typeof payload !== 'object') return false;
+
+  const activeAncestors = new Set();
+  const completed = new WeakSet();
+  const stack = [{ node: payload, depth: 0, phase: 'enter' }];
+  let inspectedNodes = 0;
+
+  while (stack.length > 0) {
+    const { node, depth, phase } = stack.pop();
+    if (phase === 'exit') {
+      activeAncestors.delete(node);
+      completed.add(node);
+      continue;
     }
-    if (v && typeof v === 'object' && payloadContainsForbiddenSankalpa(v, depth + 1)) return true;
+    if (depth > MAX_PRIVACY_INSPECTION_DEPTH) return true; // Fail closed
+    inspectedNodes += 1;
+    if (inspectedNodes > MAX_PRIVACY_INSPECTION_NODES) return true; // Fail closed
+
+    if (node === null || node === undefined) continue;
+    if (typeof node === 'string') {
+      if (SANKALPA_FORBIDDEN_VALUE_RE.test(node)) return true;
+      continue;
+    }
+    if (typeof node !== 'object') continue;
+    if (activeAncestors.has(node)) return true; // Fail closed on cyclic payload
+    if (completed.has(node)) continue;
+    activeAncestors.add(node);
+    stack.push({ node, depth, phase: 'exit' });
+
+    if (Array.isArray(node)) {
+      for (let i = 0; i < node.length; i++) {
+        const item = node[i];
+        if (typeof item === 'string') {
+          if (SANKALPA_FORBIDDEN_VALUE_RE.test(item)) return true;
+        } else if (item && typeof item === 'object') {
+          stack.push({ node: item, depth: depth + 1, phase: 'enter' });
+        }
+      }
+    } else {
+      const keys = Object.keys(node);
+      for (let i = 0; i < keys.length; i++) {
+        const k = keys[i];
+        if (SANKALPA_FORBIDDEN_KEY_RE.test(k)) return true;
+        const v = node[k];
+        if (typeof v === 'string') {
+          if (SANKALPA_FORBIDDEN_VALUE_RE.test(v)) return true;
+        } else if (v && typeof v === 'object') {
+          stack.push({ node: v, depth: depth + 1, phase: 'enter' });
+        }
+      }
+    }
   }
   return false;
 }

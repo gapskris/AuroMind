@@ -135,11 +135,43 @@ function encodeAad(aad) {
   return new TextEncoder().encode(String(aad));
 }
 
-function normalizeScopeId(scopeId) {
-  if (typeof scopeId !== 'string' || scopeId.trim().length === 0) {
+const LEGACY_SAFE_SCOPE_RE = /^[a-zA-Z0-9._@-]+$/;
+const CANONICAL_SCOPE_V2_PREFIX = 's2~';
+const MAX_LEGACY_SAFE_SCOPE_LEN = 128;
+
+/**
+ * Collision-resistant, deterministic, lossless canonical scope key encoder.
+ *
+ * - Omitted / null / empty scope defaults to 'guest'.
+ * - Clean legacy-safe ASCII scopes (`^[a-zA-Z0-9._@-]+$`, <= 128 chars, not starting with `s2~`)
+ *   map identically to themselves to preserve 100% compatibility with existing vaults.
+ * - All other identifiers (slashes, colons, whitespace variants, Unicode, long IDs, or strings
+ *   starting with `s2~`) are encoded losslessly as `s2~<utf8-hex>`, guaranteeing mathematical
+ *   injectivity (zero collisions across any two distinct strings) and zero `:` separators.
+ */
+export function canonicalizeVaultScopeId(scopeId) {
+  if (scopeId === undefined || scopeId === null || scopeId === '') {
     return 'guest';
   }
-  return scopeId.trim().replace(/[^a-zA-Z0-9._:@-]/g, '_');
+  if (typeof scopeId !== 'string') {
+    throw new Error('INVALID_SCOPE_ID: Vault scopeId must be a string');
+  }
+  if (
+    scopeId.length <= MAX_LEGACY_SAFE_SCOPE_LEN &&
+    !scopeId.startsWith(CANONICAL_SCOPE_V2_PREFIX) &&
+    LEGACY_SAFE_SCOPE_RE.test(scopeId)
+  ) {
+    return scopeId;
+  }
+  const utf8Bytes = new TextEncoder().encode(scopeId);
+  return `${CANONICAL_SCOPE_V2_PREFIX}${bytesToHex(utf8Bytes)}`;
+}
+
+function computeLegacyLossyScopeId(rawScopeId) {
+  if (typeof rawScopeId !== 'string' || rawScopeId.trim().length === 0) {
+    return 'guest';
+  }
+  return rawScopeId.trim().replace(/[^a-zA-Z0-9._:@-]/g, '_');
 }
 
 function isValidStoredRecordShape(rec) {
@@ -489,11 +521,12 @@ export function createSankalpaVaultManager({
   channelName = SANKALPA_VAULT_CHANNEL_NAME,
   onStateChange = null
 } = {}) {
-  let activeScopeId = normalizeScopeId(scopeId);
+  let rawScopeId = (scopeId === undefined || scopeId === null || scopeId === '') ? 'guest' : scopeId;
+  let activeScopeId = canonicalizeVaultScopeId(rawScopeId);
   let vaultEpoch = 1;
   let unlocked = false;
   let operationalKey = null;
-  let state = 'locked'; // 'locked' | 'unlocked' | 'unrecoverable_missing_key' | 'storage_unavailable'
+  let state = 'locked'; // 'locked' | 'unlocked' | 'unrecoverable_missing_key' | 'legacy_scope_ambiguous' | 'storage_unavailable'
   let lastError = null;
   let disposed = false;
   let opChain = Promise.resolve();
@@ -692,7 +725,8 @@ export function createSankalpaVaultManager({
   return {
     getStatus() {
       return Object.freeze({
-        scopeId: activeScopeId,
+        scopeId: rawScopeId,
+        canonicalScopeId: activeScopeId,
         state,
         unlocked,
         epoch: vaultEpoch,
@@ -701,15 +735,20 @@ export function createSankalpaVaultManager({
       });
     },
 
-    async unlock(nextScopeId = activeScopeId) {
+    async unlock(nextScopeId = undefined) {
       if (disposed) throw new Error('VAULT_DISPOSED');
-      const targetScope = normalizeScopeId(nextScopeId);
-      if (targetScope !== activeScopeId) {
+      const targetRawScope = nextScopeId === undefined
+        ? rawScopeId
+        : ((nextScopeId === null || nextScopeId === '') ? 'guest' : nextScopeId);
+      const targetScope = canonicalizeVaultScopeId(targetRawScope);
+      if (targetScope !== activeScopeId || targetRawScope !== rawScopeId) {
+        rawScopeId = targetRawScope;
         activeScopeId = targetScope;
         invalidateSession('locked', 'scope_changed');
       }
       const startEpoch = vaultEpoch;
       const startScope = activeScopeId;
+      const startRawScope = rawScopeId;
 
       return serializeOp(async () => {
         if (disposed || vaultEpoch !== startEpoch || activeScopeId !== startScope) {
@@ -736,6 +775,27 @@ export function createSankalpaVaultManager({
             return { key: existingKeyRec.key, created: false, existingEntryCount: scopeEntries.length };
           }
 
+          // Fail-closed legacy ambiguity check: if this non-legacy-safe scope would have mapped to
+          // an existing UNVERSIONED legacy vault under the old lossy normalizer, refuse to guess
+          // ownership or silently orphan/overwrite legacy data.
+          const legacyScope = computeLegacyLossyScopeId(startRawScope);
+          if (legacyScope !== startScope) {
+            const legacyKeyRec = await idbGet(db, SANKALPA_KEY_STORE_NAME, keyIdForScope(legacyScope));
+            const unversionedLegacyEntries = allEntries.filter(
+              (e) => e && e.scopeId === legacyScope && !e.scopeVersion
+            );
+            if ((legacyKeyRec && !legacyKeyRec.scopeVersion) || (!legacyKeyRec && unversionedLegacyEntries.length > 0)) {
+              state = 'legacy_scope_ambiguous';
+              unlocked = false;
+              operationalKey = null;
+              lastError = `LEGACY_SCOPE_AMBIGUOUS:${legacyScope}`;
+              emitState('legacy_scope_ambiguous');
+              throw new Error(
+                `LEGACY_SCOPE_AMBIGUOUS: Unversioned legacy vault exists under lossy scope "${legacyScope}"; refusing ambiguous migration for requested scope`
+              );
+            }
+          }
+
           // Critical safety invariant: NEVER silently generate a replacement key and orphan/destroy
           // existing encrypted vault entries if the operational key handle was lost!
           if (scopeEntries.length > 0) {
@@ -757,6 +817,7 @@ export function createSankalpaVaultManager({
           await idbPutBatchAtomic(db, SANKALPA_KEY_STORE_NAME, [{
             keyId,
             scopeId: startScope,
+            scopeVersion: 2,
             algorithm: 'AES-GCM',
             keyLength: 256,
             extractable: false,
@@ -777,7 +838,8 @@ export function createSankalpaVaultManager({
         emitState('unlocked');
         return Object.freeze({
           ok: true,
-          scopeId: startScope,
+          scopeId: startRawScope,
+          canonicalScopeId: startScope,
           created: result.created,
           existingEntryCount: result.existingEntryCount
         });
@@ -795,7 +857,8 @@ export function createSankalpaVaultManager({
     },
 
     switchAccount(nextScopeId) {
-      activeScopeId = normalizeScopeId(nextScopeId);
+      rawScopeId = (nextScopeId === undefined || nextScopeId === null || nextScopeId === '') ? 'guest' : nextScopeId;
+      activeScopeId = canonicalizeVaultScopeId(rawScopeId);
       invalidateSession('locked', 'account_switch');
       postCoordSignal('locked');
       return activeScopeId;
@@ -826,6 +889,7 @@ export function createSankalpaVaultManager({
         const recordToStore = {
           storageId,
           scopeId: capturedScope,
+          scopeVersion: 2,
           entryId: cleanId,
           schemaVersion: 1,
           ivHex: encrypted.ivHex,
@@ -1076,6 +1140,7 @@ export function createSankalpaVaultManager({
             batchToWrite.push({
               storageId: storageIdFor(capturedScope, targetId),
               scopeId: capturedScope,
+              scopeVersion: 2,
               entryId: targetId,
               schemaVersion: 1,
               ivHex: enc.ivHex,

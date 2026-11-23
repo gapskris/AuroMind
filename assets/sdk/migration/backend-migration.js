@@ -15,6 +15,158 @@ export const CANONICAL_MIGRATION_SCHEMA_VERSION = 1;
 
 const EXCLUDED_GAME_IDENTIFIERS = new Set(['auromandala_sankalpa']);
 const SENSITIVE_KEY_PATTERN = /sankalpa|password|private_key|token|secret|credential/i;
+const SANKALPA_KEY_RE = /sankalpa/i;
+const SANKALPA_VALUE_RE =
+  /(?:sankalpa_e2ee_vault|auromasti-sankalpa-backup|auromind_sankalpa_vault|sankalpa_reflections)/i;
+const MAX_MIGRATION_INSPECTION_DEPTH = 64;
+const MAX_MIGRATION_INSPECTION_NODES = 10000;
+
+/**
+ * Iterative, cycle-safe, fail-closed Sankalpa detector for migration validation.
+ */
+function detectSankalpaOrInspectionLimit(root) {
+  if (root === null || root === undefined) return null;
+  if (typeof root === 'string') return SANKALPA_VALUE_RE.test(root) ? 'SANKALPA_MARKER_IN_VALUE' : null;
+  if (typeof root !== 'object') return null;
+
+  const activeAncestors = new Set();
+  const completed = new WeakSet();
+  const stack = [{ node: root, depth: 0, phase: 'enter' }];
+  let inspected = 0;
+
+  while (stack.length > 0) {
+    const { node, depth, phase } = stack.pop();
+    if (phase === 'exit') {
+      activeAncestors.delete(node);
+      completed.add(node);
+      continue;
+    }
+    if (depth > MAX_MIGRATION_INSPECTION_DEPTH) return 'PRIVACY_INSPECTION_DEPTH_EXCEEDED';
+    inspected += 1;
+    if (inspected > MAX_MIGRATION_INSPECTION_NODES) return 'PRIVACY_INSPECTION_NODE_LIMIT_EXCEEDED';
+    if (node === null || node === undefined) continue;
+    if (typeof node === 'string') {
+      if (SANKALPA_VALUE_RE.test(node)) return 'SANKALPA_MARKER_IN_VALUE';
+      continue;
+    }
+    if (typeof node !== 'object') continue;
+    if (activeAncestors.has(node)) return 'PRIVACY_INSPECTION_CYCLE_DETECTED';
+    if (completed.has(node)) continue;
+    activeAncestors.add(node);
+    stack.push({ node, depth, phase: 'exit' });
+
+    if (Array.isArray(node)) {
+      for (let i = 0; i < node.length; i++) {
+        const item = node[i];
+        if (typeof item === 'string') {
+          if (SANKALPA_VALUE_RE.test(item)) return 'SANKALPA_MARKER_IN_VALUE';
+        } else if (item && typeof item === 'object') {
+          stack.push({ node: item, depth: depth + 1, phase: 'enter' });
+        }
+      }
+    } else {
+      const keys = Object.keys(node);
+      for (let i = 0; i < keys.length; i++) {
+        const k = keys[i];
+        if (SANKALPA_KEY_RE.test(k)) return `SANKALPA_KEY:${k}`;
+        const v = node[k];
+        if (typeof v === 'string') {
+          if (k === 'gameId' && /sankalpa/i.test(v)) return `SANKALPA_GAME_ID:${v}`;
+          if (SANKALPA_VALUE_RE.test(v)) return 'SANKALPA_MARKER_IN_VALUE';
+        } else if (v && typeof v === 'object') {
+          stack.push({ node: v, depth: depth + 1, phase: 'enter' });
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Iterative, cycle-safe, fail-closed sanitizer for migration export.
+ * Never returns an uninspected subtree when depth/node limits or cycles are encountered;
+ * throws instead so no partial or uninspected migration export can be returned.
+ */
+function stripSankalpaFieldsFailClosed(root) {
+  if (root === null || root === undefined) return root;
+  if (typeof root === 'string') {
+    if (SANKALPA_VALUE_RE.test(root)) return undefined;
+    return root;
+  }
+  if (typeof root !== 'object') return root;
+
+  const activeAncestors = new Set();
+  let inspected = 0;
+  const rootOut = Array.isArray(root) ? [] : {};
+  const workStack = [{ src: root, dst: rootOut, depth: 0, phase: 'enter' }];
+
+  while (workStack.length > 0) {
+    const frame = workStack.pop();
+    const { src, dst, depth, phase } = frame;
+
+    if (phase === 'exit') {
+      activeAncestors.delete(src);
+      continue;
+    }
+
+    if (depth > MAX_MIGRATION_INSPECTION_DEPTH) {
+      throw new Error('MIGRATION_PRIVACY_INSPECTION_FAILED: Payload exceeded maximum safe inspection depth');
+    }
+    inspected += 1;
+    if (inspected > MAX_MIGRATION_INSPECTION_NODES) {
+      throw new Error('MIGRATION_PRIVACY_INSPECTION_FAILED: Payload exceeded maximum safe inspection node limit');
+    }
+    if (activeAncestors.has(src)) {
+      throw new Error('MIGRATION_PRIVACY_INSPECTION_FAILED: Cyclic payload cannot be safely inspected for migration');
+    }
+    activeAncestors.add(src);
+    workStack.push({ src, dst, depth, phase: 'exit' });
+
+    if (Array.isArray(src)) {
+      const childFrames = [];
+      for (let i = 0; i < src.length; i++) {
+        const item = src[i];
+        if (typeof item === 'string') {
+          if (!SANKALPA_VALUE_RE.test(item)) {
+            dst.push(item);
+          }
+        } else if (item && typeof item === 'object') {
+          const childDst = Array.isArray(item) ? [] : {};
+          dst.push(childDst);
+          childFrames.push({ src: item, dst: childDst, depth: depth + 1, phase: 'enter' });
+        } else {
+          dst.push(item);
+        }
+      }
+      for (let i = childFrames.length - 1; i >= 0; i--) {
+        workStack.push(childFrames[i]);
+      }
+    } else {
+      const keys = Object.keys(src);
+      const childFrames = [];
+      for (let i = 0; i < keys.length; i++) {
+        const k = keys[i];
+        if (SANKALPA_KEY_RE.test(k)) continue;
+        const v = src[k];
+        if (typeof v === 'string') {
+          if (SANKALPA_VALUE_RE.test(v)) continue;
+          dst[k] = v;
+        } else if (v && typeof v === 'object') {
+          const childDst = Array.isArray(v) ? [] : {};
+          dst[k] = childDst;
+          childFrames.push({ src: v, dst: childDst, depth: depth + 1, phase: 'enter' });
+        } else {
+          dst[k] = v;
+        }
+      }
+      for (let i = childFrames.length - 1; i >= 0; i--) {
+        workStack.push(childFrames[i]);
+      }
+    }
+  }
+
+  return rootOut;
+}
 
 /**
  * Computes a deterministic SHA-256 checksum of an object.
@@ -48,14 +200,10 @@ export async function validateCanonicalData(payload) {
     errors.push('Missing sourceUserId in migration payload');
   }
 
-  // Sacred Privacy Check: Ensure no Sankalpa data leaked into export
-  const rawStr = JSON.stringify(payload);
-  if (
-    /sankalpa_e2ee_vault|auromasti-sankalpa-backup|auromind_sankalpa_vault|sankalpa_reflections/i.test(rawStr) ||
-    /"gameId"\s*:\s*"[^"]*sankalpa[^"]*"/i.test(rawStr) ||
-    /"[^"]*sankalpa[^"]*"\s*:/i.test(rawStr)
-  ) {
-    errors.push('CRITICAL PRIVACY VIOLATION: Sankalpa vault data detected in export payload');
+  // Sacred Privacy Check: Iterative fail-closed deep inspection for Sankalpa leakage or inspection limit breach
+  const privacyHit = detectSankalpaOrInspectionLimit(payload);
+  if (privacyHit) {
+    errors.push(`CRITICAL PRIVACY VIOLATION: Sankalpa vault data or uninspectable structure detected (${privacyHit})`);
   }
 
   // Integrity Check
@@ -91,21 +239,7 @@ export async function exportCanonicalData(providerBundle, userId) {
     throw new Error(`Failed to export data from provider for user ${userId}`);
   }
 
-  // 2. Filter and sanitize game saves (strictly omit Sankalpa)
-  const stripSankalpaFields = (node, depth = 0) => {
-    if (depth > 8 || node === null || node === undefined || typeof node !== 'object') return node;
-    if (Array.isArray(node)) return node.map((item) => stripSankalpaFields(item, depth + 1));
-    const clean = {};
-    for (const [k, v] of Object.entries(node)) {
-      if (/sankalpa/i.test(k)) continue;
-      if (typeof v === 'string' && /(?:sankalpa_e2ee_vault|auromasti-sankalpa-backup|auromind_sankalpa_vault)/i.test(v)) {
-        continue;
-      }
-      clean[k] = stripSankalpaFields(v, depth + 1);
-    }
-    return clean;
-  };
-
+  // 2. Filter and sanitize game saves (strictly omit Sankalpa; fail closed on uninspectable depth/cycles)
   const sanitizedGameSaves = [];
   for (const save of rawExport.gameSaves || rawExport.cloudSaves || []) {
     const saveGameId = save.gameId || save.game_id;
@@ -137,7 +271,7 @@ export async function exportCanonicalData(providerBundle, userId) {
       gameSchemaVersion,
       revision,
       checksum,
-      payload: stripSankalpaFields(payload || {}),
+      payload: stripSankalpaFieldsFailClosed(payload || {}),
       clientUpdatedAt: save.clientUpdatedAt || save.client_updated_at || new Date().toISOString()
     });
   }

@@ -30,6 +30,7 @@ import {
   SANKALPA_KEY_STORE_NAME,
   bytesToHex,
   hexToBytes,
+  canonicalizeVaultScopeId,
   generateOperationalKey,
   deriveBackupKey,
   encryptVaultRecord,
@@ -673,6 +674,117 @@ describe('Part 2 — Sankalpa Vault Lifecycle, Isolation, Recovery & Multi-Tab C
     tab1.dispose();
     tab2.dispose();
   });
+
+  test('Vault-7: Collision-resistant scope isolation for adversarial IDs + legacy compatibility & fail-closed ambiguity check', async () => {
+    const longPrefix = 'u'.repeat(400);
+    const adversarialScopes = [
+      'user_a',
+      'user/a',
+      'user a',
+      ' user_a',
+      'user_a ',
+      'user:a',
+      'योग',
+      'राम',
+      '___',
+      's2~757365722f61', // Literal string matching hex-encoded 'user/a'
+      `${longPrefix}_1`,
+      `${longPrefix}_2`
+    ];
+
+    // 1. Every distinct raw scope ID must map to a strictly unique canonical scope key without ':'
+    const canonicalKeys = adversarialScopes.map((s) => canonicalizeVaultScopeId(s));
+    assert.equal(new Set(canonicalKeys).size, adversarialScopes.length, 'Zero collisions across all adversarial scope IDs');
+    for (const ck of canonicalKeys) {
+      assert.equal(ck.includes(':'), false, `Canonical scope key "${ck}" must never contain ":"`);
+    }
+
+    // 2. End-to-end vault isolation: each adversarial account unlocks, writes its own secret, and reads ONLY its own entry
+    const sharedIdb = createFakeIndexedDB();
+    for (let i = 0; i < adversarialScopes.length; i++) {
+      const scope = adversarialScopes[i];
+      const vm = createSankalpaVaultManager({ scopeId: scope, indexedDB: sharedIdb, BroadcastChannel: null });
+      const unlockRes = await vm.unlock();
+      assert.equal(unlockRes.created, true, `Scope "${scope}" must create its own distinct key handle`);
+      await vm.putEntry('shared_entry_id', { owner: scope, index: i });
+      vm.dispose();
+    }
+
+    const rawKeys = sharedIdb._getStoreMap(SANKALPA_VAULT_DB_NAME, SANKALPA_KEY_STORE_NAME);
+    assert.equal(rawKeys.size, adversarialScopes.length, 'IndexedDB must store one distinct key handle per distinct account');
+
+    // Re-unlock each scope and confirm strict isolation (only own secret visible!)
+    for (let i = 0; i < adversarialScopes.length; i++) {
+      const scope = adversarialScopes[i];
+      const vm = createSankalpaVaultManager({ scopeId: scope, indexedDB: sharedIdb, BroadcastChannel: null });
+      const unlockRes = await vm.unlock();
+      assert.equal(unlockRes.created, false);
+      const entry = await vm.getEntry('shared_entry_id');
+      assert.deepEqual(entry, { owner: scope, index: i });
+      const list = await vm.listEntries();
+      assert.equal(list.length, 1);
+      vm.dispose();
+    }
+
+    // 3. Colon-injection AAD isolation: (scope='a:b', entry='c') vs (scope='a', entry='b:c')
+    const colonIdb = createFakeIndexedDB();
+    const vmAB = createSankalpaVaultManager({ scopeId: 'a:b', indexedDB: colonIdb, BroadcastChannel: null });
+    await vmAB.unlock();
+    await vmAB.putEntry('c', { secret: 'FROM_A_COLON_B' });
+    vmAB.dispose();
+
+    const vmA = createSankalpaVaultManager({ scopeId: 'a', indexedDB: colonIdb, BroadcastChannel: null });
+    await vmA.unlock();
+    await vmA.putEntry('b:c', { secret: 'FROM_A' });
+    assert.deepEqual(await vmA.getEntry('b:c'), { secret: 'FROM_A' });
+    vmA.dispose();
+
+    // 4. Backward compatibility for existing unversioned legacy vault ('legacy_clean') + fail-closed for ambiguous legacy ('user/x' when unversioned 'user_x' exists)
+    const legacyIdb = createFakeIndexedDB();
+    const legacyCleanKey = await generateOperationalKey();
+    const legacyEnc = await encryptVaultRecord(legacyCleanKey, { text: 'LEGACY_CLEAN_ENTRY' }, {
+      aad: 'auromind:sankalpa:v1:legacy_clean:e1'
+    });
+    // Bootstrap DB stores via a temporary unlock on unrelated scope, then seed unversioned legacy records
+    const bootVm = createSankalpaVaultManager({ scopeId: 'boot_tmp', indexedDB: legacyIdb, BroadcastChannel: null });
+    await bootVm.unlock();
+    bootVm.dispose();
+
+    const kStore = legacyIdb._getStoreMap(SANKALPA_VAULT_DB_NAME, SANKALPA_KEY_STORE_NAME);
+    const eStore = legacyIdb._getStoreMap(SANKALPA_VAULT_DB_NAME, SANKALPA_VAULT_STORE_NAME);
+    kStore.set('sankalpa_key::legacy_clean', {
+      keyId: 'sankalpa_key::legacy_clean',
+      scopeId: 'legacy_clean',
+      key: legacyCleanKey // No scopeVersion -> pre-fix unversioned legacy record!
+    });
+    eStore.set('legacy_clean::e1', {
+      storageId: 'legacy_clean::e1',
+      scopeId: 'legacy_clean',
+      entryId: 'e1',
+      ivHex: legacyEnc.ivHex,
+      ciphertextHex: legacyEnc.ciphertextHex
+    });
+
+    // Clean legacy scope unlocks and reads seamlessly without data loss!
+    const cleanLegacyVm = createSankalpaVaultManager({ scopeId: 'legacy_clean', indexedDB: legacyIdb, BroadcastChannel: null });
+    const cleanUnlock = await cleanLegacyVm.unlock();
+    assert.equal(cleanUnlock.created, false);
+    assert.deepEqual(await cleanLegacyVm.getEntry('e1'), { text: 'LEGACY_CLEAN_ENTRY' });
+    cleanLegacyVm.dispose();
+
+    // Ambiguous pre-fix unversioned legacy scope under 'user_x' -> unlocking 'user/x' MUST fail closed!
+    const ambigKey = await generateOperationalKey();
+    kStore.set('sankalpa_key::user_x', {
+      keyId: 'sankalpa_key::user_x',
+      scopeId: 'user_x',
+      key: ambigKey // Unversioned legacy record!
+    });
+    const ambigVm = createSankalpaVaultManager({ scopeId: 'user/x', indexedDB: legacyIdb, BroadcastChannel: null });
+    await assert.rejects(async () => ambigVm.unlock(), /LEGACY_SCOPE_AMBIGUOUS.*user_x/);
+    assert.equal(ambigVm.getStatus().state, 'legacy_scope_ambiguous');
+    assert.equal(kStore.has('sankalpa_key::user_x'), true, 'Fail-closed ambiguity check must never delete or mutate legacy vault');
+    ambigVm.dispose();
+  });
 });
 
 // =============================================================================
@@ -864,6 +976,191 @@ describe('Part 3 — Mandatory Sankalpa Privacy Boundary (Sync, Outbox, Provider
     });
     assert.equal(badValidation.valid, false);
     assert.ok(badValidation.errors.some((e) => /CRITICAL PRIVACY VIOLATION/.test(e)));
+  });
+
+  test('Privacy-4: Deeply nested Sankalpa keys/markers (depth > 8, arrays, mixed trees) and over-limit/cyclic payloads are blocked fail-closed across SDK, Supabase, Firestore, and Migration', async () => {
+    // Helper: build mixed object/array tree nesting leaf at specified depth
+    function wrapAtDepth(leaf, depth) {
+      let cur = leaf;
+      for (let i = depth; i > 0; i--) {
+        cur = i % 2 === 0 ? [cur] : { [`level_${i}`]: cur };
+      }
+      return { root: cur };
+    }
+
+    const deepKeyPayload = wrapAtDepth({ sankalpa: { intention: 'DEEP_SECRET_DEPTH_14' } }, 14);
+    const deepMarkerArrayPayload = wrapAtDepth(['safe', 'contains_sankalpa_e2ee_vault_marker'], 15);
+    const deepBackupMarkerPayload = wrapAtDepth({ format: 'auromasti-sankalpa-backup', ciphertextHex: 'abcd' }, 16);
+    const overLimitPayload = wrapAtDepth({ benign: true }, 70);
+    const cyclicPayload = { a: { b: {} } };
+    cyclicPayload.a.b.self = cyclicPayload;
+
+    // 1. SDK syncNow(): blocks depth 14 key, depth 15 array marker, depth 70 over-limit BEFORE any cloud push!
+    for (const [label, payload] of [
+      ['depth-14 sankalpa key', deepKeyPayload],
+      ['depth-15 array marker', deepMarkerArrayPayload],
+      ['depth-70 uninspectable limit', overLimitPayload]
+    ]) {
+      const storage = createMemoryStorage();
+      const fakeIdb = createFakeIndexedDB();
+      let pushCalls = 0;
+      const authListeners = new Set();
+      const acct = {
+        userId: 'u_deep',
+        email: 'deep@example.com',
+        displayName: 'deep',
+        provider: 'email',
+        expiresAt: new Date(Date.now() + 3600_000).toISOString()
+      };
+      const auth = {
+        providerName: 'mock-auth',
+        isConfigured: () => true,
+        async getSession() { return { ...acct }; },
+        async getCurrentSession() { return { ...acct }; },
+        async signIn() {
+          for (const cb of authListeners) cb({ ...acct });
+          return { status: 'authenticated', account: { ...acct } };
+        },
+        async signOut() {},
+        onAuthStateChange(cb) { authListeners.add(cb); return () => authListeners.delete(cb); }
+      };
+      const cloudSync = {
+        providerName: 'mock-sync',
+        isConfigured: () => true,
+        async pullLatest() { return null; },
+        async pushWithOptimisticLock() { pushCalls += 1; return { status: 'success', newRevision: 1 }; }
+      };
+
+      const sdk = createAuroMindSDK({ env: { localStorage: storage, indexedDB: fakeIdb, BroadcastChannel: null } });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth, cloudSync }
+      });
+
+      const chk = await computePayloadChecksum(payload);
+      sdk.adapters.register({
+        gameId: 'auroblocks',
+        adapterVersion: '1.0.0',
+        contractVersion: 1,
+        integrationMode: 'native',
+        storage: { kind: 'ls', ownedDatabases: [], ownedLocalStorageKeys: ['deep_blocks'], localOnlyVaults: [] },
+        capabilities: { offlinePlay: true, localPersistence: true, cloudSyncEligible: true },
+        hasLocalProgress: () => true,
+        exportEnvelope: async (guestId) => ({
+          envelopeVersion: 1,
+          gameId: 'auroblocks',
+          gameSchemaVersion: 1,
+          guestId,
+          baseRevision: 0,
+          clientUpdatedAt: new Date().toISOString(),
+          isEmpty: false,
+          checksum: chk,
+          payload
+        }),
+        applyEnvelope: async () => true
+      }, { mergeStrategy: AuroBlocksMergeStrategy });
+      await sdk.adapters.init('auroblocks');
+      await sdk.auth.signIn('email', { email: 'deep@example.com' });
+      sdk.sync.setConsent(true);
+
+      const syncRes = await sdk.sync.syncNow('auroblocks');
+      assert.equal(syncRes.results[0].action, 'blocked_local_only_vault', `SDK must block "${label}"`);
+      assert.equal(pushCalls, 0, `SDK must make ZERO cloud pushes for "${label}"`);
+      sdk.dispose();
+    }
+
+    // 2. SupabaseSyncProvider: rejects depth-14 key, depth-15 marker, depth-16 backup, depth-70 limit, and cycles with ZERO RPC calls
+    let supabaseCalls = 0;
+    const sbSync = createSupabaseSyncProvider({
+      isConfigured: () => true,
+      from() { supabaseCalls += 1; throw new Error('Must not query Supabase'); },
+      async rpc() { supabaseCalls += 1; throw new Error('Must not invoke Supabase RPC'); }
+    });
+    for (const payload of [deepKeyPayload, deepMarkerArrayPayload, deepBackupMarkerPayload, overLimitPayload, cyclicPayload]) {
+      const res = await sbSync.pushWithOptimisticLock({ gameId: 'auromandala', payload }, 'u_deep', 0);
+      assert.equal(res.status, 'disabled');
+    }
+    assert.equal(supabaseCalls, 0);
+
+    // 3. FirestoreSyncProvider: rejects all of the same with ZERO Firestore calls
+    let firestoreCalls = 0;
+    const fsSync = createFirestoreSyncProvider({
+      isConfigured: () => true,
+      firestore: {
+        async getDocument() { firestoreCalls += 1; throw new Error('Must not read Firestore'); },
+        async setDocument() { firestoreCalls += 1; throw new Error('Must not write Firestore'); }
+      }
+    });
+    for (const payload of [deepKeyPayload, deepMarkerArrayPayload, deepBackupMarkerPayload, overLimitPayload, cyclicPayload]) {
+      const res = await fsSync.pushWithOptimisticLock({ gameId: 'auromandala', payload }, 'u_deep', 0);
+      assert.equal(res.status, 'disabled');
+    }
+    assert.equal(firestoreCalls, 0);
+
+    // 4. Migration exportCanonicalData: strips deep depth-14/15 Sankalpa AND throws (zero partial export) on depth-70 or cyclic payload!
+    const cleanDeepExport = await exportCanonicalData({
+      accountProvider: {
+        async exportUserData() {
+          return {
+            profile: { displayName: 'DeepSeeker' },
+            gameSaves: [
+              { gameId: 'auromandala', payload: deepKeyPayload },
+              { gameId: 'auroblocks', payload: deepMarkerArrayPayload }
+            ],
+            linkedDevices: [],
+            entitlements: []
+          };
+        }
+      }
+    }, 'u_mig_deep');
+    const serializedClean = JSON.stringify(cleanDeepExport);
+    assert.equal(serializedClean.includes('DEEP_SECRET_DEPTH_14'), false);
+    assert.equal(serializedClean.includes('sankalpa_e2ee_vault'), false);
+    assert.equal((await validateCanonicalData(cleanDeepExport)).valid, true);
+
+    await assert.rejects(
+      async () => exportCanonicalData({
+        accountProvider: {
+          async exportUserData() {
+            return {
+              profile: { displayName: 'DeepSeeker' },
+              gameSaves: [{ gameId: 'auromandala', payload: overLimitPayload }],
+              linkedDevices: [],
+              entitlements: []
+            };
+          }
+        }
+      }, 'u_mig_over'),
+      /MIGRATION_PRIVACY_INSPECTION_FAILED/
+    );
+
+    await assert.rejects(
+      async () => exportCanonicalData({
+        accountProvider: {
+          async exportUserData() {
+            return {
+              profile: { displayName: 'DeepSeeker' },
+              gameSaves: [{ gameId: 'auromandala', payload: cyclicPayload }],
+              linkedDevices: [],
+              entitlements: []
+            };
+          }
+        }
+      }, 'u_mig_cycle'),
+      /MIGRATION_PRIVACY_INSPECTION_FAILED/
+    );
+
+    // 5. Migration validateCanonicalData: rejects depth-14 key, depth-15 array marker, depth-70 limit, and cyclic payload
+    for (const badPayload of [deepKeyPayload, deepMarkerArrayPayload, overLimitPayload, cyclicPayload]) {
+      const vRes = await validateCanonicalData({
+        schemaVersion: 1,
+        sourceUserId: 'u_mig',
+        gameSaves: [{ gameId: 'auromandala', payload: badPayload }]
+      });
+      assert.equal(vRes.valid, false);
+      assert.ok(vRes.errors.some((e) => /CRITICAL PRIVACY VIOLATION/.test(e)));
+    }
   });
 });
 
