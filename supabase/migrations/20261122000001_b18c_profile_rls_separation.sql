@@ -23,14 +23,17 @@ revoke all on public.user_private_settings from anon;
 revoke delete on public.user_private_settings from authenticated;
 
 -- Strictly Owner-Only Policies on Private Settings
+drop policy if exists "private_settings_owner_select" on public.user_private_settings;
 create policy "private_settings_owner_select" on public.user_private_settings
   for select to authenticated
   using (auth.uid() = user_id);
 
+drop policy if exists "private_settings_owner_insert" on public.user_private_settings;
 create policy "private_settings_owner_insert" on public.user_private_settings
   for insert to authenticated
   with check (auth.uid() = user_id);
 
+drop policy if exists "private_settings_owner_update" on public.user_private_settings;
 create policy "private_settings_owner_update" on public.user_private_settings
   for update to authenticated
   using (auth.uid() = user_id)
@@ -41,11 +44,23 @@ create policy "private_settings_owner_update" on public.user_private_settings
 alter table public.user_profiles
   add column if not exists is_public boolean not null default false;
 
--- Migrate existing private columns to user_private_settings if data exists
-insert into public.user_private_settings (user_id, preferences, analytics_opt_in, cloud_sync_opt_in, created_at, updated_at)
-select user_id, preferences, analytics_opt_in, cloud_sync_opt_in, created_at, updated_at
-from public.user_profiles
-on conflict (user_id) do nothing;
+-- Migrate existing private columns to user_private_settings if columns and data still exist
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'user_profiles'
+      and column_name = 'preferences'
+  ) then
+    insert into public.user_private_settings (user_id, preferences, analytics_opt_in, cloud_sync_opt_in, created_at, updated_at)
+    select user_id, preferences, analytics_opt_in, cloud_sync_opt_in, created_at, updated_at
+    from public.user_profiles
+    on conflict (user_id) do nothing;
+  end if;
+end;
+$$;
 
 -- 3. RLS Policies on public.user_profiles
 alter table public.user_profiles enable row level security;

@@ -207,6 +207,13 @@ export async function handleSyncSaveRequest(req, options = {}) {
     }
 
     // 6. Request Body Structure Validation
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return new Response(JSON.stringify({ ok: false, error: 'INVALID_REQUEST_BODY' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
     const {
       gameId,
       envelopeVersion = 1,
@@ -216,10 +223,50 @@ export async function handleSyncSaveRequest(req, options = {}) {
       checksum,
       payload,
       clientUpdatedAt
-    } = body || {};
+    } = body;
 
-    if (!gameId || !checksum || !payload) {
+    const ALLOWED_GAME_IDS = new Set([
+      'vak',
+      'auromatch',
+      'auromandala',
+      'word-riddle',
+      'vak-living-sanctuary',
+      'auroblocks'
+    ]);
+
+    if (
+      typeof gameId !== 'string' ||
+      !ALLOWED_GAME_IDS.has(gameId) ||
+      typeof checksum !== 'string' ||
+      checksum.trim().length === 0 ||
+      !payload ||
+      typeof payload !== 'object' ||
+      Array.isArray(payload) ||
+      !Number.isInteger(envelopeVersion) ||
+      envelopeVersion < 1 ||
+      !Number.isInteger(gameSchemaVersion) ||
+      gameSchemaVersion < 1 ||
+      !Number.isInteger(expectedRevision) ||
+      expectedRevision < 0
+    ) {
       return new Response(JSON.stringify({ ok: false, error: 'INVALID_REQUEST_BODY' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Privacy boundary: reject any Sankalpa vault keys or markers before RPC execution
+    const serializedPayload = JSON.stringify(payload);
+    if (
+      /("[^"]*sankalpa[^"]*"\s*:|sankalpa_e2ee_vault|auromasti-sankalpa-backup|auromind_sankalpa_vault|sankalpa_reflections)/i.test(
+        serializedPayload
+      )
+    ) {
+      return new Response(JSON.stringify({
+        ok: false,
+        error: 'PRIVACY_BOUNDARY_VIOLATION',
+        message: 'Sankalpa vault data is strictly excluded from cloud sync.'
+      }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
@@ -232,7 +279,7 @@ export async function handleSyncSaveRequest(req, options = {}) {
       p_game_schema_version: gameSchemaVersion,
       p_expected_revision: expectedRevision,
       p_source_guest_id: sourceGuestId || null,
-      p_checksum: checksum,
+      p_checksum: checksum.trim(),
       p_payload: payload,
       p_client_updated_at: clientUpdatedAt || new Date().toISOString()
     });
@@ -244,8 +291,12 @@ export async function handleSyncSaveRequest(req, options = {}) {
       });
     }
 
+    const httpStatus = rpcRes?.status === 'conflict'
+      ? 409
+      : (rpcRes?.status === 'rejected' ? 400 : 200);
+
     return new Response(JSON.stringify(rpcRes), {
-      status: rpcRes?.status === 'conflict' ? 409 : 200,
+      status: httpStatus,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   } catch (err) {

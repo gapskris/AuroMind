@@ -42,18 +42,12 @@ serve(async (req: Request) => {
       });
     }
 
-    // Admin client to cascade and purge auth.users
+    // Admin client to atomically cascade deletion via auth.users FK constraints:
+    // - ON DELETE CASCADE: user_profiles, user_private_settings, guest_identity_links,
+    //   game_saves, game_save_revisions, entitlements, entitlement_audit, owner_roles
+    // - ON DELETE SET NULL: telemetry_events, purchase_receipts (GDPR statutory audit)
     const adminClient = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Explicitly delete user profile, saves, and links (cascade handles most via FK)
-    await adminClient.from('game_saves').delete().eq('user_id', user.id);
-    await adminClient.from('guest_identity_links').delete().eq('user_id', user.id);
-    await adminClient.from('user_profiles').delete().eq('user_id', user.id);
-
-    // Anonymize telemetry events linked to user
-    await adminClient.from('telemetry_events').update({ user_id: null }).eq('user_id', user.id);
-
-    // Delete auth user record
     const { error: deleteUserError } = await adminClient.auth.admin.deleteUser(user.id);
     if (deleteUserError) {
       return new Response(JSON.stringify({ ok: false, error: deleteUserError.message }), {

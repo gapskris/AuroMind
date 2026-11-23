@@ -15,7 +15,7 @@
 --   Enable extension via Supabase Dashboard -> Database -> Extensions -> pg_cron.
 --   Schedule nightly job:
 --     select cron.schedule('auromind-nightly-telemetry-prune', '0 3 * * *',
---       $$call public.prune_expired_telemetry(60, 5000);$$);
+--       $$select * from public.prune_expired_telemetry(60, 5000);$$);
 -- Option B: Supabase Scheduled Edge Function
 --   Deploy Edge Function `cleanup-telemetry` triggered via cron schedule in config.toml.
 -- Option C: External Scheduled Runner

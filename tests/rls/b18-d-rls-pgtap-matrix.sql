@@ -2,7 +2,7 @@
 -- AuroMind Modernization Batch B18-D — Authenticated RLS & PostgREST Validation Matrix
 -- ==============================================================================
 -- File: tests/rls/b18-d-rls-pgtap-matrix.sql
--- Description: Reproducible pgTAP and PostgreSQL SQL validation test suite executing
+-- Description: Reproducible PostgreSQL SQL validation test suite executing
 --              under simulated PostgREST JWT claim contexts:
 --              1. Anonymous access boundaries
 --              2. Authenticated User A accessing own data
@@ -25,12 +25,20 @@ begin;
 -- ------------------------------------------------------------------------------
 create schema if not exists auth;
 
--- Emulate Supabase auth.uid() function
+create table if not exists auth.users (
+  id uuid primary key,
+  email text
+);
+
+-- Emulate Supabase auth.uid() function (supports both request.jwt.claims JSON and legacy claim.sub)
 create or replace function auth.uid() returns uuid as $$
-  select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
+  select coalesce(
+    nullif(current_setting('request.jwt.claim.sub', true), ''),
+    nullif((nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'), '')
+  )::uuid;
 $$ language sql stable;
 
--- Create PostgREST roles if they do not exist
+-- Create PostgREST roles if they do not exist (service_role has BYPASSRLS as in Supabase)
 do $$
 begin
   if not exists (select from pg_roles where rolname = 'anon') then
@@ -40,34 +48,44 @@ begin
     create role authenticated nologin;
   end if;
   if not exists (select from pg_roles where rolname = 'service_role') then
-    create role service_role nologin;
+    create role service_role nologin bypassrls;
   end if;
 end;
 $$;
 
+grant usage on schema public, auth to anon, authenticated, service_role;
+grant execute on function auth.uid() to anon, authenticated, service_role;
+
 -- ------------------------------------------------------------------------------
 -- 2. Setup Test Data (User A and User B)
 -- ------------------------------------------------------------------------------
-\set user_a '\'11111111-1111-1111-1111-111111111111\''
-\set user_b '\'22222222-2222-2222-2222-222222222222\''
+\set user_a 11111111-1111-1111-1111-111111111111
+\set user_b 22222222-2222-2222-2222-222222222222
+
+-- Seed auth.users rows to satisfy FK constraints cleanly
+insert into auth.users (id, email)
+values
+  (:'user_a'::uuid, 'usera@example.com'),
+  (:'user_b'::uuid, 'userb@example.com')
+on conflict (id) do nothing;
 
 -- Clean previous test rows
-delete from public.user_private_settings where user_id in (:user_a::uuid, :user_b::uuid);
-delete from public.user_profiles where user_id in (:user_a::uuid, :user_b::uuid);
+delete from public.user_private_settings where user_id in (:'user_a'::uuid, :'user_b'::uuid);
+delete from public.user_profiles where user_id in (:'user_a'::uuid, :'user_b'::uuid);
 
 -- Insert User A (Public Profile)
 insert into public.user_profiles (user_id, display_name, preferred_locale, is_public)
-values (:user_a::uuid, 'User Alpha (Public)', 'en', true);
+values (:'user_a'::uuid, 'User Alpha (Public)', 'en', true);
 
 insert into public.user_private_settings (user_id, preferences, analytics_opt_in, cloud_sync_opt_in)
-values (:user_a::uuid, '{"volume": 0.8, "secret_notes": "AlphaSecret"}'::jsonb, true, true);
+values (:'user_a'::uuid, '{"volume": 0.8, "secret_notes": "AlphaSecret"}'::jsonb, true, true);
 
 -- Insert User B (Private Profile)
 insert into public.user_profiles (user_id, display_name, preferred_locale, is_public)
-values (:user_b::uuid, 'User Beta (Private)', 'fr', false);
+values (:'user_b'::uuid, 'User Beta (Private)', 'fr', false);
 
 insert into public.user_private_settings (user_id, preferences, analytics_opt_in, cloud_sync_opt_in)
-values (:user_b::uuid, '{"volume": 0.4, "secret_notes": "BetaSecret"}'::jsonb, false, false);
+values (:'user_b'::uuid, '{"volume": 0.4, "secret_notes": "BetaSecret"}'::jsonb, false, false);
 
 -- ------------------------------------------------------------------------------
 -- 3. Validation Case 1: Anonymous Access Boundaries
@@ -78,15 +96,21 @@ set local "request.jwt.claims" = '';
 set local "request.jwt.claim.sub" = '';
 set local "request.jwt.claim.role" = 'anon';
 
--- Test 1.1: Anon must NOT see private settings (0 rows)
+-- Test 1.1: Anon must be DENIED access to private settings (privilege revoked or 0 rows)
 do $$
 declare
   v_count integer;
 begin
-  select count(*) into v_count from public.user_private_settings;
-  if v_count <> 0 then
-    raise exception 'RLS_SECURITY_VIOLATION: Anon saw % private settings rows!', v_count;
-  end if;
+  begin
+    select count(*) into v_count from public.user_private_settings;
+    if v_count <> 0 then
+      raise exception 'RLS_SECURITY_VIOLATION: Anon saw % private settings rows!', v_count;
+    end if;
+  exception
+    when insufficient_privilege then
+      -- Expected: table privileges revoked from anon
+      null;
+  end;
 end;
 $$;
 
@@ -96,8 +120,12 @@ declare
   v_count integer;
   v_b_seen boolean;
 begin
-  select count(*) into v_count from public.public_user_profiles;
-  select exists(select 1 from public.public_user_profiles where user_id = '22222222-2222-2222-2222-222222222222'::uuid) into v_b_seen;
+  select count(*) into v_count
+  from public.public_user_profiles
+  where user_id in ('11111111-1111-1111-1111-111111111111'::uuid, '22222222-2222-2222-2222-222222222222'::uuid);
+  select exists(
+    select 1 from public.public_user_profiles where user_id = '22222222-2222-2222-2222-222222222222'::uuid
+  ) into v_b_seen;
   if v_count <> 1 or v_b_seen then
     raise exception 'RLS_SECURITY_VIOLATION: Anon saw private profile in public view!';
   end if;
@@ -107,7 +135,7 @@ $$;
 -- ------------------------------------------------------------------------------
 -- 4. Validation Case 2: Authenticated User A Accessing Own Data
 -- ------------------------------------------------------------------------------
--- Simulate PostgREST User A JWT Request Context
+reset role;
 set local role authenticated;
 set local "request.jwt.claims" = '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated","email":"usera@example.com"}';
 set local "request.jwt.claim.sub" = '11111111-1111-1111-1111-111111111111';
@@ -131,7 +159,7 @@ begin
   from public.user_private_settings
   where user_id = '11111111-1111-1111-1111-111111111111'::uuid;
 
-  if v_secret <> 'AlphaSecret' then
+  if v_secret is distinct from 'AlphaSecret' then
     raise exception 'RLS_OWNER_VIOLATION: User A could not read own private settings!';
   end if;
 end;
@@ -145,7 +173,6 @@ do $$
 declare
   v_count integer;
 begin
-  -- User A attempts direct query for User B private settings
   select count(*) into v_count
   from public.user_private_settings
   where user_id = '22222222-2222-2222-2222-222222222222'::uuid;
@@ -174,8 +201,20 @@ $$;
 -- ------------------------------------------------------------------------------
 -- 6. Validation Case 4: Storage Object Ownership Boundary
 -- ------------------------------------------------------------------------------
--- Simulate storage.objects table and policies for user-artwork bucket
+-- Reset to privileged owner role before creating storage schema/objects/policies
+reset role;
+
 create schema if not exists storage;
+grant usage on schema storage to authenticated, service_role;
+
+-- Define helper function BEFORE referencing it in RLS policy
+create or replace function storage.foldername(name text)
+returns text[] as $$
+  select string_to_array(name, '/');
+$$ language sql immutable;
+
+grant execute on function storage.foldername(text) to authenticated, service_role;
+
 create table if not exists storage.objects (
   id uuid primary key default gen_random_uuid(),
   bucket_id text not null,
@@ -185,7 +224,9 @@ create table if not exists storage.objects (
 );
 
 alter table storage.objects enable row level security;
-revoke all on storage.objects from anon;
+revoke all on storage.objects from public, anon, authenticated;
+grant select on storage.objects to authenticated;
+grant select, insert, update, delete on storage.objects to service_role;
 
 drop policy if exists "artwork_owner_select" on storage.objects;
 create policy "artwork_owner_select" on storage.objects
@@ -195,14 +236,7 @@ create policy "artwork_owner_select" on storage.objects
     and (storage.foldername(name))[1] = auth.uid()::text
   );
 
--- Helper function storage.foldername
-create or replace function storage.foldername(name text)
-returns text[] as $$
-  select string_to_array(name, '/');
-$$ language sql immutable;
-
--- Insert artwork objects as service_role
-reset role;
+-- Insert artwork objects as table owner
 insert into storage.objects (bucket_id, name, owner)
 values
   ('user-artwork', '11111111-1111-1111-1111-111111111111/mandala-1.png', '11111111-1111-1111-1111-111111111111'::uuid),
@@ -245,8 +279,10 @@ $$;
 -- ------------------------------------------------------------------------------
 -- 7. Validation Case 5: Service Role Administrative Access
 -- ------------------------------------------------------------------------------
+reset role;
 set local role service_role;
 set local "request.jwt.claims" = '{"role":"service_role"}';
+set local "request.jwt.claim.sub" = '';
 set local "request.jwt.claim.role" = 'service_role';
 
 do $$

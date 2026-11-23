@@ -44,6 +44,14 @@ export function validateMigrationDdl(sqlContent) {
     issues.push('UNCONSTRAINED_DESTRUCTIVE_DROP: DROP TABLE without IF EXISTS detected');
   }
 
+  // Check for SECURITY DEFINER functions missing explicit SET search_path
+  const fnBlocks = sqlContent.match(/create\s+(?:or\s+replace\s+)?function[\s\S]*?as\s+\$/gi) || [];
+  for (const header of fnBlocks) {
+    if (/security\s+definer/i.test(header) && !/set\s+search_path\s*=/i.test(header)) {
+      issues.push('UNPINNED_SECURITY_DEFINER: SECURITY DEFINER function missing explicit SET search_path');
+    }
+  }
+
   return {
     valid: issues.length === 0,
     issues
