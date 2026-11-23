@@ -12,6 +12,23 @@
  * 5. Bounded retention: History revisions tracked under `revisions` subcollection.
  */
 
+const SANKALPA_FORBIDDEN_MARKER_RE = /(?:sankalpa|auromasti-sankalpa-backup|auromind_sankalpa_vault)/i;
+
+function payloadContainsForbiddenSankalpa(payload, depth = 0) {
+  if (depth > 8 || payload === null || payload === undefined || typeof payload !== 'object') return false;
+  if (Array.isArray(payload)) {
+    return payload.some((item) => payloadContainsForbiddenSankalpa(item, depth + 1));
+  }
+  for (const [k, v] of Object.entries(payload)) {
+    if (SANKALPA_FORBIDDEN_MARKER_RE.test(k)) return true;
+    if (typeof v === 'string' && /(?:sankalpa_e2ee_vault|auromasti-sankalpa-backup|auromind_sankalpa_vault)/i.test(v)) {
+      return true;
+    }
+    if (v && typeof v === 'object' && payloadContainsForbiddenSankalpa(v, depth + 1)) return true;
+  }
+  return false;
+}
+
 export function createFirestoreSyncProvider(client) {
   function isConfigured() {
     return Boolean(client && client.isConfigured());
@@ -32,7 +49,7 @@ export function createFirestoreSyncProvider(client) {
     }
 
     // Sacred privacy check: Sankalpa vault is never pulled or synced
-    if (gameId === 'auromandala_sankalpa') {
+    if (typeof gameId === 'string' && /sankalpa/i.test(gameId)) {
       return null;
     }
 
@@ -86,7 +103,11 @@ export function createFirestoreSyncProvider(client) {
     const gameId = envelope.gameId;
 
     // Sacred Privacy Invariant: Sankalpa is strictly local-only
-    if (gameId === 'auromandala_sankalpa' || envelope.localOnly) {
+    if (
+      (typeof gameId === 'string' && /sankalpa/i.test(gameId)) ||
+      envelope.localOnly ||
+      payloadContainsForbiddenSankalpa(envelope.payload)
+    ) {
       return Object.freeze({
         status: 'disabled',
         message: 'Sankalpa vault and local-only data are strictly excluded from cloud sync'

@@ -246,7 +246,8 @@ export function reconcileGuestRecords(first, second) {
 const SENSITIVE_KEY_PATTERN = /(?:password|passphrase|token|access_token|refresh_token|id_token|accessToken|refreshToken|idToken|secret|auth|authorization|bearer|credential|otp|auth_code|code_verifier|sankalpa|vault|key|private|cipher|salt|iv|seed|intention|reflection|prayer|audio|raw_audio|rawAudio|audio_blob|audio_buffer|speech_recording|corpus_text|stroke|strokes|canvas_strokes|svg_data|journal|note|personalNotes)/i;
 const SENSITIVE_VALUE_PATTERNS = [
   /eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}/g, // JWT
-  /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g // Email
+  /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, // Email
+  /\b(?:sankalpa_e2ee_vault|auromasti-sankalpa-backup|auromind_sankalpa_vault|sankalpa_reflections)\b/gi
 ];
 
 export const AVATAR_MAX_BYTES = 512 * 1024; // 512 KB strict local limit
@@ -3166,6 +3167,11 @@ export function createAuroMindSDK(options = {}) {
     async queueLocalChange(gameId) {
       if (typeof gameId === 'string' && gameId.trim().length > 0) {
         const gid = gameId.trim();
+        // Sacred privacy boundary: Sankalpa is strictly local-only and may NEVER enter sync outbox
+        if (/sankalpa/i.test(gid)) {
+          loggingService.warn('sync', 'Blocked local-only Sankalpa identifier from entering sync outbox');
+          return false;
+        }
         syncOutbox.add(gid);
         persistSyncState();
 
@@ -3181,7 +3187,9 @@ export function createAuroMindSDK(options = {}) {
         try {
           await idbPutOutbox(mutation);
         } catch {}
+        return true;
       }
+      return false;
     },
     getBackoffDelay(attempts = 0) {
       const base = 1000 * Math.pow(2, Math.min(attempts, 10));
@@ -3287,7 +3295,39 @@ export function createAuroMindSDK(options = {}) {
             } catch {}
           };
 
+          const MANDATORY_LOCAL_ONLY_MARKERS = [
+            'sankalpa_e2ee_vault',
+            'auromasti-sankalpa-backup',
+            'auromind_sankalpa_vault',
+            'sankalpa_reflections'
+          ];
+
+          const findSankalpaKeyRecursive = (node, depth = 0) => {
+            if (depth > 8 || node === null || node === undefined || typeof node !== 'object') return null;
+            if (Array.isArray(node)) {
+              for (const item of node) {
+                const found = findSankalpaKeyRecursive(item, depth + 1);
+                if (found) return found;
+              }
+              return null;
+            }
+            for (const [k, v] of Object.entries(node)) {
+              if (/sankalpa/i.test(k)) return k;
+              if (typeof v === 'string') {
+                for (const marker of MANDATORY_LOCAL_ONLY_MARKERS) {
+                  if (v.toLowerCase().includes(marker)) return marker;
+                }
+              } else if (v && typeof v === 'object') {
+                const found = findSankalpaKeyRecursive(v, depth + 1);
+                if (found) return found;
+              }
+            }
+            return null;
+          };
+
           const payloadHasForbiddenVault = (payload, caps) => {
+            const mandatoryHit = findSankalpaKeyRecursive(payload);
+            if (mandatoryHit) return mandatoryHit;
             if (!caps || !caps.hasLocalOnlyVaults || !Array.isArray(caps.localOnlyVaults)) return false;
             const payloadStr = JSON.stringify(payload || {});
             for (const vaultKey of caps.localOnlyVaults) {
@@ -3375,6 +3415,12 @@ export function createAuroMindSDK(options = {}) {
           for (const gid of gameIds) {
             if (!isStillActiveUser()) {
               return makeAbortedResult(results);
+            }
+
+            if (typeof gid === 'string' && /sankalpa/i.test(gid)) {
+              loggingService.error('sync', 'Blocked local-only Sankalpa vault identifier from cloud synchronization');
+              results.push({ gameId: gid, action: 'blocked_local_only_vault', vault: 'sankalpa_e2ee_vault' });
+              continue;
             }
 
             try {

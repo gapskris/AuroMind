@@ -50,7 +50,11 @@ export async function validateCanonicalData(payload) {
 
   // Sacred Privacy Check: Ensure no Sankalpa data leaked into export
   const rawStr = JSON.stringify(payload);
-  if (/sankalpa_e2ee_vault/i.test(rawStr) || /"gameId"\s*:\s*"auromandala_sankalpa"/i.test(rawStr)) {
+  if (
+    /sankalpa_e2ee_vault|auromasti-sankalpa-backup|auromind_sankalpa_vault|sankalpa_reflections/i.test(rawStr) ||
+    /"gameId"\s*:\s*"[^"]*sankalpa[^"]*"/i.test(rawStr) ||
+    /"[^"]*sankalpa[^"]*"\s*:/i.test(rawStr)
+  ) {
     errors.push('CRITICAL PRIVACY VIOLATION: Sankalpa vault data detected in export payload');
   }
 
@@ -88,9 +92,24 @@ export async function exportCanonicalData(providerBundle, userId) {
   }
 
   // 2. Filter and sanitize game saves (strictly omit Sankalpa)
+  const stripSankalpaFields = (node, depth = 0) => {
+    if (depth > 8 || node === null || node === undefined || typeof node !== 'object') return node;
+    if (Array.isArray(node)) return node.map((item) => stripSankalpaFields(item, depth + 1));
+    const clean = {};
+    for (const [k, v] of Object.entries(node)) {
+      if (/sankalpa/i.test(k)) continue;
+      if (typeof v === 'string' && /(?:sankalpa_e2ee_vault|auromasti-sankalpa-backup|auromind_sankalpa_vault)/i.test(v)) {
+        continue;
+      }
+      clean[k] = stripSankalpaFields(v, depth + 1);
+    }
+    return clean;
+  };
+
   const sanitizedGameSaves = [];
   for (const save of rawExport.gameSaves || rawExport.cloudSaves || []) {
-    if (EXCLUDED_GAME_IDENTIFIERS.has(save.gameId || save.game_id)) {
+    const saveGameId = save.gameId || save.game_id;
+    if (EXCLUDED_GAME_IDENTIFIERS.has(saveGameId) || (typeof saveGameId === 'string' && /sankalpa/i.test(saveGameId))) {
       continue; // Strictly omit local-only Sankalpa vault
     }
 
@@ -102,7 +121,7 @@ export async function exportCanonicalData(providerBundle, userId) {
     let checksum = save.checksum || 'sha256_mock';
 
     if (!payload && providerBundle.cloudSync?.pullLatest) {
-      const fullSave = await providerBundle.cloudSync.pullLatest(userId, save.gameId || save.game_id);
+      const fullSave = await providerBundle.cloudSync.pullLatest(userId, saveGameId);
       if (fullSave) {
         payload = fullSave.payload;
         envelopeVersion = fullSave.envelopeVersion;
@@ -113,12 +132,12 @@ export async function exportCanonicalData(providerBundle, userId) {
     }
 
     sanitizedGameSaves.push({
-      gameId: save.gameId || save.game_id,
+      gameId: saveGameId,
       envelopeVersion,
       gameSchemaVersion,
       revision,
       checksum,
-      payload: payload || {},
+      payload: stripSankalpaFields(payload || {}),
       clientUpdatedAt: save.clientUpdatedAt || save.client_updated_at || new Date().toISOString()
     });
   }
