@@ -3262,6 +3262,19 @@ export function createAuroMindSDK(options = {}) {
           const isStillActiveUser = () =>
             authEpoch === syncStartEpoch &&
             Boolean(currentAccount && currentAccount.userId === userId);
+          const applyGuardContext = Object.freeze({
+            expectedUserId: userId,
+            authEpoch: syncStartEpoch,
+            isStillActive: isStillActiveUser
+          });
+          const makeAbortedResult = (currentResults) =>
+            Object.freeze({
+              status: 'aborted',
+              reason: 'account_changed_mid_sync',
+              results: Object.freeze([...currentResults])
+            });
+
+          const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 
           const clearIdbOutboxForGame = async (gid) => {
             try {
@@ -3285,19 +3298,40 @@ export function createAuroMindSDK(options = {}) {
             return false;
           };
 
-          const buildValidatedRemoteEnvelope = (gid, remoteRec) => {
+          const buildValidatedRemoteEnvelope = async (gid, remoteRec) => {
             if (!remoteRec || typeof remoteRec !== 'object' || Array.isArray(remoteRec)) {
               return { valid: false, reason: 'INVALID_REMOTE_RECORD' };
             }
-            if (remoteRec.gameId && remoteRec.gameId !== gid) {
+            if (typeof remoteRec.gameId !== 'string' || remoteRec.gameId.length === 0) {
+              return { valid: false, reason: 'MISSING_REMOTE_GAME_ID' };
+            }
+            if (remoteRec.gameId !== gid) {
               return { valid: false, reason: 'REMOTE_GAME_ID_MISMATCH' };
+            }
+            if (
+              typeof remoteRec.revision !== 'number' ||
+              !Number.isInteger(remoteRec.revision) ||
+              remoteRec.revision < 0
+            ) {
+              return { valid: false, reason: 'INVALID_REMOTE_REVISION' };
             }
             if (!remoteRec.payload || typeof remoteRec.payload !== 'object' || Array.isArray(remoteRec.payload)) {
               return { valid: false, reason: 'INVALID_REMOTE_PAYLOAD' };
             }
-            const rev = Number(remoteRec.revision ?? 1);
-            if (!Number.isInteger(rev) || rev < 0) {
-              return { valid: false, reason: 'INVALID_REMOTE_REVISION' };
+            if (typeof remoteRec.checksum !== 'string' || remoteRec.checksum.length === 0) {
+              return { valid: false, reason: 'MISSING_REMOTE_CHECKSUM' };
+            }
+            if (!SHA256_HEX_RE.test(remoteRec.checksum)) {
+              return { valid: false, reason: 'MALFORMED_REMOTE_CHECKSUM' };
+            }
+            let expectedChecksum;
+            try {
+              expectedChecksum = await computePayloadChecksum(remoteRec.payload);
+            } catch {
+              return { valid: false, reason: 'REMOTE_CHECKSUM_COMPUTE_FAILED' };
+            }
+            if (expectedChecksum !== remoteRec.checksum) {
+              return { valid: false, reason: 'REMOTE_CHECKSUM_MISMATCH' };
             }
             const rawGuest = remoteRec.sourceGuestId;
             const safeGuestId =
@@ -3309,10 +3343,6 @@ export function createAuroMindSDK(options = {}) {
               typeof rawTs === 'string' && !Number.isNaN(Date.parse(rawTs))
                 ? rawTs
                 : getNow().toISOString();
-            const safeChecksum =
-              typeof remoteRec.checksum === 'string' && remoteRec.checksum.trim().length > 0
-                ? remoteRec.checksum.trim()
-                : 'remote_unknown_checksum';
             return {
               valid: true,
               envelope: Object.freeze({
@@ -3320,8 +3350,8 @@ export function createAuroMindSDK(options = {}) {
                 gameId: gid,
                 gameSchemaVersion: Number.isInteger(remoteRec.gameSchemaVersion) && remoteRec.gameSchemaVersion >= 1 ? remoteRec.gameSchemaVersion : 1,
                 guestId: safeGuestId,
-                baseRevision: rev,
-                checksum: safeChecksum,
+                baseRevision: remoteRec.revision,
+                checksum: remoteRec.checksum,
                 payload: remoteRec.payload,
                 clientUpdatedAt: safeTs,
                 isEmpty: Boolean(remoteRec.isEmpty)
@@ -3337,11 +3367,7 @@ export function createAuroMindSDK(options = {}) {
 
           for (const gid of gameIds) {
             if (!isStillActiveUser()) {
-              return Object.freeze({
-                status: 'aborted',
-                reason: 'account_changed_mid_sync',
-                results: Object.freeze(results)
-              });
+              return makeAbortedResult(results);
             }
 
             try {
@@ -3357,6 +3383,10 @@ export function createAuroMindSDK(options = {}) {
                 localEnvelope = await adaptersRegistry.exportLocalEnvelope(gid);
               } catch (e) {
                 loggingService.debug('sync', `No local envelope for "${gid}": ${e.message}`);
+              }
+
+              if (!isStillActiveUser()) {
+                return makeAbortedResult(results);
               }
 
               if (!localEnvelope) {
@@ -3377,11 +3407,7 @@ export function createAuroMindSDK(options = {}) {
 
               // Guard again immediately after network await before mutating local or remote state
               if (!isStillActiveUser()) {
-                return Object.freeze({
-                  status: 'aborted',
-                  reason: 'account_changed_mid_sync',
-                  results: Object.freeze(results)
-                });
+                return makeAbortedResult(results);
               }
 
               if (!remoteRecord) {
@@ -3393,15 +3419,14 @@ export function createAuroMindSDK(options = {}) {
                     0
                   );
                   if (!isStillActiveUser()) {
-                    return Object.freeze({
-                      status: 'aborted',
-                      reason: 'account_changed_mid_sync',
-                      results: Object.freeze(results)
-                    });
+                    return makeAbortedResult(results);
                   }
                   if (pushRes && pushRes.status === 'success') {
                     syncOutbox.delete(gid);
                     await clearIdbOutboxForGame(gid);
+                    if (!isStillActiveUser()) {
+                      return makeAbortedResult(results);
+                    }
                     nextSyncMeta[gid] = {
                       revision: pushRes.newRevision,
                       checksum: localEnvelope.checksum,
@@ -3416,8 +3441,20 @@ export function createAuroMindSDK(options = {}) {
                 continue;
               }
 
-              // Validate incoming remote record before merge/apply
-              const remoteValidated = buildValidatedRemoteEnvelope(gid, remoteRecord);
+              // Strict remote local-only vault guard + canonical checksum & envelope validation before merge/apply
+              if (remoteRecord && typeof remoteRecord === 'object' && !Array.isArray(remoteRecord)) {
+                const preCheckForbiddenVault = payloadHasForbiddenVault(remoteRecord.payload, caps);
+                if (preCheckForbiddenVault) {
+                  loggingService.error('sync', `Security violation: remote envelope for "${gid}" attempted to inject local-only vault "${preCheckForbiddenVault}". Rejected.`);
+                  results.push({ gameId: gid, action: 'blocked_remote_local_only_vault', vault: preCheckForbiddenVault });
+                  continue;
+                }
+              }
+
+              const remoteValidated = await buildValidatedRemoteEnvelope(gid, remoteRecord);
+              if (!isStillActiveUser()) {
+                return makeAbortedResult(results);
+              }
               if (!remoteValidated.valid) {
                 loggingService.warn('sync', `Rejected invalid remote save record for "${gid}": ${remoteValidated.reason}`);
                 results.push({ gameId: gid, action: 'invalid_remote_envelope', reason: remoteValidated.reason });
@@ -3431,16 +3468,19 @@ export function createAuroMindSDK(options = {}) {
                 continue;
               }
 
-              // Idempotent sync: if local and remote checksums match, records are identical
-              if (localEnvelope.checksum && remoteRecord.checksum && localEnvelope.checksum === remoteRecord.checksum) {
+              // Idempotent sync: if local and validated remote checksums match, records are identical
+              if (localEnvelope.checksum && remoteEnvelope.checksum && localEnvelope.checksum === remoteEnvelope.checksum) {
                 syncOutbox.delete(gid);
                 await clearIdbOutboxForGame(gid);
+                if (!isStillActiveUser()) {
+                  return makeAbortedResult(results);
+                }
                 nextSyncMeta[gid] = {
-                  revision: remoteRecord.revision || 1,
+                  revision: remoteEnvelope.baseRevision || 1,
                   checksum: localEnvelope.checksum,
                   syncedAt: getNow().toISOString()
                 };
-                results.push({ gameId: gid, action: 'in_sync', revision: remoteRecord.revision || 1 });
+                results.push({ gameId: gid, action: 'in_sync', revision: remoteEnvelope.baseRevision || 1 });
                 continue;
               }
 
@@ -3448,23 +3488,22 @@ export function createAuroMindSDK(options = {}) {
               const mergeResolution = adaptersRegistry.resolveMerge(gid, localEnvelope, remoteEnvelope);
 
               if (mergeResolution.status === 'use_local') {
-                const expectedRev = remoteRecord.revision || 0;
+                const expectedRev = remoteEnvelope.baseRevision || 0;
                 const pushRes = await providers.cloudSync.pushWithOptimisticLock(
                   localEnvelope,
                   userId,
                   expectedRev
                 );
                 if (!isStillActiveUser()) {
-                  return Object.freeze({
-                    status: 'aborted',
-                    reason: 'account_changed_mid_sync',
-                    results: Object.freeze(results)
-                  });
+                  return makeAbortedResult(results);
                 }
 
                 if (pushRes && pushRes.status === 'success') {
                   syncOutbox.delete(gid);
                   await clearIdbOutboxForGame(gid);
+                  if (!isStillActiveUser()) {
+                    return makeAbortedResult(results);
+                  }
                   nextSyncMeta[gid] = {
                     revision: pushRes.newRevision,
                     checksum: localEnvelope.checksum,
@@ -3476,33 +3515,68 @@ export function createAuroMindSDK(options = {}) {
                     'sync',
                     `Optimistic concurrency conflict on "${gid}". Current revision: ${pushRes.currentRevision}`
                   );
-                  // Deterministic 1-shot conflict recovery if serverRecord is provided
+                  // Deterministic 1-shot conflict recovery only when serverRecord passes full validation
                   let recovered = false;
-                  if (pushRes.serverRecord && typeof pushRes.serverRecord === 'object') {
-                    const retryRemote = buildValidatedRemoteEnvelope(gid, {
-                      ...pushRes.serverRecord,
-                      revision: pushRes.currentRevision ?? pushRes.serverRecord.revision ?? expectedRev + 1
-                    });
-                    if (retryRemote.valid && !payloadHasForbiddenVault(retryRemote.envelope.payload, caps)) {
+                  let invalidServerRecordReason = null;
+                  if (pushRes.serverRecord !== undefined && pushRes.serverRecord !== null) {
+                    const retryRemote = await buildValidatedRemoteEnvelope(gid, pushRes.serverRecord);
+                    if (!isStillActiveUser()) {
+                      return makeAbortedResult(results);
+                    }
+                    if (!retryRemote.valid) {
+                      invalidServerRecordReason = retryRemote.reason;
+                      loggingService.warn(
+                        'sync',
+                        `Rejected invalid conflict serverRecord for "${gid}": ${retryRemote.reason}`
+                      );
+                    } else if (
+                      pushRes.currentRevision !== undefined &&
+                      pushRes.currentRevision !== retryRemote.envelope.baseRevision
+                    ) {
+                      invalidServerRecordReason = 'CONFLICT_REVISION_MISMATCH';
+                      loggingService.warn(
+                        'sync',
+                        `Rejected conflict serverRecord for "${gid}": revision ${retryRemote.envelope.baseRevision} disagrees with currentRevision ${pushRes.currentRevision}`
+                      );
+                    } else if (payloadHasForbiddenVault(retryRemote.envelope.payload, caps)) {
+                      invalidServerRecordReason = 'FORBIDDEN_LOCAL_VAULT_IN_SERVER_RECORD';
+                      loggingService.error(
+                        'sync',
+                        `Security violation: conflict serverRecord for "${gid}" attempted to inject local-only vault.`
+                      );
+                    } else {
                       const retryMerge = adaptersRegistry.resolveMerge(gid, localEnvelope, retryRemote.envelope);
-                      if (retryMerge.status === 'auto_merged' && isStillActiveUser()) {
+                      if (retryMerge.status === 'auto_merged') {
                         const retryChecksum = await computePayloadChecksum(retryMerge.resolvedPayload);
+                        if (!isStillActiveUser()) {
+                          return makeAbortedResult(results);
+                        }
+                        const conflictBaseRev = retryRemote.envelope.baseRevision;
                         const retryEnv = Object.freeze({
                           ...localEnvelope,
-                          baseRevision: pushRes.currentRevision ?? expectedRev + 1,
+                          baseRevision: conflictBaseRev,
                           payload: retryMerge.resolvedPayload,
                           checksum: retryChecksum,
                           clientUpdatedAt: getNow().toISOString()
                         });
-                        await adaptersRegistry.applyRemoteEnvelope(gid, retryEnv);
+                        await adaptersRegistry.applyRemoteEnvelope(gid, retryEnv, applyGuardContext);
+                        if (!isStillActiveUser()) {
+                          return makeAbortedResult(results);
+                        }
                         const retryPush = await providers.cloudSync.pushWithOptimisticLock(
                           retryEnv,
                           userId,
-                          pushRes.currentRevision ?? expectedRev + 1
+                          conflictBaseRev
                         );
-                        if (retryPush && retryPush.status === 'success' && isStillActiveUser()) {
+                        if (!isStillActiveUser()) {
+                          return makeAbortedResult(results);
+                        }
+                        if (retryPush && retryPush.status === 'success') {
                           syncOutbox.delete(gid);
                           await clearIdbOutboxForGame(gid);
+                          if (!isStillActiveUser()) {
+                            return makeAbortedResult(results);
+                          }
                           nextSyncMeta[gid] = {
                             revision: retryPush.newRevision,
                             checksum: retryChecksum,
@@ -3520,7 +3594,8 @@ export function createAuroMindSDK(options = {}) {
                       gameId: gid,
                       action: 'conflict',
                       currentRevision: pushRes.currentRevision,
-                      serverRecord: pushRes.serverRecord
+                      serverRecord: pushRes.serverRecord,
+                      ...(invalidServerRecordReason ? { invalidServerRecordReason } : {})
                     });
                   }
                 } else {
@@ -3529,54 +3604,57 @@ export function createAuroMindSDK(options = {}) {
                 }
               } else if (mergeResolution.status === 'use_remote') {
                 if (!isStillActiveUser()) {
-                  return Object.freeze({
-                    status: 'aborted',
-                    reason: 'account_changed_mid_sync',
-                    results: Object.freeze(results)
-                  });
+                  return makeAbortedResult(results);
                 }
-                await adaptersRegistry.applyRemoteEnvelope(gid, remoteEnvelope);
+                await adaptersRegistry.applyRemoteEnvelope(gid, remoteEnvelope, applyGuardContext);
+                if (!isStillActiveUser()) {
+                  return makeAbortedResult(results);
+                }
                 syncOutbox.delete(gid);
                 await clearIdbOutboxForGame(gid);
+                if (!isStillActiveUser()) {
+                  return makeAbortedResult(results);
+                }
                 nextSyncMeta[gid] = {
-                  revision: remoteRecord.revision,
+                  revision: remoteEnvelope.baseRevision,
                   checksum: remoteEnvelope.checksum,
                   syncedAt: getNow().toISOString()
                 };
-                results.push({ gameId: gid, action: 'applied_remote', revision: remoteRecord.revision });
+                results.push({ gameId: gid, action: 'applied_remote', revision: remoteEnvelope.baseRevision });
               } else if (mergeResolution.status === 'auto_merged') {
                 if (!isStillActiveUser()) {
-                  return Object.freeze({
-                    status: 'aborted',
-                    reason: 'account_changed_mid_sync',
-                    results: Object.freeze(results)
-                  });
+                  return makeAbortedResult(results);
                 }
                 const canonicalMergedChecksum = await computePayloadChecksum(mergeResolution.resolvedPayload);
+                if (!isStillActiveUser()) {
+                  return makeAbortedResult(results);
+                }
                 const mergedEnvelope = Object.freeze({
                   ...localEnvelope,
-                  baseRevision: remoteRecord.revision || 0,
+                  baseRevision: remoteEnvelope.baseRevision || 0,
                   payload: mergeResolution.resolvedPayload,
                   checksum: canonicalMergedChecksum,
                   clientUpdatedAt: getNow().toISOString()
                 });
-                await adaptersRegistry.applyRemoteEnvelope(gid, mergedEnvelope);
-                const expectedRev = remoteRecord.revision || 0;
+                await adaptersRegistry.applyRemoteEnvelope(gid, mergedEnvelope, applyGuardContext);
+                if (!isStillActiveUser()) {
+                  return makeAbortedResult(results);
+                }
+                const expectedRev = remoteEnvelope.baseRevision || 0;
                 const pushRes = await providers.cloudSync.pushWithOptimisticLock(
                   mergedEnvelope,
                   userId,
                   expectedRev
                 );
                 if (!isStillActiveUser()) {
-                  return Object.freeze({
-                    status: 'aborted',
-                    reason: 'account_changed_mid_sync',
-                    results: Object.freeze(results)
-                  });
+                  return makeAbortedResult(results);
                 }
                 if (pushRes && pushRes.status === 'success') {
                   syncOutbox.delete(gid);
                   await clearIdbOutboxForGame(gid);
+                  if (!isStillActiveUser()) {
+                    return makeAbortedResult(results);
+                  }
                   nextSyncMeta[gid] = {
                     revision: pushRes.newRevision,
                     checksum: canonicalMergedChecksum,
@@ -3604,6 +3682,9 @@ export function createAuroMindSDK(options = {}) {
                 });
               }
             } catch (err) {
+              if (!isStillActiveUser()) {
+                return makeAbortedResult(results);
+              }
               syncOutbox.add(gid);
               loggingService.error('sync', `Sync failed for game "${gid}": ${err.message}`, {
                 error: err.message
@@ -3613,11 +3694,7 @@ export function createAuroMindSDK(options = {}) {
           }
 
           if (!isStillActiveUser()) {
-            return Object.freeze({
-              status: 'aborted',
-              reason: 'account_changed_mid_sync',
-              results: Object.freeze(results)
-            });
+            return makeAbortedResult(results);
           }
 
           const syncedAt = getNow().toISOString();

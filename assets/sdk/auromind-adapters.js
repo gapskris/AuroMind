@@ -1606,7 +1606,7 @@ export function createAdapterRegistry(sdkHooks) {
     return envelope;
   }
 
-  async function applyRemoteEnvelope(gameId, envelope) {
+  async function applyRemoteEnvelope(gameId, envelope, context = null) {
     const entry = entries.get(gameId);
     if (!entry) {
       throw new AuroMindAdapterError(
@@ -1616,8 +1616,11 @@ export function createAdapterRegistry(sdkHooks) {
       );
     }
     validateSaveEnvelope(envelope, gameId);
+    if (context && typeof context.isStillActive === 'function' && !context.isStillActive()) {
+      return false;
+    }
     if (typeof entry.adapter.applyEnvelope === 'function') {
-      return await entry.adapter.applyEnvelope(envelope);
+      return await entry.adapter.applyEnvelope(envelope, context);
     }
     return false;
   }

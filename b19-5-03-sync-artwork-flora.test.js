@@ -479,33 +479,35 @@ describe('Part 1A — Scope A: Game Save Synchronization & Guest-Save Merging', 
     const auth = createMockAuthProvider();
     const cloud = createMockCloudSyncStore();
 
-    // Seed existing cloud account saves for alice
+    // Seed existing cloud account saves for alice (with real canonical SHA-256 checksums)
+    const aliceMatchPayload = {
+      schemaVersion: 1,
+      user: {
+        profile: { lotusPetalCount: 40, consciousnessPoints: 300 },
+        progression: { completedLevelsCount: 2, completedLevelIds: ['flora_lotus', 'flora_rose'], unlockedThemes: ['flowers'] }
+      },
+      unlockedTiles: ['flora_lotus', 'flora_rose'],
+      consecrations: [{ id: 'c_cloud', text: 'Cloud reflection' }]
+    };
+    const aliceBlocksPayload = {
+      highScore: 1500,
+      completedStages: [1, 2, { stageId: 's5', score: 400, stars: 2, cleared: true }],
+      stageScores: { s1: 300, s5: 400 }
+    };
     cloud.seed('user_alice', 'auromatch', {
       userId: 'user_alice',
       gameId: 'auromatch',
       revision: 3,
-      checksum: 'cloud_match_rev3',
-      payload: {
-        schemaVersion: 1,
-        user: {
-          profile: { lotusPetalCount: 40, consciousnessPoints: 300 },
-          progression: { completedLevelsCount: 2, completedLevelIds: ['flora_lotus', 'flora_rose'], unlockedThemes: ['flowers'] }
-        },
-        unlockedTiles: ['flora_lotus', 'flora_rose'],
-        consecrations: [{ id: 'c_cloud', text: 'Cloud reflection' }]
-      },
+      checksum: await computePayloadChecksum(aliceMatchPayload),
+      payload: aliceMatchPayload,
       updatedAt: '2026-11-23T08:00:00.000Z'
     });
     cloud.seed('user_alice', 'auroblocks', {
       userId: 'user_alice',
       gameId: 'auroblocks',
       revision: 2,
-      checksum: 'cloud_blocks_rev2',
-      payload: {
-        highScore: 1500,
-        completedStages: [1, 2, { stageId: 's5', score: 400, stars: 2, cleared: true }],
-        stageScores: { s1: 300, s5: 400 }
-      },
+      checksum: await computePayloadChecksum(aliceBlocksPayload),
+      payload: aliceBlocksPayload,
       updatedAt: '2026-11-23T08:00:00.000Z'
     });
 
@@ -768,12 +770,13 @@ describe('Part 1A — Scope A: Game Save Synchronization & Guest-Save Merging', 
     const auth = createMockAuthProvider();
     const cloud = createMockCloudSyncStore();
 
+    const alphaPayload = { highScore: 99999, completedStages: [1, 2, 3, 4, 5] };
     cloud.seed('user_alpha', 'auroblocks', {
       userId: 'user_alpha',
       gameId: 'auroblocks',
       revision: 4,
-      checksum: 'alpha_secret_chk',
-      payload: { highScore: 99999, completedStages: [1, 2, 3, 4, 5] },
+      checksum: await computePayloadChecksum(alphaPayload),
+      payload: alphaPayload,
       updatedAt: new Date().toISOString()
     });
 
@@ -1290,6 +1293,463 @@ describe('Part 1C — Scope C: Flora Database Dual-Write Parity & Consistency', 
   });
 });
 
+describe('Part 1D — Focused Correction: Remote Save Integrity & Account-Switch Race', () => {
+  test('Corr-1: Remote payload modified without updating checksum is rejected, never applied locally, never pushed, and preserves outbox', async () => {
+    const { env } = createSdkEnv();
+    const auth = createMockAuthProvider();
+    const cloud = createMockCloudSyncStore();
+
+    const originalPayload = { highScore: 500, completedStages: [1] };
+    const originalChecksum = await computePayloadChecksum(originalPayload);
+    // Tamper payload without updating checksum
+    cloud.seed('user_tamper', 'auroblocks', {
+      userId: 'user_tamper',
+      gameId: 'auroblocks',
+      revision: 2,
+      checksum: originalChecksum,
+      payload: { highScore: 999999, completedStages: [1, 99] },
+      updatedAt: new Date().toISOString()
+    });
+
+    const sdk = createAuroMindSDK({ env });
+    await sdk.init({
+      gameId: 'portal',
+      capabilities: { authEnabled: true, cloudSyncEnabled: true },
+      providers: { auth, cloudSync: cloud.provider }
+    });
+    const harness = createInMemoryGameAdapter('auroblocks', { highScore: 100, completedStages: [1] });
+    sdk.adapters.register(harness.adapter, { mergeStrategy: AuroBlocksMergeStrategy });
+    await sdk.adapters.init('auroblocks');
+
+    await sdk.sync.queueLocalChange('auroblocks');
+    await sdk.auth.signIn('email', { email: 'tamper@example.com' });
+    sdk.sync.setConsent(true);
+
+    const res = await sdk.sync.syncNow('auroblocks');
+    assert.equal(res.status, 'success');
+    assert.equal(res.results[0].action, 'invalid_remote_envelope');
+    assert.equal(res.results[0].reason, 'REMOTE_CHECKSUM_MISMATCH');
+    assert.equal(harness.getState().highScore, 100, 'Tampered remote payload must never be applied locally');
+    assert.equal(cloud.getStats().pushCount, 0, 'Tampered remote record must not trigger a push');
+    assert.equal(sdk.sync.getPendingOutboxCount(), 1, 'Pending sync outbox must be preserved on rejection');
+
+    sdk.dispose();
+  });
+
+  test('Corr-2: Missing, malformed, and mismatched remote gameIds are all strictly rejected', async () => {
+    const cases = [
+      { label: 'missing gameId', gameId: undefined, expectedReason: 'MISSING_REMOTE_GAME_ID' },
+      { label: 'empty gameId', gameId: '', expectedReason: 'MISSING_REMOTE_GAME_ID' },
+      { label: 'numeric gameId', gameId: 12345, expectedReason: 'MISSING_REMOTE_GAME_ID' },
+      { label: 'whitespace-padded gameId', gameId: ' auroblocks ', expectedReason: 'REMOTE_GAME_ID_MISMATCH' },
+      { label: 'mismatched gameId', gameId: 'auromatch', expectedReason: 'REMOTE_GAME_ID_MISMATCH' }
+    ];
+
+    for (const tc of cases) {
+      const { env } = createSdkEnv();
+      const auth = createMockAuthProvider();
+      const cloud = createMockCloudSyncStore();
+      const payload = { highScore: 7777, completedStages: [1, 2] };
+      const validChecksum = await computePayloadChecksum(payload);
+
+      cloud.seed('user_gid', 'auroblocks', {
+        userId: 'user_gid',
+        ...(tc.gameId !== undefined ? { gameId: tc.gameId } : {}),
+        revision: 2,
+        checksum: validChecksum,
+        payload,
+        updatedAt: new Date().toISOString()
+      });
+
+      const sdk = createAuroMindSDK({ env });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth, cloudSync: cloud.provider }
+      });
+      const harness = createInMemoryGameAdapter('auroblocks', { highScore: 10, completedStages: [] });
+      sdk.adapters.register(harness.adapter, { mergeStrategy: AuroBlocksMergeStrategy });
+      await sdk.adapters.init('auroblocks');
+
+      await sdk.sync.queueLocalChange('auroblocks');
+      await sdk.auth.signIn('email', { email: 'gid@example.com' });
+      sdk.sync.setConsent(true);
+
+      const res = await sdk.sync.syncNow('auroblocks');
+      assert.equal(res.results[0].action, 'invalid_remote_envelope', `Case "${tc.label}" must be rejected`);
+      assert.equal(res.results[0].reason, tc.expectedReason, `Case "${tc.label}" must report ${tc.expectedReason}`);
+      assert.equal(harness.getState().highScore, 10, `Case "${tc.label}" must not alter local state`);
+      assert.equal(cloud.getStats().pushCount, 0, `Case "${tc.label}" must not push`);
+      assert.equal(sdk.sync.getPendingOutboxCount(), 1, `Case "${tc.label}" must preserve outbox`);
+      sdk.dispose();
+    }
+  });
+
+  test('Corr-3: Missing, malformed, placeholder, and incorrect remote checksums are all strictly rejected', async () => {
+    const cases = [
+      { label: 'missing checksum', checksum: undefined, expectedReason: 'MISSING_REMOTE_CHECKSUM' },
+      { label: 'empty checksum', checksum: '', expectedReason: 'MISSING_REMOTE_CHECKSUM' },
+      { label: 'placeholder remote_unknown_checksum', checksum: 'remote_unknown_checksum', expectedReason: 'MALFORMED_REMOTE_CHECKSUM' },
+      { label: 'short hex checksum', checksum: 'a'.repeat(63), expectedReason: 'MALFORMED_REMOTE_CHECKSUM' },
+      { label: 'uppercase hex checksum', checksum: 'A'.repeat(64), expectedReason: 'MALFORMED_REMOTE_CHECKSUM' },
+      { label: 'non-hex 64-char checksum', checksum: 'z'.repeat(64), expectedReason: 'MALFORMED_REMOTE_CHECKSUM' },
+      { label: 'valid-format but incorrect SHA-256', checksum: '0'.repeat(64), expectedReason: 'REMOTE_CHECKSUM_MISMATCH' }
+    ];
+
+    for (const tc of cases) {
+      const { env } = createSdkEnv();
+      const auth = createMockAuthProvider();
+      const cloud = createMockCloudSyncStore();
+      const payload = { highScore: 8888, completedStages: [1, 2, 3] };
+
+      cloud.seed('user_chk', 'auroblocks', {
+        userId: 'user_chk',
+        gameId: 'auroblocks',
+        revision: 3,
+        ...(tc.checksum !== undefined ? { checksum: tc.checksum } : {}),
+        payload,
+        updatedAt: new Date().toISOString()
+      });
+
+      const sdk = createAuroMindSDK({ env });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth, cloudSync: cloud.provider }
+      });
+      const harness = createInMemoryGameAdapter('auroblocks', { highScore: 20, completedStages: [] });
+      sdk.adapters.register(harness.adapter, { mergeStrategy: AuroBlocksMergeStrategy });
+      await sdk.adapters.init('auroblocks');
+
+      await sdk.sync.queueLocalChange('auroblocks');
+      await sdk.auth.signIn('email', { email: 'chk@example.com' });
+      sdk.sync.setConsent(true);
+
+      const res = await sdk.sync.syncNow('auroblocks');
+      assert.equal(res.results[0].action, 'invalid_remote_envelope', `Case "${tc.label}" must be rejected`);
+      assert.equal(res.results[0].reason, tc.expectedReason, `Case "${tc.label}" must report ${tc.expectedReason}`);
+      assert.equal(harness.getState().highScore, 20, `Case "${tc.label}" must not alter local state`);
+      assert.equal(cloud.getStats().pushCount, 0, `Case "${tc.label}" must not push`);
+      assert.equal(sdk.sync.getPendingOutboxCount(), 1, `Case "${tc.label}" must preserve outbox`);
+      sdk.dispose();
+    }
+  });
+
+  test('Corr-4: Invalid pushRes.serverRecord during conflict recovery is rejected with zero retry push and local state untouched', async () => {
+    const validConflictPayload = { highScore: 3000, completedStages: [1, 5] };
+    const validConflictChecksum = await computePayloadChecksum(validConflictPayload);
+
+    const invalidServerRecords = [
+      {
+        label: 'tampered checksum in serverRecord',
+        serverRecord: {
+          gameId: 'auroblocks',
+          revision: 5,
+          checksum: validConflictChecksum,
+          payload: { highScore: 99999, completedStages: [1, 5, 99] }
+        },
+        expectedReason: 'REMOTE_CHECKSUM_MISMATCH'
+      },
+      {
+        label: 'missing gameId in serverRecord',
+        serverRecord: {
+          revision: 5,
+          checksum: validConflictChecksum,
+          payload: validConflictPayload
+        },
+        expectedReason: 'MISSING_REMOTE_GAME_ID'
+      },
+      {
+        label: 'missing checksum in serverRecord',
+        serverRecord: {
+          gameId: 'auroblocks',
+          revision: 5,
+          payload: validConflictPayload
+        },
+        expectedReason: 'MISSING_REMOTE_CHECKSUM'
+      },
+      {
+        label: 'missing revision in serverRecord',
+        serverRecord: {
+          gameId: 'auroblocks',
+          checksum: validConflictChecksum,
+          payload: validConflictPayload
+        },
+        expectedReason: 'INVALID_REMOTE_REVISION'
+      }
+    ];
+
+    for (const tc of invalidServerRecords) {
+      const { env } = createSdkEnv();
+      const auth = createMockAuthProvider();
+      const cloud = createMockCloudSyncStore();
+      const initialRemotePayload = { highScore: 500, completedStages: [1] };
+
+      cloud.seed('user_c4', 'auroblocks', {
+        userId: 'user_c4',
+        gameId: 'auroblocks',
+        revision: 4,
+        checksum: await computePayloadChecksum(initialRemotePayload),
+        payload: initialRemotePayload,
+        updatedAt: new Date().toISOString()
+      });
+      cloud.setForceConflictOnce({
+        ...tc.serverRecord,
+        // Ensure outer currentRevision is 5 even when serverRecord itself omits revision
+        _outerCurrentRevision: 5
+      });
+
+      // Wrap provider so conflict returns exact currentRevision: 5 and exact unmutated tc.serverRecord
+      const wrappedProvider = {
+        ...cloud.provider,
+        async pushWithOptimisticLock(envelope, userId, expectedRevision) {
+          const inner = await cloud.provider.pushWithOptimisticLock(envelope, userId, expectedRevision);
+          if (inner.status === 'conflict') {
+            return {
+              status: 'conflict',
+              currentRevision: 5,
+              serverRecord: tc.serverRecord
+            };
+          }
+          return inner;
+        }
+      };
+
+      const sdk = createAuroMindSDK({ env });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth, cloudSync: wrappedProvider }
+      });
+      let applyCalls = 0;
+      const harness = createInMemoryGameAdapter('auroblocks', { highScore: 1200, completedStages: [1, 2] });
+      const origApply = harness.adapter.applyEnvelope;
+      harness.adapter.applyEnvelope = async (envelope, ctx) => {
+        applyCalls += 1;
+        return origApply(envelope, ctx);
+      };
+      const useLocalFirstStrategy = {
+        gameId: 'auroblocks',
+        resolve(local) {
+          return { status: 'use_local', resolvedPayload: local.payload };
+        }
+      };
+      sdk.adapters.register(harness.adapter, { mergeStrategy: useLocalFirstStrategy });
+      await sdk.adapters.init('auroblocks');
+
+      await sdk.auth.signIn('email', { email: 'c4@example.com' });
+      sdk.sync.setConsent(true);
+
+      const res = await sdk.sync.syncNow('auroblocks');
+      assert.equal(res.status, 'success');
+      assert.equal(res.results[0].action, 'conflict', `Case "${tc.label}" must remain conflict`);
+      assert.equal(res.results[0].invalidServerRecordReason, tc.expectedReason);
+      assert.equal(applyCalls, 0, `Case "${tc.label}" must NOT apply invalid serverRecord locally`);
+      assert.equal(cloud.getStats().pushCount, 1, `Case "${tc.label}" must NOT execute any retry push`);
+      assert.equal(harness.getState().highScore, 1200, `Case "${tc.label}" must preserve local state`);
+      assert.equal(sdk.sync.getPendingOutboxCount(), 1, `Case "${tc.label}" must keep game queued in outbox`);
+      sdk.dispose();
+    }
+  });
+
+  test('Corr-5: Account switch while applyRemoteEnvelope() is delayed aborts safely on use_remote, auto_merged, and conflict-recovery paths', async () => {
+    // Helper to create a deterministic deferred gate for delayed applyEnvelope
+    function createGate() {
+      let resolveEntered;
+      let releaseApply;
+      const entered = new Promise((r) => { resolveEntered = r; });
+      const release = new Promise((r) => { releaseApply = r; });
+      return { entered, release, markEntered: resolveEntered, releaseApply };
+    }
+
+    // --- Path A: use_remote (local empty, remote non-empty) ---
+    {
+      const { env } = createSdkEnv();
+      const auth = createMockAuthProvider();
+      const cloud = createMockCloudSyncStore();
+      const remotePayload = { highScore: 4200, completedStages: [1, 2, 3] };
+      cloud.seed('user_a', 'auroblocks', {
+        userId: 'user_a',
+        gameId: 'auroblocks',
+        revision: 3,
+        checksum: await computePayloadChecksum(remotePayload),
+        payload: remotePayload,
+        updatedAt: new Date().toISOString()
+      });
+
+      const sdk = createAuroMindSDK({ env });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth, cloudSync: cloud.provider }
+      });
+
+      const gate = createGate();
+      let sawActiveBefore = null;
+      let sawActiveAfter = null;
+      const emptyHarness = createInMemoryGameAdapter('auroblocks', {});
+      emptyHarness.adapter.applyEnvelope = async (envelope, ctx) => {
+        sawActiveBefore = ctx?.isStillActive?.();
+        gate.markEntered();
+        await gate.release;
+        sawActiveAfter = ctx?.isStillActive?.();
+        if (ctx && typeof ctx.isStillActive === 'function' && !ctx.isStillActive()) {
+          return false;
+        }
+        emptyHarness.setState(envelope.payload);
+        return true;
+      };
+      sdk.adapters.register(emptyHarness.adapter, { mergeStrategy: AuroBlocksMergeStrategy });
+      await sdk.adapters.init('auroblocks');
+
+      await sdk.sync.queueLocalChange('auroblocks');
+      await sdk.auth.signIn('email', { email: 'a@example.com' });
+      sdk.sync.setConsent(true);
+
+      const syncPromise = sdk.sync.syncNow('auroblocks');
+      await gate.entered;
+      // Account switches to B while applyEnvelope is paused mid-await
+      auth._emitSwitch('user_b', 'b@example.com');
+      gate.releaseApply();
+
+      const res = await syncPromise;
+      assert.equal(res.status, 'aborted', 'use_remote must abort when account switches during applyRemoteEnvelope');
+      assert.equal(res.reason, 'account_changed_mid_sync');
+      assert.equal(sawActiveBefore, true);
+      assert.equal(sawActiveAfter, false);
+      assert.equal(sdk.sync.getPendingOutboxCount(), 1, 'use_remote abort must NOT clear pending outbox');
+      assert.equal(sdk.sync.getSyncStatus().lastSyncAt, null, 'Account B must receive zero sync metadata');
+      assert.equal(cloud.getStats().pushCount, 0);
+      sdk.dispose();
+    }
+
+    // --- Path B: auto_merged (local and remote both non-empty and divergent) ---
+    {
+      const { env } = createSdkEnv();
+      const auth = createMockAuthProvider();
+      const cloud = createMockCloudSyncStore();
+      const remotePayload = { highScore: 2500, completedStages: [1, 4] };
+      cloud.seed('user_a', 'auroblocks', {
+        userId: 'user_a',
+        gameId: 'auroblocks',
+        revision: 2,
+        checksum: await computePayloadChecksum(remotePayload),
+        payload: remotePayload,
+        updatedAt: new Date().toISOString()
+      });
+
+      const sdk = createAuroMindSDK({ env });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth, cloudSync: cloud.provider }
+      });
+
+      const gate = createGate();
+      const harness = createInMemoryGameAdapter('auroblocks', { highScore: 1500, completedStages: [1, 2] });
+      harness.adapter.applyEnvelope = async (envelope, ctx) => {
+        gate.markEntered();
+        await gate.release;
+        // Even an adapter that does NOT check ctx must still be stopped by syncNow's post-await guard!
+        harness.setState(envelope.payload);
+        return true;
+      };
+      sdk.adapters.register(harness.adapter, { mergeStrategy: AuroBlocksMergeStrategy });
+      await sdk.adapters.init('auroblocks');
+
+      await sdk.sync.queueLocalChange('auroblocks');
+      await sdk.auth.signIn('email', { email: 'a@example.com' });
+      sdk.sync.setConsent(true);
+
+      const syncPromise = sdk.sync.syncNow('auroblocks');
+      await gate.entered;
+      auth._emitSwitch('user_b', 'b@example.com');
+      gate.releaseApply();
+
+      const res = await syncPromise;
+      assert.equal(res.status, 'aborted', 'auto_merged must abort immediately after delayed applyRemoteEnvelope');
+      assert.equal(res.reason, 'account_changed_mid_sync');
+      assert.equal(cloud.getStats().pushCount, 0, 'auto_merged abort MUST prevent follow-on cloud push');
+      assert.equal(sdk.sync.getPendingOutboxCount(), 1, 'auto_merged abort MUST NOT delete outbox');
+      assert.equal(sdk.sync.getSyncStatus().lastSyncAt, null, 'Account B must receive zero sync metadata');
+      assert.equal(cloud.get('user_b', 'auroblocks'), null);
+      sdk.dispose();
+    }
+
+    // --- Path C: optimistic-lock conflict recovery (push conflicts with valid serverRecord -> delayed recovery applyEnvelope) ---
+    {
+      const { env } = createSdkEnv();
+      const auth = createMockAuthProvider();
+      const cloud = createMockCloudSyncStore();
+      const initialRemotePayload = { highScore: 500, completedStages: [1] };
+      const conflictServerPayload = { highScore: 3100, completedStages: [1, 6] };
+
+      cloud.seed('user_a', 'auroblocks', {
+        userId: 'user_a',
+        gameId: 'auroblocks',
+        revision: 4,
+        checksum: await computePayloadChecksum(initialRemotePayload),
+        payload: initialRemotePayload,
+        updatedAt: new Date().toISOString()
+      });
+      cloud.setForceConflictOnce({
+        userId: 'user_a',
+        gameId: 'auroblocks',
+        revision: 5,
+        checksum: await computePayloadChecksum(conflictServerPayload),
+        payload: conflictServerPayload,
+        updatedAt: new Date().toISOString()
+      });
+
+      const sdk = createAuroMindSDK({ env });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth, cloudSync: cloud.provider }
+      });
+
+      const gate = createGate();
+      const harness = createInMemoryGameAdapter('auroblocks', { highScore: 1200, completedStages: [1, 2] });
+      harness.adapter.applyEnvelope = async (envelope) => {
+        gate.markEntered();
+        await gate.release;
+        harness.setState(envelope.payload);
+        return true;
+      };
+      let resolveCalls = 0;
+      const conflictTriggerStrategy = {
+        gameId: 'auroblocks',
+        resolve(local, remote) {
+          resolveCalls += 1;
+          if (resolveCalls === 1) return { status: 'use_local', resolvedPayload: local.payload };
+          return AuroBlocksMergeStrategy.resolve(local, remote);
+        }
+      };
+      sdk.adapters.register(harness.adapter, { mergeStrategy: conflictTriggerStrategy });
+      await sdk.adapters.init('auroblocks');
+
+      await sdk.sync.queueLocalChange('auroblocks');
+      await sdk.auth.signIn('email', { email: 'a@example.com' });
+      sdk.sync.setConsent(true);
+
+      const syncPromise = sdk.sync.syncNow('auroblocks');
+      await gate.entered;
+      // Switch account while conflict recovery's applyRemoteEnvelope is paused mid-await
+      auth._emitSwitch('user_b', 'b@example.com');
+      gate.releaseApply();
+
+      const res = await syncPromise;
+      assert.equal(res.status, 'aborted', 'conflict recovery must abort immediately after delayed applyRemoteEnvelope');
+      assert.equal(res.reason, 'account_changed_mid_sync');
+      assert.equal(cloud.getStats().pushCount, 1, 'conflict recovery abort MUST prevent retry push (only initial push ran)');
+      assert.equal(sdk.sync.getPendingOutboxCount(), 1, 'conflict recovery abort MUST NOT delete outbox');
+      assert.equal(sdk.sync.getSyncStatus().lastSyncAt, null, 'Account B must receive zero sync metadata');
+      assert.equal(cloud.get('user_b', 'auroblocks'), null);
+      sdk.dispose();
+    }
+  });
+});
+
 // =============================================================================
 // PART 2 — REAL BROWSER VERIFICATION (CHROMIUM / EDGE VIA BROWSER HARNESS)
 // =============================================================================
@@ -1494,6 +1954,170 @@ describe('Part 2 — Real Browser Verification (Chromium/Edge)', () => {
       assert.equal(offlineRead.stage, 3);
       assert.equal(offlineRead.vaultCt, 'SECRET_BROWSER_SANKALPA');
       await inst.setOffline(false);
+    } finally {
+      await inst.close();
+    }
+  });
+
+  test('Browser-4: Real Chromium/Edge Web Crypto rejects tampered remote checksum and aborts delayed applyEnvelope on account switch with zero localStorage metadata leakage', async () => {
+    const inst = await env.createInstrumentedPage();
+    try {
+      await inst.page.goto(`${env.baseUrl}/index.html`, { waitUntil: 'networkidle0' });
+
+      const browserResult = await inst.page.evaluate(async () => {
+        const sdkMod = await import('/assets/sdk/auromind-sdk.js');
+        const adpMod = await import('/assets/sdk/auromind-adapters.js');
+
+        let activeAcct = {
+          userId: 'browser_user_a',
+          email: 'a@browser.test',
+          displayName: 'A',
+          provider: 'email',
+          expiresAt: new Date(Date.now() + 3600_000).toISOString()
+        };
+        const listeners = new Set();
+        const mockAuth = {
+          providerName: 'browser-mock-auth',
+          isConfigured: () => true,
+          async getSession() { return activeAcct ? { ...activeAcct } : null; },
+          async getCurrentSession() { return activeAcct ? { ...activeAcct } : null; },
+          async signIn() {
+            const acct = { ...activeAcct };
+            listeners.forEach((cb) => cb(acct));
+            return { status: 'authenticated', account: acct };
+          },
+          async signOut() { activeAcct = null; listeners.forEach((cb) => cb(null)); },
+          onAuthStateChange(cb) { listeners.add(cb); return () => listeners.delete(cb); },
+          switchTo(next) { activeAcct = next; listeners.forEach((cb) => cb(next ? { ...next } : null)); }
+        };
+
+        let remoteRecordToReturn = null;
+        let pushCalls = 0;
+        const mockSync = {
+          providerName: 'browser-mock-sync',
+          isConfigured: () => true,
+          async pullLatest() { return remoteRecordToReturn; },
+          async pushWithOptimisticLock() { pushCalls += 1; return { status: 'success', newRevision: 9 }; }
+        };
+
+        const sdk = sdkMod.createAuroMindSDK();
+        await sdk.init({
+          gameId: 'portal',
+          capabilities: { authEnabled: true, cloudSyncEnabled: true },
+          providers: { auth: mockAuth, cloudSync: mockSync }
+        });
+
+        let localScore = 150;
+        let releaseDelay = null;
+        let enteredDelay = null;
+        let delayPromise = null;
+
+        const adapter = {
+          gameId: 'auroblocks',
+          adapterVersion: '1.0.0',
+          contractVersion: 1,
+          integrationMode: 'native',
+          storage: { kind: 'ls', ownedDatabases: [], ownedLocalStorageKeys: ['b19503_browser_blocks'], localOnlyVaults: [] },
+          capabilities: { offlinePlay: true, localPersistence: true, cloudSyncEligible: true },
+          hasLocalProgress: () => true,
+          exportEnvelope: async (guestId) => {
+            const payload = { highScore: localScore, completedStages: [1] };
+            return {
+              envelopeVersion: 1,
+              gameId: 'auroblocks',
+              gameSchemaVersion: 1,
+              guestId,
+              baseRevision: 0,
+              clientUpdatedAt: new Date().toISOString(),
+              isEmpty: false,
+              checksum: await adpMod.computePayloadChecksum(payload),
+              payload
+            };
+          },
+          applyEnvelope: async (envelope) => {
+            if (delayPromise) {
+              if (enteredDelay) enteredDelay();
+              await delayPromise;
+            }
+            localScore = envelope.payload.highScore;
+            return true;
+          }
+        };
+
+        sdk.adapters.register(adapter, { mergeStrategy: adpMod.AuroBlocksMergeStrategy });
+        await sdk.adapters.init('auroblocks');
+        await sdk.auth.signIn('email', { email: 'a@browser.test' });
+        sdk.sync.setConsent(true);
+
+        // 1. Tampered remote checksum (computed via real browser Web Crypto subtle.digest!)
+        const origPayload = { highScore: 200, completedStages: [1] };
+        const origChk = await adpMod.computePayloadChecksum(origPayload);
+        remoteRecordToReturn = {
+          gameId: 'auroblocks',
+          revision: 2,
+          checksum: origChk,
+          payload: { highScore: 999999, completedStages: [1, 99] }
+        };
+        const tamperRes = await sdk.sync.syncNow('auroblocks');
+
+        // 2. Valid remote record, but account switches during delayed applyEnvelope
+        const validRemotePayload = { highScore: 500, completedStages: [1, 2] };
+        remoteRecordToReturn = {
+          gameId: 'auroblocks',
+          revision: 2,
+          checksum: await adpMod.computePayloadChecksum(validRemotePayload),
+          payload: validRemotePayload
+        };
+        await sdk.sync.queueLocalChange('auroblocks');
+        const enteredP = new Promise((r) => { enteredDelay = () => r('entered'); });
+        delayPromise = new Promise((r) => { releaseDelay = r; });
+
+        const raceSyncP = sdk.sync.syncNow('auroblocks');
+        const firstSignal = await Promise.race([
+          enteredP,
+          raceSyncP.then((early) => ({ early }))
+        ]);
+        if (firstSignal !== 'entered') {
+          throw new Error(`Expected applyEnvelope to be entered, but syncNow finished early: ${JSON.stringify(firstSignal)}`);
+        }
+        mockAuth.switchTo({
+          userId: 'browser_user_b',
+          email: 'b@browser.test',
+          displayName: 'B',
+          provider: 'email',
+          expiresAt: new Date(Date.now() + 3600_000).toISOString()
+        });
+        releaseDelay();
+        const raceRes = await raceSyncP;
+
+        const userBStatus = sdk.sync.getSyncStatus();
+        const userBStoredMeta = localStorage.getItem('auromind.platform.v1.sync.meta.browser_user_b');
+        const outboxAfterRace = sdk.sync.getPendingOutboxCount();
+        sdk.dispose();
+
+        return {
+          tamperAction: tamperRes.results[0]?.action,
+          tamperReason: tamperRes.results[0]?.reason,
+          raceStatus: raceRes.status,
+          raceReason: raceRes.reason,
+          pushCalls,
+          userBLastSyncAt: userBStatus.lastSyncAt,
+          userBStoredMeta,
+          outboxAfterRace
+        };
+      });
+
+      assert.equal(browserResult.tamperAction, 'invalid_remote_envelope');
+      assert.equal(browserResult.tamperReason, 'REMOTE_CHECKSUM_MISMATCH');
+      assert.equal(browserResult.raceStatus, 'aborted');
+      assert.equal(browserResult.raceReason, 'account_changed_mid_sync');
+      assert.equal(browserResult.pushCalls, 0, 'Zero cloud pushes after mid-apply account switch in browser');
+      assert.equal(browserResult.userBLastSyncAt, null);
+      assert.equal(browserResult.userBStoredMeta, null);
+      assert.equal(browserResult.outboxAfterRace, 1);
+
+      const fatalErrors = inst.consoleErrors.filter((e) => e.type === 'pageerror' || !/504 \(Offline\)|Failed to load resource/i.test(e.text));
+      assert.equal(fatalErrors.length, 0, `Unexpected browser console errors: ${JSON.stringify(fatalErrors)}`);
     } finally {
       await inst.close();
     }
