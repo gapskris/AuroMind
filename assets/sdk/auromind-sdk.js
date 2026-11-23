@@ -243,11 +243,308 @@ export function reconcileGuestRecords(first, second) {
   };
 }
 
-const SENSITIVE_KEY_PATTERN = /(?:password|passphrase|token|secret|auth|bearer|credential|sankalpa|vault|key|private|cipher|salt|iv|seed|intention|reflection|prayer|audio|raw_audio|rawAudio|audio_blob|audio_buffer|speech_recording|corpus_text|stroke|strokes|canvas_strokes|svg_data|journal|note|personalNotes)/i;
+const SENSITIVE_KEY_PATTERN = /(?:password|passphrase|token|access_token|refresh_token|id_token|accessToken|refreshToken|idToken|secret|auth|authorization|bearer|credential|otp|auth_code|code_verifier|sankalpa|vault|key|private|cipher|salt|iv|seed|intention|reflection|prayer|audio|raw_audio|rawAudio|audio_blob|audio_buffer|speech_recording|corpus_text|stroke|strokes|canvas_strokes|svg_data|journal|note|personalNotes)/i;
 const SENSITIVE_VALUE_PATTERNS = [
   /eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}/g, // JWT
   /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g // Email
 ];
+
+export const AVATAR_MAX_BYTES = 512 * 1024; // 512 KB strict local limit
+export const AVATAR_ALLOWED_MIME_TYPES = Object.freeze(['image/png', 'image/jpeg', 'image/webp']);
+export const AVATAR_PRESETS = Object.freeze({
+  lotus: Object.freeze({ id: 'lotus', label: 'Sacred Lotus', emoji: '🪷' }),
+  sun: Object.freeze({ id: 'sun', label: 'Golden Sun', emoji: '☀️' }),
+  mandala: Object.freeze({ id: 'mandala', label: 'Mandala Wheel', emoji: '☸️' }),
+  banyan: Object.freeze({ id: 'banyan', label: 'Banyan Tree', emoji: '🌳' }),
+  peacock: Object.freeze({ id: 'peacock', label: 'Peacock Plume', emoji: '🦚' }),
+  star: Object.freeze({ id: 'star', label: 'Dawn Star', emoji: '✨' })
+});
+
+/**
+ * Sanitizes a player display name: strips control/bidi/HTML angle-bracket chars,
+ * normalizes whitespace, caps at 50 chars, and falls back safely to 'Guest Seeker'.
+ */
+export function sanitizeDisplayName(rawName, fallback = 'Guest Seeker') {
+  if (typeof rawName !== 'string') return fallback;
+  const cleaned = rawName
+    .replace(/[\u0000-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
+    .replace(/[<>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 50);
+  return cleaned.length > 0 ? cleaned : fallback;
+}
+
+function detectImageMagicMime(bytes) {
+  if (!bytes || !(bytes instanceof Uint8Array) || bytes.length < 12) return null;
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 &&
+    bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a
+  ) {
+    return 'image/png';
+  }
+  // JPEG: FF D8 FF
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  // WebP: RIFF....WEBP
+  if (
+    bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+    bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+  ) {
+    return 'image/webp';
+  }
+  return null;
+}
+
+function defaultAvatarRecord(presetId = 'lotus') {
+  const preset = AVATAR_PRESETS[presetId] || AVATAR_PRESETS.lotus;
+  return Object.freeze({
+    type: 'preset',
+    presetId: preset.id,
+    value: preset.emoji,
+    mimeType: null,
+    sizeBytes: 0,
+    updatedAt: null
+  });
+}
+
+/**
+ * Validates an avatar preset, data URL, File/Blob, or raw bytes payload.
+ * Enforces strict MIME allowlist (PNG/JPEG/WebP), size bounds (1B..512KB),
+ * and binary magic-byte header verification (rejects SVG/HTML/JS/corrupt files).
+ */
+export async function validateAvatarInput(input, nowIso = new Date().toISOString()) {
+  if (input === null || input === undefined) {
+    return Object.freeze({ valid: false, errorCode: 'AVATAR_EMPTY', message: 'Avatar input is required.' });
+  }
+
+  // Preset string: "preset:lotus" or direct preset ID
+  if (typeof input === 'string') {
+    const trimmed = input.trim();
+    if (trimmed.startsWith('preset:')) {
+      const pid = trimmed.slice('preset:'.length).trim().toLowerCase();
+      if (Object.prototype.hasOwnProperty.call(AVATAR_PRESETS, pid)) {
+        const preset = AVATAR_PRESETS[pid];
+        return Object.freeze({
+          valid: true,
+          avatar: Object.freeze({
+            type: 'preset',
+            presetId: preset.id,
+            value: preset.emoji,
+            mimeType: null,
+            sizeBytes: 0,
+            updatedAt: nowIso
+          })
+        });
+      }
+      return Object.freeze({ valid: false, errorCode: 'AVATAR_INVALID_PRESET', message: `Unknown avatar preset "${pid}".` });
+    }
+    if (Object.prototype.hasOwnProperty.call(AVATAR_PRESETS, trimmed.toLowerCase())) {
+      const preset = AVATAR_PRESETS[trimmed.toLowerCase()];
+      return Object.freeze({
+        valid: true,
+        avatar: Object.freeze({
+          type: 'preset',
+          presetId: preset.id,
+          value: preset.emoji,
+          mimeType: null,
+          sizeBytes: 0,
+          updatedAt: nowIso
+        })
+      });
+    }
+
+    // Data URL validation
+    const dataUrlMatch = /^data:([a-zA-Z0-9.+\-\/]+);base64,([A-Za-z0-9+/=]+)$/.exec(trimmed);
+    if (!dataUrlMatch) {
+      return Object.freeze({
+        valid: false,
+        errorCode: 'AVATAR_UNSUPPORTED_FORMAT',
+        message: 'Avatar must be an allowed preset or a valid base64 PNG, JPEG, or WebP image.'
+      });
+    }
+    const declaredMime = dataUrlMatch[1].toLowerCase();
+    if (!AVATAR_ALLOWED_MIME_TYPES.includes(declaredMime)) {
+      return Object.freeze({
+        valid: false,
+        errorCode: 'AVATAR_INVALID_MIME_TYPE',
+        message: `Unsupported image type "${declaredMime}". Allowed: PNG, JPEG, WebP.`
+      });
+    }
+    let bytes;
+    try {
+      bytes = base64ToUint8Array(dataUrlMatch[2]);
+    } catch {
+      return Object.freeze({
+        valid: false,
+        errorCode: 'AVATAR_MALFORMED_IMAGE',
+        message: 'Avatar image data is corrupted or unreadable.'
+      });
+    }
+    if (!bytes || bytes.length === 0) {
+      return Object.freeze({ valid: false, errorCode: 'AVATAR_EMPTY', message: 'Avatar image is empty.' });
+    }
+    if (bytes.length > AVATAR_MAX_BYTES) {
+      return Object.freeze({
+        valid: false,
+        errorCode: 'AVATAR_FILE_TOO_LARGE',
+        message: `Avatar exceeds maximum size of ${Math.round(AVATAR_MAX_BYTES / 1024)} KB.`
+      });
+    }
+    const detectedMime = detectImageMagicMime(bytes);
+    if (!detectedMime || detectedMime !== declaredMime) {
+      return Object.freeze({
+        valid: false,
+        errorCode: 'AVATAR_MALFORMED_IMAGE',
+        message: 'Image header does not match a valid PNG, JPEG, or WebP file.'
+      });
+    }
+    return Object.freeze({
+      valid: true,
+      bytes,
+      avatar: Object.freeze({
+        type: 'data_url',
+        presetId: null,
+        value: `data:${detectedMime};base64,${uint8ArrayToBase64(bytes)}`,
+        mimeType: detectedMime,
+        sizeBytes: bytes.length,
+        updatedAt: nowIso
+      })
+    });
+  }
+
+  // Preset object { type: 'preset', presetId }
+  if (typeof input === 'object' && input.type === 'preset') {
+    const pid = typeof input.presetId === 'string' ? input.presetId.trim().toLowerCase() : '';
+    if (!Object.prototype.hasOwnProperty.call(AVATAR_PRESETS, pid)) {
+      return Object.freeze({ valid: false, errorCode: 'AVATAR_INVALID_PRESET', message: `Unknown avatar preset "${pid}".` });
+    }
+    const preset = AVATAR_PRESETS[pid];
+    return Object.freeze({
+      valid: true,
+      avatar: Object.freeze({
+        type: 'preset',
+        presetId: preset.id,
+        value: preset.emoji,
+        mimeType: null,
+        sizeBytes: 0,
+        updatedAt: nowIso
+      })
+    });
+  }
+
+  // File / Blob / { bytes, mimeType, type, size }
+  if (typeof input === 'object') {
+    const declaredMime = String(input.mimeType || input.type || '').trim().toLowerCase();
+    if (!AVATAR_ALLOWED_MIME_TYPES.includes(declaredMime)) {
+      return Object.freeze({
+        valid: false,
+        errorCode: 'AVATAR_INVALID_MIME_TYPE',
+        message: `Unsupported image type "${declaredMime || 'unknown'}". Allowed: PNG, JPEG, WebP.`
+      });
+    }
+    if (typeof input.size === 'number' && input.size > AVATAR_MAX_BYTES) {
+      return Object.freeze({
+        valid: false,
+        errorCode: 'AVATAR_FILE_TOO_LARGE',
+        message: `Avatar exceeds maximum size of ${Math.round(AVATAR_MAX_BYTES / 1024)} KB.`
+      });
+    }
+    let bytes = null;
+    try {
+      if (input.bytes instanceof Uint8Array) {
+        bytes = input.bytes;
+      } else if (input.bytes instanceof ArrayBuffer) {
+        bytes = new Uint8Array(input.bytes);
+      } else if (typeof input.arrayBuffer === 'function') {
+        const buf = await input.arrayBuffer();
+        bytes = new Uint8Array(buf);
+      }
+    } catch {
+      return Object.freeze({
+        valid: false,
+        errorCode: 'AVATAR_READ_ERROR',
+        message: 'Unable to read avatar file.'
+      });
+    }
+    if (!bytes || bytes.length === 0) {
+      return Object.freeze({ valid: false, errorCode: 'AVATAR_EMPTY', message: 'Avatar image is empty.' });
+    }
+    if (bytes.length > AVATAR_MAX_BYTES) {
+      return Object.freeze({
+        valid: false,
+        errorCode: 'AVATAR_FILE_TOO_LARGE',
+        message: `Avatar exceeds maximum size of ${Math.round(AVATAR_MAX_BYTES / 1024)} KB.`
+      });
+    }
+    const detectedMime = detectImageMagicMime(bytes);
+    if (!detectedMime || detectedMime !== declaredMime) {
+      return Object.freeze({
+        valid: false,
+        errorCode: 'AVATAR_MALFORMED_IMAGE',
+        message: 'File contents do not match a valid PNG, JPEG, or WebP image.'
+      });
+    }
+    return Object.freeze({
+      valid: true,
+      bytes,
+      avatar: Object.freeze({
+        type: 'data_url',
+        presetId: null,
+        value: `data:${detectedMime};base64,${uint8ArrayToBase64(bytes)}`,
+        mimeType: detectedMime,
+        sizeBytes: bytes.length,
+        updatedAt: nowIso
+      })
+    });
+  }
+
+  return Object.freeze({ valid: false, errorCode: 'AVATAR_UNSUPPORTED_FORMAT', message: 'Invalid avatar input.' });
+}
+
+function sanitizeAccountRecord(rawAccount, nowMs = Date.now()) {
+  if (!rawAccount || typeof rawAccount !== 'object' || Array.isArray(rawAccount)) return null;
+  const userId = typeof rawAccount.userId === 'string' ? rawAccount.userId.trim() : '';
+  if (!userId || userId.length > 128 || /[\s\u0000-\u001F\u007F]/.test(userId)) {
+    return null;
+  }
+
+  // Enforce session expiration if expiresAt is present
+  let normalizedExpiresAt = null;
+  if (rawAccount.expiresAt !== undefined && rawAccount.expiresAt !== null) {
+    let expMs = Number.NaN;
+    if (typeof rawAccount.expiresAt === 'number' && Number.isFinite(rawAccount.expiresAt)) {
+      expMs = rawAccount.expiresAt > 1e11 ? rawAccount.expiresAt : rawAccount.expiresAt * 1000;
+    } else if (typeof rawAccount.expiresAt === 'string') {
+      expMs = Date.parse(rawAccount.expiresAt);
+    }
+    if (Number.isNaN(expMs) || nowMs >= expMs) {
+      return null;
+    }
+    normalizedExpiresAt = new Date(expMs).toISOString();
+  }
+
+  const safeMeta = {};
+  if (rawAccount.metadata && typeof rawAccount.metadata === 'object' && !Array.isArray(rawAccount.metadata)) {
+    for (const [k, v] of Object.entries(rawAccount.metadata)) {
+      if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
+      if (SENSITIVE_KEY_PATTERN.test(k)) continue;
+      safeMeta[k] = v;
+    }
+  }
+
+  // Strictly strip accessToken, refreshToken, idToken, and any secret properties
+  return Object.freeze({
+    userId,
+    email: typeof rawAccount.email === 'string' && rawAccount.email.trim() ? rawAccount.email.trim() : null,
+    role: typeof rawAccount.role === 'string' && rawAccount.role.trim() ? rawAccount.role.trim() : 'authenticated',
+    isAnonymous: Boolean(rawAccount.isAnonymous),
+    metadata: Object.freeze(safeMeta),
+    expiresAt: normalizedExpiresAt
+  });
+}
 
 export function redactSensitive(data, depth = 0) {
   if (depth > 6) return '[DEPTH_LIMIT]';
@@ -634,6 +931,27 @@ function createNullProviders() {
           errorCode: 'NOT_CONFIGURED',
           message: 'Authentication provider is not configured.'
         }),
+      verifyOtp: async () =>
+        Object.freeze({
+          ok: false,
+          account: null,
+          errorCode: 'NOT_CONFIGURED',
+          message: 'Authentication provider is not configured.'
+        }),
+      signInWithOAuth: async () =>
+        Object.freeze({
+          ok: false,
+          account: null,
+          errorCode: 'NOT_CONFIGURED',
+          message: 'Authentication provider is not configured.'
+        }),
+      handleOAuthCallback: async () =>
+        Object.freeze({
+          ok: false,
+          account: null,
+          errorCode: 'NOT_CONFIGURED',
+          message: 'Authentication provider is not configured.'
+        }),
       resetPassword: async () =>
         Object.freeze({
           ok: false,
@@ -820,6 +1138,11 @@ export function createAuroMindSDK(options = {}) {
   let providers = createNullProviders();
   let currentGuestRecord = null;
   let currentAccount = null;
+  let authEpoch = 0;
+  let authInFlight = false;
+  let pendingAuthFlow = null;
+  const consumedAuthCallbacks = new Set();
+  const memoryProfiles = new Map();
   let storageSource = 'memory';
   let ephemeral = true;
   let broadcastChannel = null;
@@ -1243,17 +1566,117 @@ export function createAuroMindSDK(options = {}) {
     });
   }
 
+  function getActiveAccountSanitized({ expireSideEffects = true } = {}) {
+    if (!capabilities.authEnabled || !currentAccount) return null;
+    const valid = sanitizeAccountRecord(currentAccount, getNow().getTime());
+    if (!valid) {
+      if (expireSideEffects && currentAccount) {
+        applyAccountTransition(null, { broadcast: true, reason: 'session_expired' });
+      }
+      return null;
+    }
+    return valid;
+  }
+
   function buildPlayerIdentity() {
     const guest = buildGuestView();
     if (!guest) return null;
-    const verifiedAccount =
-      capabilities.authEnabled && currentAccount ? Object.freeze({ ...currentAccount }) : null;
+    const verifiedAccount = getActiveAccountSanitized({ expireSideEffects: false });
     return Object.freeze({
       mode: verifiedAccount ? 'authenticated' : 'guest',
       guestId: guest.guestId,
       guest,
       account: verifiedAccount
     });
+  }
+
+  function broadcastPlatformEvent(type, payload = {}) {
+    if (disposed || !broadcastChannel || typeof broadcastChannel.postMessage !== 'function') return;
+    try {
+      broadcastChannel.postMessage({
+        type,
+        senderId: instanceId,
+        ...payload
+      });
+    } catch {}
+  }
+
+  function getProfileOwnerKey(accountOverride = undefined) {
+    const acct = accountOverride !== undefined
+      ? accountOverride
+      : (capabilities.authEnabled ? sanitizeAccountRecord(currentAccount, getNow().getTime()) : null);
+    if (acct && acct.userId) {
+      const safeId = acct.userId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 96);
+      return `${LS_PROFILE_KEY}.user.${safeId}`;
+    }
+    return LS_PROFILE_KEY;
+  }
+
+  function migrateGuestProfileIfAbsent(targetAccount, linkedGuestId) {
+    if (!targetAccount || !targetAccount.userId) return;
+    const userKey = getProfileOwnerKey(targetAccount);
+    const existingLs = lsGetRaw(userKey);
+    const hasExistingUserProfile =
+      (existingLs.ok && Boolean(existingLs.raw)) || memoryProfiles.has(userKey);
+    if (hasExistingUserProfile) {
+      // Only record linkedGuestId on existing profile without overwriting user's own profile
+      if (linkedGuestId) {
+        const existingProf = loadPlayerProfileForKey(userKey, targetAccount);
+        const linked = Array.isArray(existingProf.linkedGuestIds) ? [...existingProf.linkedGuestIds] : [];
+        if (!linked.includes(linkedGuestId)) {
+          linked.push(linkedGuestId);
+          existingProf.linkedGuestIds = linked;
+          persistPlayerProfileForKey(userKey, existingProf);
+        }
+      }
+      return;
+    }
+
+    // Copy guest profile into new user's isolated profile slot so progress/preferences carry over
+    const guestProf = loadPlayerProfileForKey(LS_PROFILE_KEY, null);
+    const migratedProf = {
+      ...guestProf,
+      userId: targetAccount.userId,
+      guestId: linkedGuestId || guestProf.guestId || (currentGuestRecord ? currentGuestRecord.guestId : null),
+      linkedGuestIds: linkedGuestId ? [linkedGuestId] : [],
+      schemaVersion: 1
+    };
+    persistPlayerProfileForKey(userKey, migratedProf);
+  }
+
+  function applyAccountTransition(rawAccount, { preserveGuestProfile = false, linkedGuestId = null, broadcast = true, reason = 'auth_change' } = {}) {
+    const prevUserId = currentAccount?.userId || null;
+    const nextAccount = capabilities.authEnabled
+      ? sanitizeAccountRecord(rawAccount, getNow().getTime())
+      : null;
+    const nextUserId = nextAccount?.userId || null;
+    const accountChanged = prevUserId !== nextUserId;
+
+    if (preserveGuestProfile && nextAccount && (!prevUserId || prevUserId === nextUserId)) {
+      migrateGuestProfileIfAbsent(nextAccount, linkedGuestId || (currentGuestRecord ? currentGuestRecord.guestId : null));
+    }
+
+    currentAccount = nextAccount;
+
+    if (accountChanged) {
+      // Strictly isolate cached profile, entitlements, and sync metadata across accounts/logout
+      cachedPlayerProfile = null;
+      cachedEntitlements = Object.freeze([]);
+      if (!nextAccount) {
+        syncMetadata = {};
+        pendingAuthFlow = null;
+      }
+      if (broadcast) {
+        broadcastPlatformEvent('AUTH_STATE_CHANGED', {
+          mode: nextAccount ? 'authenticated' : 'guest',
+          userId: nextUserId,
+          reason
+        });
+      }
+    }
+
+    emitIdentityChange();
+    return nextAccount;
   }
 
   function emitIdentityChange() {
@@ -1495,6 +1918,15 @@ export function createAuroMindSDK(options = {}) {
             data.record
           ) {
             handleIncomingPeerRecord(data.record, 'broadcastChannel');
+            return;
+          }
+          if (data.type === 'AUTH_STATE_CHANGED' && initialized && !disposed) {
+            void syncAuthStateFromPeer(data);
+            return;
+          }
+          if (data.type === 'PROFILE_UPDATED' && initialized && !disposed) {
+            cachedPlayerProfile = null;
+            emitIdentityChange();
           }
         };
       } catch {
@@ -1508,10 +1940,25 @@ export function createAuroMindSDK(options = {}) {
     const win = getWindow();
     if (!storageEventHandler && win && typeof win.addEventListener === 'function') {
       storageEventHandler = (event) => {
-        if (!event || event.key !== LS_GUEST_KEY || !event.newValue) return;
-        const parsed = parseLsGuestRecord(event.newValue);
-        if (parsed.validation.valid) {
-          handleIncomingPeerRecord(parsed.validation.record, 'storageEvent');
+        if (!event || typeof event.key !== 'string') return;
+        if (event.key === LS_GUEST_KEY && event.newValue) {
+          const parsed = parseLsGuestRecord(event.newValue);
+          if (parsed.validation.valid) {
+            handleIncomingPeerRecord(parsed.validation.record, 'storageEvent');
+          }
+          return;
+        }
+        if (event.key === LS_PROFILE_KEY || event.key.startsWith(`${LS_PROFILE_KEY}.user.`)) {
+          if (initialized && !disposed) {
+            cachedPlayerProfile = null;
+            emitIdentityChange();
+          }
+          return;
+        }
+        if (event.key.includes('supabase_session') || event.key.includes('firebase_session')) {
+          if (initialized && !disposed) {
+            void syncAuthStateFromPeer({ mode: event.newValue ? 'authenticated' : 'guest', reason: 'storage_event' });
+          }
         }
       };
       try {
@@ -1522,6 +1969,24 @@ export function createAuroMindSDK(options = {}) {
     }
 
     setupOfflineListeners();
+  }
+
+  async function syncAuthStateFromPeer(peerSignal = {}) {
+    if (disposed || !initialized || !capabilities.authEnabled) return;
+    try {
+      if (peerSignal.mode === 'guest' && (!providers.auth || !providers.auth.isConfigured())) {
+        applyAccountTransition(null, { broadcast: false, reason: 'peer_signout' });
+        return;
+      }
+      if (providers.auth && providers.auth.isConfigured() && typeof providers.auth.getCurrentSession === 'function') {
+        const freshSession = await providers.auth.getCurrentSession();
+        applyAccountTransition(freshSession, { broadcast: false, reason: 'peer_sync' });
+      } else if (peerSignal.mode === 'guest') {
+        applyAccountTransition(null, { broadcast: false, reason: 'peer_signout' });
+      }
+    } catch {
+      // Never throw from cross-tab sync
+    }
   }
 
   /**
@@ -1922,15 +2387,72 @@ export function createAuroMindSDK(options = {}) {
     }
   });
 
+  async function runSerializedAuthOp(opFn) {
+    if (authInFlight) {
+      return Object.freeze({
+        ok: false,
+        account: null,
+        errorCode: 'AUTH_IN_PROGRESS',
+        error: 'AUTH_IN_PROGRESS',
+        message: 'An authentication request is already in progress.'
+      });
+    }
+    authInFlight = true;
+    const opEpoch = ++authEpoch;
+    try {
+      return await opFn(opEpoch);
+    } finally {
+      authInFlight = false;
+    }
+  }
+
   const authService = Object.freeze({
     isAvailable() {
       return Boolean(capabilities.authEnabled && providers.auth.isConfigured());
     },
     getAccount() {
-      if (!capabilities.authEnabled || !currentAccount) return null;
-      return Object.freeze({ ...currentAccount });
+      return getActiveAccountSanitized({ expireSideEffects: true });
     },
-    async signIn(method, params) {
+    getPendingAuthState() {
+      return pendingAuthFlow ? Object.freeze({ ...pendingAuthFlow }) : null;
+    },
+    cancelPendingAuth() {
+      pendingAuthFlow = null;
+      return Object.freeze({ ok: true, cancelled: true });
+    },
+    async validateSession() {
+      if (!capabilities.authEnabled) {
+        if (currentAccount) {
+          applyAccountTransition(null, { broadcast: true, reason: 'auth_disabled' });
+        }
+        return Object.freeze({ valid: false, account: null, reason: 'AUTH_DISABLED' });
+      }
+      if (providers.auth && providers.auth.isConfigured() && typeof providers.auth.getCurrentSession === 'function') {
+        try {
+          const fresh = await providers.auth.getCurrentSession();
+          const sanitized = sanitizeAccountRecord(fresh, getNow().getTime());
+          if (!sanitized) {
+            if (currentAccount) {
+              applyAccountTransition(null, { broadcast: true, reason: 'session_expired' });
+            }
+            return Object.freeze({ valid: false, account: null, reason: 'SESSION_EXPIRED_OR_INVALID' });
+          }
+          if (!currentAccount || currentAccount.userId !== sanitized.userId || currentAccount.expiresAt !== sanitized.expiresAt) {
+            applyAccountTransition(sanitized, { broadcast: false, reason: 'session_validated' });
+          }
+          return Object.freeze({ valid: true, account: sanitized, reason: 'VALID' });
+        } catch {
+          return Object.freeze({ valid: false, account: null, reason: 'SESSION_CHECK_FAILED' });
+        }
+      }
+      const existing = getActiveAccountSanitized({ expireSideEffects: true });
+      return Object.freeze({
+        valid: Boolean(existing),
+        account: existing,
+        reason: existing ? 'VALID' : 'NO_SESSION'
+      });
+    },
+    async signIn(method, params = {}) {
       if (!capabilities.authEnabled || !providers.auth.isConfigured()) {
         return Object.freeze({
           ok: false,
@@ -1939,14 +2461,49 @@ export function createAuroMindSDK(options = {}) {
           message: 'Authentication is disabled or no AuthProvider is configured.'
         });
       }
-      const res = await providers.auth.signIn(method, params);
-      if (res && res.ok && res.account) {
-        currentAccount = res.account;
-        emitIdentityChange();
-      }
-      return res;
+      return runSerializedAuthOp(async (opEpoch) => {
+        const res = await providers.auth.signIn(method, params);
+        if (opEpoch !== authEpoch) {
+          // A newer signOut or auth transition superseded this in-flight signIn
+          return Object.freeze({
+            ok: false,
+            account: null,
+            stale: true,
+            errorCode: 'AUTH_SUPERSEDED',
+            message: 'Authentication request was superseded by a newer session change.'
+          });
+        }
+        if (res && res.ok && res.account) {
+          const sanitized = applyAccountTransition(res.account, { broadcast: true, reason: 'sign_in' });
+          if (!sanitized) {
+            return Object.freeze({
+              ok: false,
+              account: null,
+              errorCode: 'INVALID_OR_EXPIRED_SESSION',
+              message: 'Received an invalid or expired account session.'
+            });
+          }
+          pendingAuthFlow = null;
+          return Object.freeze({ ...res, ok: true, account: sanitized });
+        }
+        if (res && res.ok && (method === 'otp' || method === 'magic_link')) {
+          pendingAuthFlow = {
+            method: 'otp',
+            email: typeof params?.email === 'string' ? params.email.trim() : null,
+            startedAt: getNow().toISOString()
+          };
+        } else if (res && res.ok && (method === 'google' || method === 'oauth')) {
+          pendingAuthFlow = {
+            method: 'oauth',
+            provider: res.provider || params?.provider || 'google',
+            state: res.state || null,
+            startedAt: getNow().toISOString()
+          };
+        }
+        return res;
+      });
     },
-    async signUp(params) {
+    async signUp(params = {}) {
       if (!capabilities.authEnabled || !providers.auth.isConfigured()) {
         return Object.freeze({
           ok: false,
@@ -1955,18 +2512,206 @@ export function createAuroMindSDK(options = {}) {
           message: 'Authentication is disabled or no AuthProvider is configured.'
         });
       }
-      const res = await providers.auth.signUp(params);
-      if (res && res.ok && res.account) {
-        currentAccount = res.account;
-        emitIdentityChange();
-      }
-      return res;
+      return runSerializedAuthOp(async (opEpoch) => {
+        const res = await providers.auth.signUp(params);
+        if (opEpoch !== authEpoch) {
+          return Object.freeze({
+            ok: false,
+            account: null,
+            stale: true,
+            errorCode: 'AUTH_SUPERSEDED',
+            message: 'Sign-up request was superseded by a newer session change.'
+          });
+        }
+        if (res && res.ok && res.account) {
+          const sanitized = applyAccountTransition(res.account, { broadcast: true, reason: 'sign_up' });
+          if (!sanitized) {
+            return Object.freeze({
+              ok: false,
+              account: null,
+              errorCode: 'INVALID_OR_EXPIRED_SESSION',
+              message: 'Received an invalid or expired account session.'
+            });
+          }
+          pendingAuthFlow = null;
+          return Object.freeze({ ...res, ok: true, account: sanitized });
+        }
+        return res;
+      });
     },
     async signInWithEmail(email, password) {
       return this.signIn('email_password', { email, password });
     },
     async signInWithOtp(email, options = {}) {
-      return this.signIn('otp', { email, options });
+      const normalizedEmail = typeof email === 'string' ? email.trim() : '';
+      if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        return Object.freeze({
+          ok: false,
+          account: null,
+          errorCode: 'INVALID_EMAIL',
+          message: 'Please enter a valid email address.'
+        });
+      }
+      return this.signIn('otp', { email: normalizedEmail, options });
+    },
+    async verifyOtp(email, token, options = {}) {
+      if (!capabilities.authEnabled || !providers.auth.isConfigured()) {
+        return Object.freeze({
+          ok: false,
+          account: null,
+          errorCode: 'NOT_CONFIGURED',
+          message: 'Authentication is disabled or no AuthProvider is configured.'
+        });
+      }
+      const normalizedEmail = typeof email === 'string' ? email.trim() : '';
+      const normalizedToken = typeof token === 'string' ? token.trim() : '';
+      if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        return Object.freeze({
+          ok: false,
+          account: null,
+          errorCode: 'INVALID_EMAIL',
+          message: 'Please enter a valid email address.'
+        });
+      }
+      if (!normalizedToken || normalizedToken.length < 4 || normalizedToken.length > 16) {
+        return Object.freeze({
+          ok: false,
+          account: null,
+          errorCode: 'INVALID_OTP_TOKEN',
+          message: 'Please enter a valid verification code.'
+        });
+      }
+      return runSerializedAuthOp(async (opEpoch) => {
+        const res =
+          typeof providers.auth.verifyOtp === 'function'
+            ? await providers.auth.verifyOtp({ email: normalizedEmail, token: normalizedToken, type: options.type || 'email' })
+            : await providers.auth.signIn('verify_otp', { email: normalizedEmail, token: normalizedToken, type: options.type || 'email' });
+        if (opEpoch !== authEpoch) {
+          return Object.freeze({
+            ok: false,
+            account: null,
+            stale: true,
+            errorCode: 'AUTH_SUPERSEDED',
+            message: 'OTP verification was superseded by a newer session change.'
+          });
+        }
+        if (res && res.ok && res.account) {
+          const sanitized = applyAccountTransition(res.account, { broadcast: true, reason: 'otp_verified' });
+          if (!sanitized) {
+            return Object.freeze({
+              ok: false,
+              account: null,
+              errorCode: 'INVALID_OR_EXPIRED_SESSION',
+              message: 'Received an invalid or expired account session.'
+            });
+          }
+          pendingAuthFlow = null;
+          return Object.freeze({ ...res, ok: true, account: sanitized });
+        }
+        return res;
+      });
+    },
+    async signInWithOAuth(provider = 'google', options = {}) {
+      if (!capabilities.authEnabled || !providers.auth.isConfigured()) {
+        return Object.freeze({
+          ok: false,
+          account: null,
+          errorCode: 'NOT_CONFIGURED',
+          message: 'Authentication is disabled or no AuthProvider is configured.'
+        });
+      }
+      const normalizedProvider = typeof provider === 'string' ? provider.trim().toLowerCase() : '';
+      if (normalizedProvider !== 'google') {
+        return Object.freeze({
+          ok: false,
+          account: null,
+          errorCode: 'UNSUPPORTED_OAUTH_PROVIDER',
+          message: `Unsupported OAuth provider "${provider}".`
+        });
+      }
+      return runSerializedAuthOp(async () => {
+        const res =
+          typeof providers.auth.signInWithOAuth === 'function'
+            ? await providers.auth.signInWithOAuth({ provider: normalizedProvider, ...options })
+            : await providers.auth.signIn('oauth', { provider: normalizedProvider, ...options });
+        if (res && res.ok) {
+          pendingAuthFlow = {
+            method: 'oauth',
+            provider: normalizedProvider,
+            state: res.state || null,
+            startedAt: getNow().toISOString()
+          };
+        }
+        return res;
+      });
+    },
+    async handleAuthCallback(callbackInput, options = {}) {
+      if (!capabilities.authEnabled || !providers.auth.isConfigured()) {
+        return Object.freeze({
+          ok: false,
+          account: null,
+          errorCode: 'NOT_CONFIGURED',
+          message: 'Authentication is disabled or no AuthProvider is configured.'
+        });
+      }
+      const replaySig =
+        typeof callbackInput === 'string'
+          ? callbackInput.trim()
+          : callbackInput && typeof callbackInput === 'object'
+            ? JSON.stringify({ code: callbackInput.code || null, state: callbackInput.state || null, error: callbackInput.error || null })
+            : '';
+      if (replaySig && consumedAuthCallbacks.has(replaySig)) {
+        return Object.freeze({
+          ok: false,
+          account: null,
+          duplicate: true,
+          errorCode: 'DUPLICATE_AUTH_CALLBACK',
+          message: 'This authentication callback has already been processed.'
+        });
+      }
+
+      return runSerializedAuthOp(async (opEpoch) => {
+        if (typeof providers.auth.handleOAuthCallback !== 'function') {
+          return Object.freeze({
+            ok: false,
+            account: null,
+            errorCode: 'METHOD_NOT_SUPPORTED',
+            message: 'OAuth callback handling is not supported by the active provider.'
+          });
+        }
+        const mergedOptions = {
+          ...options,
+          expectedState: options.expectedState || (pendingAuthFlow?.method === 'oauth' ? pendingAuthFlow.state : undefined)
+        };
+        const res = await providers.auth.handleOAuthCallback(callbackInput, mergedOptions);
+        if (replaySig && (res?.ok || res?.cancelled || res?.duplicate)) {
+          consumedAuthCallbacks.add(replaySig);
+        }
+        if (opEpoch !== authEpoch) {
+          return Object.freeze({
+            ok: false,
+            account: null,
+            stale: true,
+            errorCode: 'AUTH_SUPERSEDED',
+            message: 'OAuth callback was superseded by a newer session change.'
+          });
+        }
+        if (res && res.ok && res.account) {
+          const sanitized = applyAccountTransition(res.account, { broadcast: true, reason: 'oauth_callback' });
+          if (!sanitized) {
+            return Object.freeze({
+              ok: false,
+              account: null,
+              errorCode: 'INVALID_OR_EXPIRED_SESSION',
+              message: 'Received an invalid or expired account session.'
+            });
+          }
+          pendingAuthFlow = null;
+          return Object.freeze({ ...res, ok: true, account: sanitized });
+        }
+        pendingAuthFlow = null;
+        return res;
+      });
     },
     async resetPasswordForEmail(email, options = {}) {
       if (!capabilities.authEnabled || !providers.auth.isConfigured()) {
@@ -1978,15 +2723,24 @@ export function createAuroMindSDK(options = {}) {
       return Object.freeze({ ok: false, errorCode: 'METHOD_NOT_SUPPORTED' });
     },
     async linkGuestIdentity(guestId = null) {
-      if (!currentAccount) {
+      const activeAccount = getActiveAccountSanitized({ expireSideEffects: true });
+      if (!activeAccount) {
         return Object.freeze({ linked: false, error: 'NO_ACTIVE_ACCOUNT' });
       }
       const targetGuestId = guestId || (currentGuestRecord ? currentGuestRecord.guestId : null);
       if (!targetGuestId) {
         return Object.freeze({ linked: false, error: 'NO_GUEST_ID' });
       }
+      if (typeof targetGuestId !== 'string' || !GUEST_ID_RE.test(targetGuestId)) {
+        return Object.freeze({ linked: false, error: 'INVALID_GUEST_ID' });
+      }
       if (typeof providers.auth.linkGuestIdentity === 'function') {
-        return providers.auth.linkGuestIdentity(targetGuestId, currentAccount);
+        const res = await providers.auth.linkGuestIdentity(targetGuestId, activeAccount);
+        if (res && res.linked) {
+          migrateGuestProfileIfAbsent(activeAccount, targetGuestId);
+          cachedPlayerProfile = null;
+        }
+        return res;
       }
       return Object.freeze({ linked: false, error: 'NOT_SUPPORTED' });
     },
@@ -1996,20 +2750,42 @@ export function createAuroMindSDK(options = {}) {
         throw new AuroMindSDKError('NO_GUEST_IDENTITY', 'Cannot upgrade: no platform guest identity exists.');
       }
 
+      const existingAccount = getActiveAccountSanitized({ expireSideEffects: true });
+      if (existingAccount) {
+        return Object.freeze({
+          ok: false,
+          migrated: false,
+          errorCode: 'ALREADY_AUTHENTICATED',
+          error: 'ALREADY_AUTHENTICATED',
+          message: 'Sign out of the current account before linking guest progress to another account.'
+        });
+      }
+
       let authRes;
       if (options.mode === 'signUp') {
         authRes = await this.signUp(credentials);
+      } else if (options.method === 'verify_otp') {
+        authRes = await this.verifyOtp(credentials?.email, credentials?.token || credentials?.code, options);
+      } else if (options.method === 'oauth_callback') {
+        authRes = await this.handleAuthCallback(credentials, options);
       } else {
         authRes = await this.signIn(options.method || 'email_password', credentials);
       }
 
       if (!authRes || !authRes.ok || !authRes.account) {
+        const errMsg = authRes?.message || authRes?.error || authRes?.errorCode || 'AUTHENTICATION_FAILED';
         return Object.freeze({
           ok: false,
           migrated: false,
-          error: authRes?.message || authRes?.error || 'AUTHENTICATION_FAILED'
+          errorCode: authRes?.errorCode || 'AUTHENTICATION_FAILED',
+          error: errMsg,
+          message: errMsg
         });
       }
+
+      // Preserve guest profile/preferences in new user's isolated profile slot without overwriting existing user profile
+      migrateGuestProfileIfAbsent(authRes.account, activeGuestId);
+      cachedPlayerProfile = null;
 
       const linkRes = await this.linkGuestIdentity(activeGuestId);
 
@@ -2018,6 +2794,8 @@ export function createAuroMindSDK(options = {}) {
         syncService.setConsent(true);
         syncResult = await syncService.syncNow();
       }
+
+      emitIdentityChange();
 
       loggingService.info('auth', 'Guest identity successfully upgraded to authenticated account', {
         guestId: activeGuestId,
@@ -2035,13 +2813,17 @@ export function createAuroMindSDK(options = {}) {
       });
     },
     async deleteAccount() {
-      if (!currentAccount) return false;
+      const activeAccount = getActiveAccountSanitized({ expireSideEffects: true });
+      if (!activeAccount) return false;
+      const userProfileKey = getProfileOwnerKey(activeAccount);
       let remoteDeleted = false;
       if (providers.accountProvider && providers.accountProvider.isConfigured()) {
         try {
           remoteDeleted = await providers.accountProvider.deleteUserData();
         } catch {}
       }
+      memoryProfiles.delete(userProfileKey);
+      lsRemoveRaw(userProfileKey);
       await this.signOut();
       return remoteDeleted;
     },
@@ -2051,12 +2833,21 @@ export function createAuroMindSDK(options = {}) {
       return () => identityListeners.delete(listener);
     },
     async signOut() {
-      // Strictly clears provider session ONLY — NEVER deletes guestId or game saves
-      if (providers.auth && typeof providers.auth.signOut === 'function') {
-        await providers.auth.signOut();
+      // Advance epoch so any in-flight login cannot restore a stale session after logout
+      authEpoch += 1;
+      pendingAuthFlow = null;
+      // Strictly clears provider session & user-scoped caches ONLY — NEVER deletes guestId or game saves
+      try {
+        if (providers.auth && typeof providers.auth.signOut === 'function') {
+          await providers.auth.signOut();
+        }
+      } catch (err) {
+        loggingService.warn('auth', 'Provider signOut failed non-fatally; completing local sign-out', {
+          error: err?.message || String(err)
+        });
+      } finally {
+        applyAccountTransition(null, { broadcast: true, reason: 'sign_out' });
       }
-      currentAccount = null;
-      emitIdentityChange();
     }
   });
 
@@ -3043,71 +3834,152 @@ export function createAuroMindSDK(options = {}) {
   });
 
   // =========================================================================
-  // B4 Player Profile and Account Abstraction Service
+  // B4 Player Profile and Account Abstraction Service (Per-Identity Isolated)
   // =========================================================================
 
-  function loadPlayerProfile() {
-    try {
-      const lsRes = lsGetRaw(LS_PROFILE_KEY);
-      if (lsRes.ok && lsRes.raw) {
-        const parsed = JSON.parse(lsRes.raw);
-        if (parsed && typeof parsed === 'object') {
-          return {
-            guestId: currentGuestRecord ? currentGuestRecord.guestId : parsed.guestId || null,
-            displayName: typeof parsed.displayName === 'string' ? parsed.displayName : 'Guest Seeker',
-            preferences: {
-              seniorMode: Boolean(parsed.preferences?.seniorMode),
-              reducedMotion: Boolean(parsed.preferences?.reducedMotion),
-              ambientVolume:
-                typeof parsed.preferences?.ambientVolume === 'number'
-                  ? parsed.preferences.ambientVolume
-                  : 0.5,
-              sfxVolume:
-                typeof parsed.preferences?.sfxVolume === 'number' ? parsed.preferences.sfxVolume : 0.8,
-              theme: typeof parsed.preferences?.theme === 'string' ? parsed.preferences.theme : 'system',
-              ...(parsed.preferences || {})
-            },
-            stats: {
-              totalPlaytimeMinutes: Number(parsed.stats?.totalPlaytimeMinutes) || 0,
-              sessionsCount: Number(parsed.stats?.sessionsCount) || 1,
-              firstSeen: parsed.stats?.firstSeen || getNow().toISOString(),
-              lastSeen: getNow().toISOString()
-            },
-            schemaVersion: 1
-          };
+  function sanitizePreferences(rawPrefs = {}, existingPrefs = null) {
+    const base = existingPrefs || {
+      seniorMode: false,
+      reducedMotion: false,
+      ambientVolume: 0.5,
+      sfxVolume: 0.8,
+      theme: 'system'
+    };
+    const safeExtra = {};
+    if (rawPrefs && typeof rawPrefs === 'object' && !Array.isArray(rawPrefs)) {
+      for (const [k, v] of Object.entries(rawPrefs)) {
+        if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
+        if (k === 'seniorMode' || k === 'reducedMotion' || k === 'ambientVolume' || k === 'sfxVolume' || k === 'theme') {
+          continue;
+        }
+        if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || v === null) {
+          safeExtra[k] = v;
         }
       }
-    } catch {}
-
+    }
+    const clampVol = (val, fallback) => {
+      const n = typeof val === 'number' && Number.isFinite(val) ? val : fallback;
+      return Math.max(0, Math.min(1, n));
+    };
+    const allowedThemes = new Set(['system', 'light', 'dark', 'gold', 'sanctuary']);
+    const rawTheme = typeof rawPrefs?.theme === 'string' ? rawPrefs.theme.trim().toLowerCase() : null;
     return {
-      guestId: currentGuestRecord ? currentGuestRecord.guestId : null,
-      displayName: 'Guest Seeker',
-      preferences: {
-        seniorMode: false,
-        reducedMotion: false,
-        ambientVolume: 0.5,
-        sfxVolume: 0.8,
-        theme: 'system'
-      },
+      ...base,
+      ...safeExtra,
+      seniorMode:
+        typeof rawPrefs?.seniorMode === 'boolean' ? rawPrefs.seniorMode : Boolean(base.seniorMode),
+      reducedMotion:
+        typeof rawPrefs?.reducedMotion === 'boolean' ? rawPrefs.reducedMotion : Boolean(base.reducedMotion),
+      ambientVolume: clampVol(rawPrefs?.ambientVolume, base.ambientVolume),
+      sfxVolume: clampVol(rawPrefs?.sfxVolume, base.sfxVolume),
+      theme: rawTheme && allowedThemes.has(rawTheme) ? rawTheme : base.theme
+    };
+  }
+
+  function sanitizeStoredAvatar(rawAvatar) {
+    if (!rawAvatar || typeof rawAvatar !== 'object' || Array.isArray(rawAvatar)) {
+      return { ...defaultAvatarRecord('lotus') };
+    }
+    if (rawAvatar.type === 'preset') {
+      const pid = typeof rawAvatar.presetId === 'string' && Object.prototype.hasOwnProperty.call(AVATAR_PRESETS, rawAvatar.presetId)
+        ? rawAvatar.presetId
+        : 'lotus';
+      const preset = AVATAR_PRESETS[pid];
+      return {
+        type: 'preset',
+        presetId: preset.id,
+        value: preset.emoji,
+        mimeType: null,
+        sizeBytes: 0,
+        updatedAt: typeof rawAvatar.updatedAt === 'string' ? rawAvatar.updatedAt : null
+      };
+    }
+    if (rawAvatar.type === 'data_url' && typeof rawAvatar.value === 'string') {
+      const m = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(rawAvatar.value);
+      if (m) {
+        try {
+          const bytes = base64ToUint8Array(m[2]);
+          const detected = detectImageMagicMime(bytes);
+          if (detected && detected === m[1] && bytes.length > 0 && bytes.length <= AVATAR_MAX_BYTES) {
+            return {
+              type: 'data_url',
+              presetId: null,
+              value: rawAvatar.value,
+              mimeType: detected,
+              sizeBytes: bytes.length,
+              updatedAt: typeof rawAvatar.updatedAt === 'string' ? rawAvatar.updatedAt : null
+            };
+          }
+        } catch {}
+      }
+    }
+    return { ...defaultAvatarRecord('lotus') };
+  }
+
+  function buildNormalizedProfile(parsed, ownerAccount = null) {
+    const nowIso = getNow().toISOString();
+    const fallbackName = ownerAccount?.metadata?.displayName || ownerAccount?.email?.split('@')[0] || 'Guest Seeker';
+    const safeObj = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    const linkedIds = Array.isArray(safeObj.linkedGuestIds)
+      ? safeObj.linkedGuestIds.filter((id) => typeof id === 'string' && GUEST_ID_RE.test(id))
+      : [];
+    return {
+      ownerKey: getProfileOwnerKey(ownerAccount),
+      userId: ownerAccount?.userId || null,
+      guestId: currentGuestRecord ? currentGuestRecord.guestId : (typeof safeObj.guestId === 'string' ? safeObj.guestId : null),
+      displayName: sanitizeDisplayName(safeObj.displayName, sanitizeDisplayName(fallbackName, 'Guest Seeker')),
+      avatar: sanitizeStoredAvatar(safeObj.avatar),
+      linkedGuestIds: linkedIds,
+      preferences: sanitizePreferences(safeObj.preferences || {}),
       stats: {
-        totalPlaytimeMinutes: 0,
-        sessionsCount: 1,
-        firstSeen: getNow().toISOString(),
-        lastSeen: getNow().toISOString()
+        totalPlaytimeMinutes: Math.max(0, Number(safeObj.stats?.totalPlaytimeMinutes) || 0),
+        sessionsCount: Math.max(1, Number(safeObj.stats?.sessionsCount) || 1),
+        firstSeen:
+          typeof safeObj.stats?.firstSeen === 'string' && !Number.isNaN(Date.parse(safeObj.stats.firstSeen))
+            ? safeObj.stats.firstSeen
+            : nowIso,
+        lastSeen: nowIso
       },
       schemaVersion: 1
     };
   }
 
-  function persistPlayerProfile(prof) {
+  function loadPlayerProfileForKey(profileKey, ownerAccount = null) {
     try {
-      lsSetRaw(LS_PROFILE_KEY, JSON.stringify(prof));
+      const lsRes = lsGetRaw(profileKey);
+      if (lsRes.ok && lsRes.raw) {
+        const parsed = JSON.parse(lsRes.raw);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const normalized = buildNormalizedProfile(parsed, ownerAccount);
+          memoryProfiles.set(profileKey, normalized);
+          return normalized;
+        }
+      }
+    } catch {
+      // Corrupted JSON in localStorage: recover safely from memory or defaults
+    }
+
+    if (memoryProfiles.has(profileKey)) {
+      return buildNormalizedProfile(memoryProfiles.get(profileKey), ownerAccount);
+    }
+
+    const fresh = buildNormalizedProfile(null, ownerAccount);
+    memoryProfiles.set(profileKey, fresh);
+    return fresh;
+  }
+
+  function persistPlayerProfileForKey(profileKey, prof) {
+    memoryProfiles.set(profileKey, prof);
+    try {
+      lsSetRaw(profileKey, JSON.stringify(prof));
     } catch {}
   }
 
   function getProfileInternal() {
-    if (!cachedPlayerProfile) {
-      cachedPlayerProfile = loadPlayerProfile();
+    const activeAccount = getActiveAccountSanitized({ expireSideEffects: true });
+    const expectedKey = getProfileOwnerKey(activeAccount);
+    if (!cachedPlayerProfile || cachedPlayerProfile.ownerKey !== expectedKey) {
+      cachedPlayerProfile = loadPlayerProfileForKey(expectedKey, activeAccount);
     }
     if (currentGuestRecord && cachedPlayerProfile.guestId !== currentGuestRecord.guestId) {
       cachedPlayerProfile.guestId = currentGuestRecord.guestId;
@@ -3118,16 +3990,14 @@ export function createAuroMindSDK(options = {}) {
   const playerService = Object.freeze({
     getProfile() {
       const p = getProfileInternal();
-      return Object.freeze(JSON.parse(JSON.stringify(p)));
+      return deepFreeze(JSON.parse(JSON.stringify(p)));
     },
     updatePreferences(partial) {
-      if (!partial || typeof partial !== 'object') return this.getPreferences();
+      if (!partial || typeof partial !== 'object' || Array.isArray(partial)) return this.getPreferences();
       const prof = getProfileInternal();
-      prof.preferences = {
-        ...prof.preferences,
-        ...partial
-      };
-      persistPlayerProfile(prof);
+      prof.preferences = sanitizePreferences(partial, prof.preferences);
+      persistPlayerProfileForKey(prof.ownerKey, prof);
+      broadcastPlatformEvent('PROFILE_UPDATED', { ownerKey: prof.ownerKey });
       return Object.freeze({ ...prof.preferences });
     },
     getPreferences() {
@@ -3135,14 +4005,23 @@ export function createAuroMindSDK(options = {}) {
       return Object.freeze({ ...prof.preferences });
     },
     updateStats(partialStats) {
-      if (!partialStats || typeof partialStats !== 'object') return;
+      if (!partialStats || typeof partialStats !== 'object' || Array.isArray(partialStats)) return;
       const prof = getProfileInternal();
+      const nextPlaytime =
+        partialStats.totalPlaytimeMinutes !== undefined
+          ? Math.max(0, Number(partialStats.totalPlaytimeMinutes) || 0)
+          : prof.stats.totalPlaytimeMinutes;
+      const nextSessions =
+        partialStats.sessionsCount !== undefined
+          ? Math.max(1, Number(partialStats.sessionsCount) || 1)
+          : prof.stats.sessionsCount;
       prof.stats = {
         ...prof.stats,
-        ...partialStats,
+        totalPlaytimeMinutes: nextPlaytime,
+        sessionsCount: nextSessions,
         lastSeen: getNow().toISOString()
       };
-      persistPlayerProfile(prof);
+      persistPlayerProfileForKey(prof.ownerKey, prof);
       return Object.freeze({ ...prof.stats });
     },
     getDisplayName() {
@@ -3150,10 +4029,123 @@ export function createAuroMindSDK(options = {}) {
     },
     setDisplayName(name) {
       const prof = getProfileInternal();
-      prof.displayName =
-        typeof name === 'string' && name.trim() ? name.trim().slice(0, 50) : 'Guest Seeker';
-      persistPlayerProfile(prof);
+      prof.displayName = sanitizeDisplayName(name, 'Guest Seeker');
+      persistPlayerProfileForKey(prof.ownerKey, prof);
+      broadcastPlatformEvent('PROFILE_UPDATED', { ownerKey: prof.ownerKey });
       return prof.displayName;
+    },
+    getAvatar() {
+      const prof = getProfileInternal();
+      const safe = sanitizeStoredAvatar(prof.avatar);
+      return Object.freeze({
+        ...safe,
+        fallbackEmoji: AVATAR_PRESETS.lotus.emoji,
+        fallbackInitial: (prof.displayName || 'G').charAt(0).toUpperCase()
+      });
+    },
+    getAvatarPresets() {
+      return AVATAR_PRESETS;
+    },
+    async validateAvatar(input) {
+      return validateAvatarInput(input, getNow().toISOString());
+    },
+    async prepareAvatarUpload(input) {
+      const res = await validateAvatarInput(input, getNow().toISOString());
+      if (!res.valid) {
+        return Object.freeze({
+          ok: false,
+          errorCode: res.errorCode,
+          message: res.message
+        });
+      }
+      if (res.avatar.type !== 'data_url' || !res.bytes) {
+        return Object.freeze({
+          ok: true,
+          avatar: res.avatar,
+          uploadRequired: false
+        });
+      }
+      let sha256 = null;
+      try {
+        sha256 = await computePayloadChecksum({ dataUrl: res.avatar.value });
+      } catch {}
+      return Object.freeze({
+        ok: true,
+        uploadRequired: true,
+        mimeType: res.avatar.mimeType,
+        sizeBytes: res.avatar.sizeBytes,
+        sha256,
+        dataUrl: res.avatar.value,
+        avatar: res.avatar
+      });
+    },
+    async setAvatar(input) {
+      const res = await validateAvatarInput(input, getNow().toISOString());
+      if (!res.valid) {
+        return Object.freeze({
+          ok: false,
+          avatar: this.getAvatar(),
+          errorCode: res.errorCode,
+          message: res.message
+        });
+      }
+      const prof = getProfileInternal();
+      prof.avatar = { ...res.avatar };
+      persistPlayerProfileForKey(prof.ownerKey, prof);
+      broadcastPlatformEvent('PROFILE_UPDATED', { ownerKey: prof.ownerKey });
+      emitIdentityChange();
+      return Object.freeze({
+        ok: true,
+        avatar: this.getAvatar()
+      });
+    },
+    clearAvatar() {
+      const prof = getProfileInternal();
+      prof.avatar = { ...defaultAvatarRecord('lotus'), updatedAt: getNow().toISOString() };
+      persistPlayerProfileForKey(prof.ownerKey, prof);
+      broadcastPlatformEvent('PROFILE_UPDATED', { ownerKey: prof.ownerKey });
+      emitIdentityChange();
+      return this.getAvatar();
+    },
+    async updateProfile(updates = {}) {
+      if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
+        return Object.freeze({
+          ok: false,
+          profile: this.getProfile(),
+          errorCode: 'INVALID_PROFILE_UPDATE',
+          message: 'Profile update requires an object.'
+        });
+      }
+      const prof = getProfileInternal();
+      if (Object.prototype.hasOwnProperty.call(updates, 'avatar')) {
+        if (updates.avatar === null) {
+          prof.avatar = { ...defaultAvatarRecord('lotus'), updatedAt: getNow().toISOString() };
+        } else {
+          const avRes = await validateAvatarInput(updates.avatar, getNow().toISOString());
+          if (!avRes.valid) {
+            return Object.freeze({
+              ok: false,
+              profile: this.getProfile(),
+              errorCode: avRes.errorCode,
+              message: avRes.message
+            });
+          }
+          prof.avatar = { ...avRes.avatar };
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(updates, 'displayName')) {
+        prof.displayName = sanitizeDisplayName(updates.displayName, 'Guest Seeker');
+      }
+      if (updates.preferences && typeof updates.preferences === 'object') {
+        prof.preferences = sanitizePreferences(updates.preferences, prof.preferences);
+      }
+      persistPlayerProfileForKey(prof.ownerKey, prof);
+      broadcastPlatformEvent('PROFILE_UPDATED', { ownerKey: prof.ownerKey });
+      emitIdentityChange();
+      return Object.freeze({
+        ok: true,
+        profile: this.getProfile()
+      });
     },
     async exportUserData() {
       const prof = this.getProfile();
@@ -3174,8 +4166,16 @@ export function createAuroMindSDK(options = {}) {
       });
     },
     async deleteUserData() {
+      const activeAccount = getActiveAccountSanitized({ expireSideEffects: false });
+      const activeKey = getProfileOwnerKey(activeAccount);
       cachedPlayerProfile = null;
-      lsRemoveRaw(LS_PROFILE_KEY);
+      memoryProfiles.delete(activeKey);
+      lsRemoveRaw(activeKey);
+      if (activeKey !== LS_PROFILE_KEY) {
+        // Keep guest profile isolated when deleting an authenticated user's profile
+      } else {
+        memoryProfiles.delete(LS_PROFILE_KEY);
+      }
       loggingService.clear();
       telemetryService.clearQueue();
       localConfigOverrides = {};
@@ -3735,12 +4735,19 @@ export function createAuroMindSDK(options = {}) {
 
         // Only query AuthProvider session if explicitly enabled & configured (never in B1 default)
         if (capabilities.authEnabled && providers.auth.isConfigured()) {
-          currentAccount = await providers.auth.getCurrentSession();
+          try {
+            const restored = await providers.auth.getCurrentSession();
+            currentAccount = sanitizeAccountRecord(restored, getNow().getTime());
+          } catch (authRestoreErr) {
+            currentAccount = null;
+            loggingService.warn('auth', 'Session restoration failed non-fatally; continuing in guest mode', {
+              error: authRestoreErr?.message || String(authRestoreErr)
+            });
+          }
           if (typeof providers.auth.onAuthStateChange === 'function') {
             if (authUnsubscribe) authUnsubscribe();
             authUnsubscribe = providers.auth.onAuthStateChange((account) => {
-              currentAccount = account || null;
-              emitIdentityChange();
+              applyAccountTransition(account || null, { broadcast: true, reason: 'provider_event' });
             });
           }
         } else {
@@ -3837,6 +4844,12 @@ export function createAuroMindSDK(options = {}) {
     identityListeners.clear();
     offlineListeners.clear();
     achievementListeners.clear();
+    currentAccount = null;
+    cachedPlayerProfile = null;
+    pendingAuthFlow = null;
+    authInFlight = false;
+    consumedAuthCallbacks.clear();
+    memoryProfiles.clear();
     memoryLogBuffer.length = 0;
     memoryTelemetryQueue.length = 0;
   }

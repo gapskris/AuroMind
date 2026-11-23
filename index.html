@@ -1537,6 +1537,35 @@
         <div id="auth-user-email" style="font-size: 0.8rem; color: var(--text-secondary, #64748b); margin-top: 0.25rem; display: none;"></div>
       </div>
 
+      <!-- Player Profile & Avatar Panel -->
+      <div id="profile-panel" style="background: var(--bg-surface, #f8fafc); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; text-align: left;">
+        <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.65rem;">
+          <div id="profile-avatar-preview" style="width: 44px; height: 44px; border-radius: 50%; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); display: flex; align-items: center; justify-content: center; font-size: 1.4rem; overflow: hidden; flex-shrink: 0;">🪷</div>
+          <div style="flex: 1; min-width: 0;">
+            <label for="profile-display-name-input" style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary, #64748b); display: block; margin-bottom: 0.2rem;">Player Display Name</label>
+            <div style="display: flex; gap: 0.4rem;">
+              <input type="text" id="profile-display-name-input" maxlength="50" placeholder="Guest Seeker" class="feedback-input" style="flex: 1; min-width: 0; padding: 0.4rem 0.6rem; border-radius: 6px; border: 1px solid var(--border-color, #cbd5e1); font-size: 0.82rem;">
+              <button type="button" id="profile-save-btn" class="btn-settings-action" style="padding: 0.4rem 0.75rem; font-size: 0.78rem;">Save</button>
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+          <div id="profile-avatar-presets" style="display: flex; gap: 0.35rem; align-items: center;">
+            <button type="button" class="avatar-preset-btn" data-preset="lotus" title="Sacred Lotus" style="padding: 4px 7px; border-radius: 6px; border: 1px solid var(--border-color, #cbd5e1); background: transparent; cursor: pointer;">🪷</button>
+            <button type="button" class="avatar-preset-btn" data-preset="sun" title="Golden Sun" style="padding: 4px 7px; border-radius: 6px; border: 1px solid var(--border-color, #cbd5e1); background: transparent; cursor: pointer;">☀️</button>
+            <button type="button" class="avatar-preset-btn" data-preset="mandala" title="Mandala Wheel" style="padding: 4px 7px; border-radius: 6px; border: 1px solid var(--border-color, #cbd5e1); background: transparent; cursor: pointer;">☸️</button>
+            <button type="button" class="avatar-preset-btn" data-preset="banyan" title="Banyan Tree" style="padding: 4px 7px; border-radius: 6px; border: 1px solid var(--border-color, #cbd5e1); background: transparent; cursor: pointer;">🌳</button>
+            <button type="button" class="avatar-preset-btn" data-preset="peacock" title="Peacock Plume" style="padding: 4px 7px; border-radius: 6px; border: 1px solid var(--border-color, #cbd5e1); background: transparent; cursor: pointer;">🦚</button>
+            <button type="button" class="avatar-preset-btn" data-preset="star" title="Dawn Star" style="padding: 4px 7px; border-radius: 6px; border: 1px solid var(--border-color, #cbd5e1); background: transparent; cursor: pointer;">✨</button>
+          </div>
+          <div style="display: flex; gap: 0.4rem; align-items: center;">
+            <label for="profile-avatar-file-input" class="btn-settings-action" style="padding: 0.3rem 0.6rem; font-size: 0.74rem; cursor: pointer;">Upload Photo</label>
+            <input type="file" id="profile-avatar-file-input" accept="image/png,image/jpeg,image/webp" style="display: none;">
+            <button type="button" id="profile-avatar-clear-btn" class="btn-settings-action" style="padding: 0.3rem 0.55rem; font-size: 0.74rem;">Reset</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Sign In / Sign Up Form (shown when in guest mode) -->
       <div id="auth-form-container">
         <div style="display: flex; flex-direction: column; gap: 0.75rem; text-align: left; margin-bottom: 1rem;">
@@ -1550,9 +1579,20 @@
           </div>
         </div>
 
-        <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+        <div style="display: flex; gap: 0.5rem; margin-bottom: 0.65rem;">
           <button id="auth-signin-btn" class="modal-confirm-btn" style="flex: 1; margin: 0; padding: 0.6rem; font-size: 0.85rem;">Sign In</button>
           <button id="auth-signup-btn" class="btn-settings-action" style="flex: 1; padding: 0.6rem; font-size: 0.85rem; border: 1px solid var(--border-color, #cbd5e1);">Create Account</button>
+        </div>
+
+        <div style="display: flex; gap: 0.5rem; margin-bottom: 0.65rem;">
+          <button type="button" id="auth-otp-send-btn" class="btn-settings-action" style="flex: 1; padding: 0.5rem; font-size: 0.8rem; border: 1px solid var(--border-color, #cbd5e1);">Send Email OTP</button>
+          <button type="button" id="auth-google-btn" class="btn-settings-action" style="flex: 1; padding: 0.5rem; font-size: 0.8rem; border: 1px solid var(--border-color, #cbd5e1);">Continue with Google</button>
+        </div>
+
+        <div id="auth-otp-verify-row" style="display: none; gap: 0.5rem; margin-bottom: 0.75rem; align-items: center;">
+          <input type="text" id="auth-otp-code-input" inputmode="numeric" maxlength="12" placeholder="Enter 6-digit OTP code" class="feedback-input" style="flex: 1; padding: 0.45rem 0.65rem; border-radius: 6px; border: 1px solid var(--border-color, #cbd5e1); font-size: 0.82rem;">
+          <button type="button" id="auth-otp-verify-btn" class="modal-confirm-btn" style="margin: 0; padding: 0.45rem 0.8rem; font-size: 0.8rem;">Verify OTP</button>
+          <button type="button" id="auth-otp-cancel-btn" class="btn-settings-action" style="padding: 0.45rem 0.6rem; font-size: 0.78rem;">Cancel</button>
         </div>
 
         <button id="auth-upgrade-btn" class="btn-pill-action" style="width: 100%; justify-content: center; padding: 0.5rem; font-size: 0.8rem; margin-bottom: 1rem; border: 1px dashed var(--accent-gold, #f59e0b); color: #d97706; background: rgba(245, 158, 11, 0.05); cursor: pointer;">

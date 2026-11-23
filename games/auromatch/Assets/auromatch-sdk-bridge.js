@@ -314,15 +314,37 @@ function attachSeniorModeListener() {
   // Bridge explicitly avoids registering a second listener.
 }
 
+function syncGameIdentityGlobals(snapshot) {
+  if (typeof window === 'undefined' || !snapshot) return;
+  const guestId = snapshot.guestId || (snapshot.guest ? snapshot.guest.guestId : null);
+  const userId = snapshot.account && snapshot.account.userId ? snapshot.account.userId : null;
+  const mode = userId ? 'authenticated' : 'guest';
+  if (guestId) window.__AUROMIND_GUEST_ID__ = guestId;
+  window.__AUROMIND_USER_ID__ = userId;
+  window.__AUROMIND_AUTH_MODE__ = mode;
+  try {
+    if (typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+      window.dispatchEvent(new CustomEvent('auromind:identity-changed', { detail: { mode, guestId, userId } }));
+    }
+  } catch (_e) {}
+}
+
 /**
  * Self-initializing SDK Bridge lifecycle.
  */
 (async function initAuroMatchSdkBridge() {
+  if (typeof window === 'undefined') return;
   attachSeniorModeListener();
   mountPortalReturnButton();
 
   try {
-    let sdk = window.AuroMind || (window.parent && window.parent.AuroMind);
+    let parentSdk = null;
+    try {
+      parentSdk = typeof window !== 'undefined' && window.parent && window.parent !== window ? window.parent.AuroMind : null;
+    } catch (_crossOriginErr) {
+      parentSdk = null;
+    }
+    let sdk = (typeof window !== 'undefined' && window.AuroMind) || parentSdk;
     if (!sdk || typeof sdk.init !== 'function') {
       try {
         const mod = await import('../../../assets/sdk/auromind-sdk.js');
@@ -338,6 +360,10 @@ function attachSeniorModeListener() {
     }
 
     if (sdk && typeof sdk.init === 'function') {
+      if (typeof window !== 'undefined') {
+        window.AuroMind = sdk;
+        window.AuroMindSDK = sdk;
+      }
       const ctx = await sdk.init({
         gameId: 'auromatch',
         appVersion: '1.0.0'
@@ -349,6 +375,16 @@ function attachSeniorModeListener() {
         if (!sdk.adapters.get('auromatch')?.initialized && typeof sdk.adapters.init === 'function') {
           await sdk.adapters.init('auromatch');
         }
+      }
+
+      const initialIdentity =
+        sdk.identity && typeof sdk.identity.get === 'function'
+          ? sdk.identity.get()
+          : (ctx && ctx.identity ? ctx.identity : null);
+      syncGameIdentityGlobals(initialIdentity);
+
+      if (sdk.identity && typeof sdk.identity.subscribe === 'function') {
+        sdk.identity.subscribe((snapshot) => syncGameIdentityGlobals(snapshot));
       }
 
       const guestId =

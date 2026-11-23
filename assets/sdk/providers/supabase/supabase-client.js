@@ -21,10 +21,37 @@ export function createSupabaseClient(config = {}) {
   const fetchApi = config.fetch || globalThis.fetch?.bind(globalThis);
   const storage = config.storage || (typeof localStorage !== 'undefined' ? localStorage : null);
   const sessionKey = config.sessionKey || 'auromind.platform.v1.supabase_session';
+  const oauthStateKey = config.oauthStateKey || 'auromind.platform.v1.supabase_oauth_state';
   const defaultTimeoutMs = typeof config.timeoutMs === 'number' ? config.timeoutMs : 6000;
+  const nowFn = typeof config.now === 'function' ? config.now : () => Date.now();
 
-  // Strict security check: NEVER accept a service-role key in client configuration
-  if (anonKey && (anonKey.includes('service_role') || (anonKey.startsWith('eyJ') && anonKey.includes('service_role')))) {
+  function decodeJwtPayload(token) {
+    if (typeof token !== 'string') return null;
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    try {
+      const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const padded = b64.padEnd(b64.length + ((4 - (b64.length % 4)) % 4), '=');
+      const jsonStr =
+        typeof Buffer !== 'undefined'
+          ? Buffer.from(padded, 'base64').toString('utf8')
+          : atob(padded);
+      const parsed = JSON.parse(jsonStr);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function containsServiceRoleKey(key) {
+    if (typeof key !== 'string' || !key) return false;
+    if (key.includes('service_role')) return true;
+    const claims = decodeJwtPayload(key);
+    return Boolean(claims && (claims.role === 'service_role' || claims.user_role === 'service_role'));
+  }
+
+  // Strict security check: NEVER accept a service-role key (literal or base64url JWT) in client configuration
+  if (containsServiceRoleKey(anonKey)) {
     const err = new SupabaseClientError(
       'SECURITY_VIOLATION: SUPABASE_SERVICE_ROLE_KEY cannot be used in browser client code.',
       403
@@ -34,7 +61,44 @@ export function createSupabaseClient(config = {}) {
   }
 
   let activeSession = null;
+  let pendingOAuthStateMemory = null;
+  const consumedOAuthCodes = new Set();
   const authListeners = new Set();
+
+  function getSessionExpiresAtMs(session) {
+    if (!session || typeof session !== 'object') return null;
+    if (session.expires_at !== undefined && session.expires_at !== null) {
+      if (typeof session.expires_at === 'number' && Number.isFinite(session.expires_at)) {
+        return session.expires_at > 1e11 ? session.expires_at : session.expires_at * 1000;
+      }
+      if (typeof session.expires_at === 'string') {
+        const numeric = Number(session.expires_at);
+        if (Number.isFinite(numeric) && session.expires_at.trim() !== '') {
+          return numeric > 1e11 ? numeric : numeric * 1000;
+        }
+        const parsedMs = Date.parse(session.expires_at);
+        if (!Number.isNaN(parsedMs)) return parsedMs;
+      }
+    }
+    const claims = decodeJwtPayload(session.access_token);
+    if (claims && typeof claims.exp === 'number' && Number.isFinite(claims.exp)) {
+      return claims.exp > 1e11 ? claims.exp : claims.exp * 1000;
+    }
+    return null;
+  }
+
+  function isSessionValid(session) {
+    if (!session || typeof session !== 'object' || Array.isArray(session)) return false;
+    if (typeof session.access_token !== 'string' || session.access_token.trim().length === 0) return false;
+    if (!session.user || typeof session.user !== 'object' || typeof session.user.id !== 'string' || !session.user.id.trim()) {
+      return false;
+    }
+    const expMs = getSessionExpiresAtMs(session);
+    if (expMs !== null && nowFn() >= expMs) {
+      return false;
+    }
+    return true;
+  }
 
   function loadStoredSession() {
     if (!storage) return null;
@@ -42,15 +106,32 @@ export function createSupabaseClient(config = {}) {
       const raw = storage.getItem(sessionKey);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed && parsed.access_token) {
+        if (isSessionValid(parsed)) {
           return parsed;
         }
+        // Purge corrupted or expired session immediately
+        try {
+          storage.removeItem(sessionKey);
+        } catch {}
       }
-    } catch {}
+    } catch {
+      try {
+        storage.removeItem(sessionKey);
+      } catch {}
+    }
     return null;
   }
 
   function saveSession(session) {
+    if (session && !isSessionValid(session)) {
+      activeSession = null;
+      if (storage) {
+        try {
+          storage.removeItem(sessionKey);
+        } catch {}
+      }
+      return false;
+    }
     activeSession = session || null;
     if (storage) {
       try {
@@ -61,6 +142,44 @@ export function createSupabaseClient(config = {}) {
         }
       } catch {}
     }
+    return Boolean(activeSession);
+  }
+
+  function savePendingOAuthState(stateObj) {
+    pendingOAuthStateMemory = stateObj || null;
+    if (storage) {
+      try {
+        if (stateObj) {
+          storage.setItem(oauthStateKey, JSON.stringify(stateObj));
+        } else {
+          storage.removeItem(oauthStateKey);
+        }
+      } catch {}
+    }
+  }
+
+  function loadPendingOAuthState() {
+    if (storage) {
+      try {
+        const raw = storage.getItem(oauthStateKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed.state === 'string') {
+            return parsed;
+          }
+        }
+      } catch {}
+    }
+    return pendingOAuthStateMemory;
+  }
+
+  function generateNonce() {
+    try {
+      if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID().replace(/-/g, '');
+      }
+    } catch {}
+    return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
   }
 
   activeSession = loadStoredSession();
@@ -118,10 +237,30 @@ export function createSupabaseClient(config = {}) {
   // --- Auth APIs ---
   const auth = {
     getSession() {
-      return activeSession ? Object.freeze({ ...activeSession }) : null;
+      if (storage) {
+        const stored = loadStoredSession();
+        if (!stored && activeSession) {
+          // Session was cleared/expired in storage (e.g., another tab signed out or token expired)
+          activeSession = null;
+        } else if (stored && (!activeSession || stored.access_token !== activeSession.access_token)) {
+          activeSession = stored;
+        }
+      }
+      if (activeSession && !isSessionValid(activeSession)) {
+        saveSession(null);
+        emitAuthEvent('SIGNED_OUT', null);
+        return null;
+      }
+      if (!activeSession) return null;
+      const expMs = getSessionExpiresAtMs(activeSession);
+      return Object.freeze({
+        ...activeSession,
+        expires_at_ms: expMs
+      });
     },
     getUser() {
-      return activeSession && activeSession.user ? Object.freeze({ ...activeSession.user }) : null;
+      const sess = this.getSession();
+      return sess && sess.user ? Object.freeze({ ...sess.user }) : null;
     },
     async signUp({ email, password, options = {} }) {
       if (!isConfigured()) {
@@ -142,7 +281,9 @@ export function createSupabaseClient(config = {}) {
           return { ok: false, error: data.message || data.error_description || 'SIGNUP_FAILED' };
         }
         if (data.access_token) {
-          saveSession(data);
+          if (!saveSession(data)) {
+            return { ok: false, error: 'INVALID_OR_EXPIRED_SESSION' };
+          }
           emitAuthEvent('SIGNED_IN', data);
         }
         return { ok: true, user: data.user, session: data };
@@ -164,7 +305,9 @@ export function createSupabaseClient(config = {}) {
         if (!res.ok) {
           return { ok: false, error: data.message || data.error_description || 'SIGNIN_FAILED' };
         }
-        saveSession(data);
+        if (!saveSession(data)) {
+          return { ok: false, error: 'INVALID_OR_EXPIRED_SESSION' };
+        }
         emitAuthEvent('SIGNED_IN', data);
         return { ok: true, user: data.user, session: data };
       } catch (err) {
@@ -175,12 +318,16 @@ export function createSupabaseClient(config = {}) {
       if (!isConfigured()) {
         return { ok: false, error: 'SUPABASE_NOT_CONFIGURED' };
       }
+      const normalizedEmail = typeof email === 'string' ? email.trim() : '';
+      if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        return { ok: false, error: 'INVALID_EMAIL' };
+      }
       try {
         const res = await requestWithTimeout(`${url}/auth/v1/otp`, {
           method: 'POST',
           headers: getStandardHeaders(),
           body: JSON.stringify({
-            email,
+            email: normalizedEmail,
             create_user: options.createUser ?? true,
             data: options.data || {}
           })
@@ -189,7 +336,181 @@ export function createSupabaseClient(config = {}) {
         if (!res.ok) {
           return { ok: false, error: data.message || data.error_description || 'OTP_FAILED' };
         }
-        return { ok: true, message: 'OTP sent successfully.' };
+        return { ok: true, pendingVerification: true, message: 'OTP sent successfully.' };
+      } catch (err) {
+        return { ok: false, error: err.message || 'NETWORK_ERROR' };
+      }
+    },
+    async verifyOtp({ email, token, type = 'email' }) {
+      if (!isConfigured()) {
+        return { ok: false, error: 'SUPABASE_NOT_CONFIGURED' };
+      }
+      const normalizedEmail = typeof email === 'string' ? email.trim() : '';
+      const normalizedToken = typeof token === 'string' ? token.trim() : '';
+      if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        return { ok: false, error: 'INVALID_EMAIL' };
+      }
+      if (!normalizedToken || normalizedToken.length < 4 || normalizedToken.length > 16) {
+        return { ok: false, error: 'INVALID_OTP_TOKEN' };
+      }
+      try {
+        const res = await requestWithTimeout(`${url}/auth/v1/verify`, {
+          method: 'POST',
+          headers: getStandardHeaders(),
+          body: JSON.stringify({
+            email: normalizedEmail,
+            token: normalizedToken,
+            type: typeof type === 'string' && type.trim() ? type.trim() : 'email'
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          return { ok: false, error: data.message || data.error_description || 'OTP_VERIFICATION_FAILED' };
+        }
+        if (!saveSession(data)) {
+          return { ok: false, error: 'INVALID_OR_EXPIRED_SESSION' };
+        }
+        emitAuthEvent('SIGNED_IN', data);
+        return { ok: true, user: data.user, session: data };
+      } catch (err) {
+        return { ok: false, error: err.message || 'NETWORK_ERROR' };
+      }
+    },
+    async signInWithOAuth({ provider = 'google', redirectTo = null, state = null } = {}) {
+      if (!isConfigured()) {
+        return { ok: false, error: 'SUPABASE_NOT_CONFIGURED' };
+      }
+      const normalizedProvider = typeof provider === 'string' ? provider.trim().toLowerCase() : '';
+      if (normalizedProvider !== 'google') {
+        return { ok: false, error: 'UNSUPPORTED_OAUTH_PROVIDER' };
+      }
+      let safeRedirect = null;
+      if (redirectTo !== null && redirectTo !== undefined && redirectTo !== '') {
+        try {
+          const parsedRedirect = new URL(redirectTo);
+          if (parsedRedirect.protocol !== 'http:' && parsedRedirect.protocol !== 'https:') {
+            return { ok: false, error: 'INVALID_REDIRECT_URL' };
+          }
+          if (
+            typeof globalThis.location !== 'undefined' &&
+            globalThis.location &&
+            globalThis.location.origin &&
+            globalThis.location.origin !== 'null' &&
+            parsedRedirect.origin !== globalThis.location.origin
+          ) {
+            return { ok: false, error: 'CROSS_ORIGIN_REDIRECT_FORBIDDEN' };
+          }
+          safeRedirect = parsedRedirect.toString();
+        } catch {
+          return { ok: false, error: 'INVALID_REDIRECT_URL' };
+        }
+      } else if (typeof globalThis.location !== 'undefined' && globalThis.location?.origin?.startsWith('http')) {
+        safeRedirect = `${globalThis.location.origin}${globalThis.location.pathname || '/'}`;
+      }
+
+      const oauthState = typeof state === 'string' && state.trim() ? state.trim() : generateNonce();
+      savePendingOAuthState({
+        provider: normalizedProvider,
+        state: oauthState,
+        createdAt: nowFn()
+      });
+
+      const params = new URLSearchParams();
+      params.set('provider', normalizedProvider);
+      if (safeRedirect) params.set('redirect_to', safeRedirect);
+      params.set('state', oauthState);
+      const authUrl = `${url}/auth/v1/authorize?${params.toString()}`;
+      return {
+        ok: true,
+        provider: normalizedProvider,
+        url: authUrl,
+        state: oauthState
+      };
+    },
+    async handleOAuthCallback(callbackInput, options = {}) {
+      if (!isConfigured()) {
+        return { ok: false, error: 'SUPABASE_NOT_CONFIGURED' };
+      }
+      let params = new URLSearchParams();
+      if (typeof callbackInput === 'string') {
+        try {
+          const parsedUrl = callbackInput.startsWith('http://') || callbackInput.startsWith('https://')
+            ? new URL(callbackInput)
+            : new URL(callbackInput, 'https://auromasti.invalid');
+          const searchParams = new URLSearchParams(parsedUrl.search);
+          const hashParams = new URLSearchParams((parsedUrl.hash || '').replace(/^#/, ''));
+          for (const [k, v] of searchParams.entries()) params.set(k, v);
+          for (const [k, v] of hashParams.entries()) {
+            if (!params.has(k)) params.set(k, v);
+          }
+        } catch {
+          return { ok: false, error: 'INVALID_CALLBACK_URL' };
+        }
+      } else if (callbackInput && typeof callbackInput === 'object') {
+        for (const [k, v] of Object.entries(callbackInput)) {
+          if (v !== undefined && v !== null) params.set(k, String(v));
+        }
+      } else {
+        return { ok: false, error: 'INVALID_CALLBACK_INPUT' };
+      }
+
+      const oauthError = params.get('error');
+      const oauthErrorDesc = params.get('error_description') || '';
+      if (oauthError) {
+        savePendingOAuthState(null);
+        const cancelled = oauthError === 'access_denied' || oauthError === 'user_cancelled';
+        return {
+          ok: false,
+          cancelled,
+          error: cancelled ? 'OAUTH_CANCELLED' : oauthError,
+          message: oauthErrorDesc || (cancelled ? 'Sign-in was cancelled.' : `OAuth error: ${oauthError}`)
+        };
+      }
+
+      const code = params.get('code');
+      const returnedState = params.get('state');
+      if (!code) {
+        return { ok: false, error: 'OAUTH_CODE_MISSING' };
+      }
+
+      // Replay / duplicate callback protection
+      const replayKey = `${code}:${returnedState || ''}`;
+      if (consumedOAuthCodes.has(replayKey)) {
+        return { ok: false, duplicate: true, error: 'OAUTH_CALLBACK_DUPLICATE' };
+      }
+
+      // CSRF state validation (mandatory whenever a pending state was issued or expectedState passed)
+      const pendingState = loadPendingOAuthState();
+      const expectedState = options.expectedState || (pendingState ? pendingState.state : null);
+      if (!expectedState || !returnedState || returnedState !== expectedState) {
+        return { ok: false, error: 'OAUTH_STATE_MISMATCH' };
+      }
+      if (pendingState && pendingState.createdAt && nowFn() - pendingState.createdAt > 15 * 60 * 1000) {
+        savePendingOAuthState(null);
+        return { ok: false, error: 'OAUTH_STATE_EXPIRED' };
+      }
+
+      consumedOAuthCodes.add(replayKey);
+      savePendingOAuthState(null);
+
+      try {
+        const res = await requestWithTimeout(`${url}/auth/v1/token?grant_type=pkce`, {
+          method: 'POST',
+          headers: getStandardHeaders(),
+          body: JSON.stringify({
+            auth_code: code,
+            code_verifier: options.codeVerifier || undefined
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          return { ok: false, error: data.message || data.error_description || 'OAUTH_EXCHANGE_FAILED' };
+        }
+        if (!saveSession(data)) {
+          return { ok: false, error: 'INVALID_OR_EXPIRED_SESSION' };
+        }
+        emitAuthEvent('SIGNED_IN', data);
+        return { ok: true, user: data.user, session: data };
       } catch (err) {
         return { ok: false, error: err.message || 'NETWORK_ERROR' };
       }
@@ -217,6 +538,7 @@ export function createSupabaseClient(config = {}) {
       }
     },
     async signOut() {
+      savePendingOAuthState(null);
       if (isConfigured() && activeSession?.access_token) {
         try {
           await requestWithTimeout(`${url}/auth/v1/logout`, {

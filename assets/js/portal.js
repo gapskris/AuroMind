@@ -149,9 +149,36 @@ function initPortalSDK() {
       try {
         checkAndRenderStorageAmberBanner(sdk);
         if (sdk.identity && typeof sdk.identity.subscribe === 'function') {
-          sdk.identity.subscribe(() => checkAndRenderStorageAmberBanner(sdk));
+          sdk.identity.subscribe(() => {
+            checkAndRenderStorageAmberBanner(sdk);
+            if (typeof window.__auromindSyncAuthUI === 'function') {
+              window.__auromindSyncAuthUI();
+            }
+            if (typeof window.__auromindBroadcastIdentityToIframe === 'function') {
+              window.__auromindBroadcastIdentityToIframe();
+            }
+          });
         }
       } catch (_bannerErr) {}
+
+      // Process OAuth callback query/hash params safely once on startup (B19.5-02)
+      try {
+        const searchStr = (typeof window !== 'undefined' && window.location && window.location.search) || '';
+        const hashStr = (typeof window !== 'undefined' && window.location && window.location.hash) || '';
+        const hasOAuthParams =
+          /(?:^|[?&])(?:code|error)=/.test(searchStr) ||
+          /(?:^|[#&])(?:code|error)=/.test(hashStr);
+        if (hasOAuthParams && sdk.auth && typeof sdk.auth.handleAuthCallback === 'function' && sdk.auth.isAvailable()) {
+          await sdk.auth.handleAuthCallback(window.location.href);
+          if (typeof history !== 'undefined' && typeof history.replaceState === 'function') {
+            history.replaceState(history.state, document.title || 'AuroMind', window.location.pathname);
+          }
+        }
+      } catch (_oauthErr) {}
+
+      if (typeof window.__auromindSyncAuthUI === 'function') {
+        try { window.__auromindSyncAuthUI(); } catch (_uiErr) {}
+      }
 
       return ctx;
     } catch (err) {
@@ -398,6 +425,9 @@ function initTheaterMode() {
                 { type: 'AUROMIND_SET_SENIOR_MODE', enabled: document.body.classList.contains('senior-mode') },
                 targetOrigin
               );
+              if (typeof window.__auromindBroadcastIdentityToIframe === 'function') {
+                window.__auromindBroadcastIdentityToIframe(theaterIframe);
+              }
             }
           }
         } catch (e) {}
@@ -1022,7 +1052,7 @@ function initAmbientAudio() {
 }
 
 // ==========================================================================
-// 6. AUTH & ACCOUNT MODAL (B5 SUPABASE INTEGRATION)
+// 6. AUTH, PROFILE & ACCOUNT MODAL (B5 / B19.5-02 INTEGRATION)
 // ==========================================================================
 function initAuthModal() {
   const authBtn = document.getElementById('auth-btn');
@@ -1038,6 +1068,12 @@ function initAuthModal() {
   const passwordInput = document.getElementById('auth-password-input');
   const signInBtn = document.getElementById('auth-signin-btn');
   const signUpBtn = document.getElementById('auth-signup-btn');
+  const otpSendBtn = document.getElementById('auth-otp-send-btn');
+  const otpVerifyRow = document.getElementById('auth-otp-verify-row');
+  const otpCodeInput = document.getElementById('auth-otp-code-input');
+  const otpVerifyBtn = document.getElementById('auth-otp-verify-btn');
+  const otpCancelBtn = document.getElementById('auth-otp-cancel-btn');
+  const googleBtn = document.getElementById('auth-google-btn');
   const upgradeBtn = document.getElementById('auth-upgrade-btn');
   const syncToggle = document.getElementById('auth-sync-toggle');
   const syncNowBtn = document.getElementById('auth-sync-now-btn');
@@ -1046,7 +1082,43 @@ function initAuthModal() {
   const signOutBtn = document.getElementById('auth-signout-btn');
   const notificationMsg = document.getElementById('auth-notification-msg');
 
+  // Player profile & avatar controls
+  const displayNameInput = document.getElementById('profile-display-name-input');
+  const profileSaveBtn = document.getElementById('profile-save-btn');
+  const avatarPreview = document.getElementById('profile-avatar-preview');
+  const avatarPresetBtns = document.querySelectorAll('.avatar-preset-btn');
+  const avatarFileInput = document.getElementById('profile-avatar-file-input');
+  const avatarClearBtn = document.getElementById('profile-avatar-clear-btn');
+
   if (!authBtn || !modal) return;
+
+  let authActionBusy = false;
+
+  function broadcastIdentityToActiveIframe(iframeOverride = null) {
+    const iframe = iframeOverride || document.getElementById('game-viewport-iframe');
+    if (!iframe || !iframe.contentWindow) return;
+    try {
+      const targetOrigin = getExpectedIframeOrigin(iframe);
+      if (!targetOrigin || targetOrigin !== window.location.origin) return;
+      const sdk = window.AuroMind;
+      const identity = sdk && sdk.identity && typeof sdk.identity.get === 'function' ? sdk.identity.get() : null;
+      const profile = sdk && sdk.player && typeof sdk.player.getProfile === 'function' ? sdk.player.getProfile() : null;
+      if (!identity) return;
+      // Strictly sanitized payload — NEVER include access tokens, refresh tokens, or raw credentials
+      iframe.contentWindow.postMessage(
+        {
+          type: 'AUROMIND_IDENTITY_CHANGED',
+          mode: identity.mode,
+          guestId: identity.guestId,
+          userId: identity.account ? identity.account.userId : null,
+          displayName: profile ? profile.displayName : 'Guest Seeker'
+        },
+        targetOrigin
+      );
+    } catch (_err) {}
+  }
+
+  window.__auromindBroadcastIdentityToIframe = broadcastIdentityToActiveIframe;
 
   function showNotification(message, isError = false) {
     if (!notificationMsg) return;
@@ -1070,12 +1142,48 @@ function initAuthModal() {
     }
   }
 
+  function renderAvatarNode(container, avatar, fallbackEmoji = '🪷') {
+    if (!container) return;
+    container.textContent = '';
+    if (avatar && avatar.type === 'data_url' && typeof avatar.value === 'string' && /^data:image\/(?:png|jpeg|webp);base64,/.test(avatar.value)) {
+      const img = document.createElement('img');
+      img.alt = 'Player avatar';
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      img.onerror = () => {
+        container.textContent = fallbackEmoji;
+      };
+      img.src = avatar.value;
+      container.appendChild(img);
+    } else {
+      container.textContent = (avatar && avatar.value) || fallbackEmoji;
+    }
+  }
+
   function updateAuthUI() {
     const sdk = window.AuroMind;
     const account = sdk && sdk.auth && typeof sdk.auth.getAccount === 'function' ? sdk.auth.getAccount() : null;
     const guestId = sdk && sdk.identity && typeof sdk.identity.getGuestId === 'function' ? sdk.identity.getGuestId() : null;
+    const profile = sdk && sdk.player && typeof sdk.player.getProfile === 'function' ? sdk.player.getProfile() : null;
+    const avatar = sdk && sdk.player && typeof sdk.player.getAvatar === 'function' ? sdk.player.getAvatar() : (profile?.avatar || null);
+    const isAuthenticated = Boolean(account && account.userId);
 
-    if (account && account.userId) {
+    if (displayNameInput && profile) {
+      if (document.activeElement !== displayNameInput) {
+        displayNameInput.value = profile.displayName || 'Guest Seeker';
+      }
+    }
+    if (avatarPreview) {
+      renderAvatarNode(avatarPreview, avatar, '🪷');
+    }
+    avatarPresetBtns.forEach((btn) => {
+      const isSelected = avatar && avatar.type === 'preset' && btn.dataset.preset === avatar.presetId;
+      btn.style.borderColor = isSelected ? '#f59e0b' : 'var(--border-color, #cbd5e1)';
+      btn.style.background = isSelected ? 'rgba(245, 158, 11, 0.16)' : 'transparent';
+    });
+
+    if (isAuthenticated) {
       // Authenticated Mode
       if (modeBadge) {
         modeBadge.textContent = 'Authenticated';
@@ -1088,14 +1196,17 @@ function initAuthModal() {
         userEmail.style.display = account.email ? 'block' : 'none';
       }
       if (formContainer) formContainer.style.display = 'none';
+      if (otpVerifyRow) otpVerifyRow.style.display = 'none';
       if (signedInActions) signedInActions.style.display = 'block';
 
-      const shortName = account.email ? account.email.split('@')[0] : 'Account';
+      const shortName =
+        (profile && profile.displayName && profile.displayName !== 'Guest Seeker' ? profile.displayName : null) ||
+        (account.email ? account.email.split('@')[0] : 'Account');
       authBtn.textContent = '';
       const iconSpan = document.createElement('span');
-      iconSpan.textContent = '👤';
+      iconSpan.textContent = avatar && avatar.type === 'preset' && avatar.value ? avatar.value : '👤';
       const labelSpan = document.createElement('span');
-      labelSpan.textContent = shortName;
+      labelSpan.textContent = shortName.slice(0, 18);
       authBtn.appendChild(iconSpan);
       authBtn.appendChild(labelSpan);
     } else {
@@ -1110,13 +1221,23 @@ function initAuthModal() {
       if (formContainer) formContainer.style.display = 'block';
       if (signedInActions) signedInActions.style.display = 'none';
 
+      const guestLabel =
+        profile && profile.displayName && profile.displayName !== 'Guest Seeker'
+          ? profile.displayName.slice(0, 18)
+          : 'Account';
       authBtn.textContent = '';
       const iconSpan = document.createElement('span');
-      iconSpan.textContent = '👤';
+      iconSpan.textContent = avatar && avatar.type === 'preset' && avatar.value ? avatar.value : '👤';
       const labelSpan = document.createElement('span');
-      labelSpan.textContent = 'Account';
+      labelSpan.textContent = guestLabel;
       authBtn.appendChild(iconSpan);
       authBtn.appendChild(labelSpan);
+    }
+
+    // Account-only sync trigger is disabled in unauthenticated guest mode
+    if (syncNowBtn) {
+      syncNowBtn.disabled = !isAuthenticated;
+      syncNowBtn.title = isAuthenticated ? 'Sync saves with cloud account' : 'Sign in to enable cloud sync';
     }
 
     if (syncToggle && sdk && sdk.sync) {
@@ -1124,15 +1245,21 @@ function initAuthModal() {
     }
 
     if (syncStatusMsg && sdk && sdk.sync) {
-      const status = typeof sdk.sync.getSyncStatus === 'function' ? sdk.sync.getSyncStatus() : null;
-      if (status && status.lastSyncAt) {
-        const d = new Date(status.lastSyncAt);
-        syncStatusMsg.textContent = `Last sync: ${d.toLocaleTimeString()}`;
+      if (!isAuthenticated) {
+        syncStatusMsg.textContent = 'Sign in required for cloud sync';
       } else {
-        syncStatusMsg.textContent = 'Sync idle';
+        const status = typeof sdk.sync.getSyncStatus === 'function' ? sdk.sync.getSyncStatus() : null;
+        if (status && status.lastSyncAt) {
+          const d = new Date(status.lastSyncAt);
+          syncStatusMsg.textContent = `Last sync: ${d.toLocaleTimeString()}`;
+        } else {
+          syncStatusMsg.textContent = 'Sync idle';
+        }
       }
     }
   }
+
+  window.__auromindSyncAuthUI = updateAuthUI;
 
   const openModal = () => {
     clearNotification();
@@ -1149,10 +1276,89 @@ function initAuthModal() {
     if (e.target === modal) closeModal();
   });
 
+  // Wire Player Display Name Save
+  if (profileSaveBtn) {
+    profileSaveBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      clearNotification();
+      const sdk = window.AuroMind;
+      if (!sdk || !sdk.player) {
+        showNotification('Profile service is unavailable.', true);
+        return;
+      }
+      const rawName = displayNameInput ? displayNameInput.value : '';
+      const savedName = sdk.player.setDisplayName(rawName);
+      if (displayNameInput) displayNameInput.value = savedName;
+      showNotification(`Profile updated: ${savedName}`);
+      updateAuthUI();
+      broadcastIdentityToActiveIframe();
+    });
+  }
+
+  // Wire Avatar Preset Selection
+  avatarPresetBtns.forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      clearNotification();
+      const sdk = window.AuroMind;
+      if (!sdk || !sdk.player || typeof sdk.player.setAvatar !== 'function') return;
+      const presetId = btn.dataset.preset;
+      const res = await sdk.player.setAvatar({ type: 'preset', presetId });
+      if (res && res.ok) {
+        showNotification('Avatar updated.');
+        updateAuthUI();
+      } else {
+        showNotification(res?.message || 'Unable to set avatar preset.', true);
+      }
+    });
+  });
+
+  // Wire Avatar File Upload Preparation & Validation
+  if (avatarFileInput) {
+    avatarFileInput.addEventListener('change', async () => {
+      clearNotification();
+      const file = avatarFileInput.files && avatarFileInput.files[0];
+      if (!file) return;
+      try {
+        const sdk = window.AuroMind;
+        if (!sdk || !sdk.player || typeof sdk.player.setAvatar !== 'function') {
+          showNotification('Avatar service is unavailable.', true);
+          return;
+        }
+        const res = await sdk.player.setAvatar(file);
+        if (res && res.ok) {
+          showNotification('Avatar image saved locally.');
+          updateAuthUI();
+        } else {
+          showNotification(res?.message || 'Invalid avatar image.', true);
+        }
+      } catch (err) {
+        showNotification(err?.message || 'Failed to process avatar file.', true);
+      } finally {
+        avatarFileInput.value = '';
+      }
+    });
+  }
+
+  // Wire Avatar Clear / Reset
+  if (avatarClearBtn) {
+    avatarClearBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      clearNotification();
+      const sdk = window.AuroMind;
+      if (sdk && sdk.player && typeof sdk.player.clearAvatar === 'function') {
+        sdk.player.clearAvatar();
+        showNotification('Avatar reset to default.');
+        updateAuthUI();
+      }
+    });
+  }
+
   // Wire Sign In
   if (signInBtn) {
     signInBtn.addEventListener('click', async (e) => {
       e.preventDefault();
+      if (authActionBusy) return;
       clearNotification();
       const email = emailInput ? emailInput.value.trim() : '';
       const password = passwordInput ? passwordInput.value : '';
@@ -1160,6 +1366,7 @@ function initAuthModal() {
         showNotification('Please enter both email and password.', true);
         return;
       }
+      authActionBusy = true;
       signInBtn.disabled = true;
       signInBtn.textContent = 'Signing in...';
       try {
@@ -1167,14 +1374,17 @@ function initAuthModal() {
         if (!sdk || !sdk.auth) throw new Error('AuroMind Auth is unavailable.');
         const res = await sdk.auth.signInWithEmail(email, password);
         if (res && res.ok) {
+          if (passwordInput) passwordInput.value = '';
           showNotification('Successfully signed in!');
           updateAuthUI();
+          broadcastIdentityToActiveIframe();
         } else {
           showNotification(res?.message || 'Sign in failed.', true);
         }
       } catch (err) {
         showNotification(err.message || 'Network error occurred.', true);
       } finally {
+        authActionBusy = false;
         signInBtn.disabled = false;
         signInBtn.textContent = 'Sign In';
       }
@@ -1185,6 +1395,7 @@ function initAuthModal() {
   if (signUpBtn) {
     signUpBtn.addEventListener('click', async (e) => {
       e.preventDefault();
+      if (authActionBusy) return;
       clearNotification();
       const email = emailInput ? emailInput.value.trim() : '';
       const password = passwordInput ? passwordInput.value : '';
@@ -1192,6 +1403,7 @@ function initAuthModal() {
         showNotification('Please enter both email and password.', true);
         return;
       }
+      authActionBusy = true;
       signUpBtn.disabled = true;
       signUpBtn.textContent = 'Creating...';
       try {
@@ -1199,16 +1411,132 @@ function initAuthModal() {
         if (!sdk || !sdk.auth) throw new Error('AuroMind Auth is unavailable.');
         const res = await sdk.auth.signUp({ email, password });
         if (res && res.ok) {
+          if (passwordInput) passwordInput.value = '';
           showNotification('Account created successfully! Check email for confirmation if required.');
           updateAuthUI();
+          broadcastIdentityToActiveIframe();
         } else {
           showNotification(res?.message || 'Account creation failed.', true);
         }
       } catch (err) {
         showNotification(err.message || 'Error creating account.', true);
       } finally {
+        authActionBusy = false;
         signUpBtn.disabled = false;
         signUpBtn.textContent = 'Create Account';
+      }
+    });
+  }
+
+  // Wire Email OTP Send
+  if (otpSendBtn) {
+    otpSendBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      if (authActionBusy) return;
+      clearNotification();
+      const email = emailInput ? emailInput.value.trim() : '';
+      if (!email) {
+        showNotification('Enter your email address to receive a one-time verification code.', true);
+        return;
+      }
+      authActionBusy = true;
+      otpSendBtn.disabled = true;
+      otpSendBtn.textContent = 'Sending OTP...';
+      try {
+        const sdk = window.AuroMind;
+        if (!sdk || !sdk.auth) throw new Error('AuroMind Auth is unavailable.');
+        const res = await sdk.auth.signInWithOtp(email);
+        if (res && res.ok) {
+          if (otpVerifyRow) otpVerifyRow.style.display = 'flex';
+          showNotification('Verification code sent! Enter the OTP code from your email.');
+        } else {
+          showNotification(res?.message || 'Unable to send OTP.', true);
+        }
+      } catch (err) {
+        showNotification(err?.message || 'Error sending OTP.', true);
+      } finally {
+        authActionBusy = false;
+        otpSendBtn.disabled = false;
+        otpSendBtn.textContent = 'Send Email OTP';
+      }
+    });
+  }
+
+  // Wire Email OTP Verify
+  if (otpVerifyBtn) {
+    otpVerifyBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      if (authActionBusy) return;
+      clearNotification();
+      const email = emailInput ? emailInput.value.trim() : '';
+      const code = otpCodeInput ? otpCodeInput.value.trim() : '';
+      if (!email || !code) {
+        showNotification('Enter both your email address and OTP verification code.', true);
+        return;
+      }
+      authActionBusy = true;
+      otpVerifyBtn.disabled = true;
+      otpVerifyBtn.textContent = 'Verifying...';
+      try {
+        const sdk = window.AuroMind;
+        if (!sdk || !sdk.auth) throw new Error('AuroMind Auth is unavailable.');
+        const res = await sdk.auth.verifyOtp(email, code);
+        if (res && res.ok) {
+          if (otpCodeInput) otpCodeInput.value = '';
+          if (otpVerifyRow) otpVerifyRow.style.display = 'none';
+          showNotification('Email OTP verified! Signed in successfully.');
+          updateAuthUI();
+          broadcastIdentityToActiveIframe();
+        } else {
+          showNotification(res?.message || 'Invalid or expired OTP code.', true);
+        }
+      } catch (err) {
+        showNotification(err?.message || 'Error verifying OTP.', true);
+      } finally {
+        authActionBusy = false;
+        otpVerifyBtn.disabled = false;
+        otpVerifyBtn.textContent = 'Verify OTP';
+      }
+    });
+  }
+
+  if (otpCancelBtn) {
+    otpCancelBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (otpCodeInput) otpCodeInput.value = '';
+      if (otpVerifyRow) otpVerifyRow.style.display = 'none';
+      if (window.AuroMind?.auth && typeof window.AuroMind.auth.cancelPendingAuth === 'function') {
+        window.AuroMind.auth.cancelPendingAuth();
+      }
+      showNotification('OTP verification cancelled.');
+    });
+  }
+
+  // Wire Google OAuth
+  if (googleBtn) {
+    googleBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      if (authActionBusy) return;
+      clearNotification();
+      authActionBusy = true;
+      googleBtn.disabled = true;
+      googleBtn.textContent = 'Connecting...';
+      try {
+        const sdk = window.AuroMind;
+        if (!sdk || !sdk.auth) throw new Error('AuroMind Auth is unavailable.');
+        const redirectTo = `${window.location.origin}${window.location.pathname}`;
+        const res = await sdk.auth.signInWithOAuth('google', { redirectTo });
+        if (res && res.ok && res.url) {
+          showNotification('Google sign-in ready. Redirecting to provider...');
+        } else {
+          showNotification(res?.message || 'Google sign-in is not configured in local-first mode.', true);
+        }
+      } catch (err) {
+        showNotification(err?.message || 'Unable to start Google sign-in.', true);
+      } finally {
+        authActionBusy = false;
+        googleBtn.disabled = false;
+        googleBtn.textContent = 'Continue with Google';
       }
     });
   }
@@ -1217,6 +1545,7 @@ function initAuthModal() {
   if (upgradeBtn) {
     upgradeBtn.addEventListener('click', async (e) => {
       e.preventDefault();
+      if (authActionBusy) return;
       clearNotification();
       const email = emailInput ? emailInput.value.trim() : '';
       const password = passwordInput ? passwordInput.value : '';
@@ -1224,6 +1553,7 @@ function initAuthModal() {
         showNotification('Enter email and password to link your current guest progress.', true);
         return;
       }
+      authActionBusy = true;
       upgradeBtn.disabled = true;
       upgradeBtn.textContent = 'Linking guest progress...';
       try {
@@ -1231,17 +1561,20 @@ function initAuthModal() {
         if (!sdk || !sdk.auth) throw new Error('AuroMind Auth is unavailable.');
         const res = await sdk.auth.upgradeGuestToAccount(
           { email, password },
-          { enableCloudSync: syncToggle ? syncToggle.checked : false }
+          { mode: 'signUp', enableCloudSync: syncToggle ? syncToggle.checked : false }
         );
         if (res && res.ok) {
+          if (passwordInput) passwordInput.value = '';
           showNotification('Guest progress successfully linked to your new account!');
           updateAuthUI();
+          broadcastIdentityToActiveIframe();
         } else {
-          showNotification(res?.message || 'Guest upgrade failed.', true);
+          showNotification(res?.message || res?.error || 'Guest upgrade failed.', true);
         }
       } catch (err) {
         showNotification(err.message || 'Error linking guest progress.', true);
       } finally {
+        authActionBusy = false;
         upgradeBtn.disabled = false;
         upgradeBtn.textContent = '⭐ Link Current Guest Progress to New Account';
       }
@@ -1252,18 +1585,24 @@ function initAuthModal() {
   if (signOutBtn) {
     signOutBtn.addEventListener('click', async (e) => {
       e.preventDefault();
+      if (authActionBusy) return;
       clearNotification();
+      authActionBusy = true;
       signOutBtn.disabled = true;
       try {
         const sdk = window.AuroMind;
         if (sdk && sdk.auth) {
           await sdk.auth.signOut();
         }
+        if (passwordInput) passwordInput.value = '';
+        if (otpCodeInput) otpCodeInput.value = '';
         showNotification('Signed out. Local guest progress preserved.');
         updateAuthUI();
+        broadcastIdentityToActiveIframe();
       } catch (err) {
         showNotification(err.message || 'Sign out failed.', true);
       } finally {
+        authActionBusy = false;
         signOutBtn.disabled = false;
       }
     });
@@ -1281,15 +1620,20 @@ function initAuthModal() {
     });
   }
 
-  // Wire Sync Now
+  // Wire Sync Now (requires authenticated account)
   if (syncNowBtn) {
     syncNowBtn.addEventListener('click', async (e) => {
       e.preventDefault();
       clearNotification();
+      const sdk = window.AuroMind;
+      const acct = sdk && sdk.auth && typeof sdk.auth.getAccount === 'function' ? sdk.auth.getAccount() : null;
+      if (!acct || !acct.userId) {
+        showNotification('Please sign in before syncing to the cloud.', true);
+        return;
+      }
       syncNowBtn.disabled = true;
       syncNowBtn.textContent = 'Syncing...';
       try {
-        const sdk = window.AuroMind;
         if (!sdk || !sdk.sync) throw new Error('AuroMind Sync is unavailable.');
         const res = await sdk.sync.syncNow();
         if (res && res.status === 'success') {
@@ -1303,15 +1647,18 @@ function initAuthModal() {
       } catch (err) {
         showNotification(err.message || 'Sync failed.', true);
       } finally {
-        syncNowBtn.disabled = false;
         syncNowBtn.textContent = 'Sync Now 🔄';
+        updateAuthUI();
       }
     });
   }
 
-  // Subscribe to identity changes
+  // Subscribe immediately if SDK already loaded, and also refresh once initPortalSDK() resolves
   if (window.AuroMind && window.AuroMind.identity && typeof window.AuroMind.identity.subscribe === 'function') {
     window.AuroMind.identity.subscribe(updateAuthUI);
+  }
+  if (window.AuroMindPortal && typeof window.AuroMindPortal.ready === 'function') {
+    window.AuroMindPortal.ready().then(() => updateAuthUI()).catch(() => {});
   }
 }
 

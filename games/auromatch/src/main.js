@@ -49,9 +49,15 @@ window.addEventListener('load', async () => {
     // Load local state
     loadProfileState();
 
-    // AuroMind Shared Platform SDK Integration (B3)
+    // AuroMind Shared Platform SDK Integration (B3 / B19.5-02)
     try {
-        let sdk = window.AuroMind || (window.parent && window.parent.AuroMind);
+        let parentSdk = null;
+        try {
+            parentSdk = (window.parent && window.parent !== window) ? window.parent.AuroMind : null;
+        } catch (_crossOriginErr) {
+            parentSdk = null;
+        }
+        let sdk = window.AuroMind || parentSdk;
         if (!sdk || typeof sdk.init !== 'function') {
             try {
                 const mod = await import('../../assets/sdk/auromind-sdk.js');
@@ -67,6 +73,8 @@ window.addEventListener('load', async () => {
         }
 
         if (sdk && typeof sdk.init === 'function') {
+            window.AuroMind = sdk;
+            window.AuroMindSDK = sdk;
             const ctx = await sdk.init({
                 gameId: 'auromatch',
                 appVersion: '4.0.0'
@@ -78,6 +86,29 @@ window.addEventListener('load', async () => {
                 if (!sdk.adapters.get('auromatch')?.initialized && typeof sdk.adapters.init === 'function') {
                     await sdk.adapters.init('auromatch');
                 }
+            }
+
+            const applyIdentitySnapshot = (snap) => {
+                if (!snap) return;
+                const gId = snap.guestId || (snap.guest ? snap.guest.guestId : null);
+                const uId = snap.account && snap.account.userId ? snap.account.userId : null;
+                if (gId) {
+                    window.__AUROMIND_GUEST_ID__ = gId;
+                    if (profileState && profileState.profile) {
+                        profileState.profile.platformGuestId = gId;
+                    }
+                }
+                window.__AUROMIND_USER_ID__ = uId;
+                window.__AUROMIND_AUTH_MODE__ = uId ? 'authenticated' : 'guest';
+            };
+
+            const initialIdentity = (sdk.identity && typeof sdk.identity.get === 'function')
+                ? sdk.identity.get()
+                : (ctx && ctx.identity ? ctx.identity : null);
+            applyIdentitySnapshot(initialIdentity);
+
+            if (sdk.identity && typeof sdk.identity.subscribe === 'function') {
+                sdk.identity.subscribe((snap) => applyIdentitySnapshot(snap));
             }
 
             const guestId = (sdk.identity && typeof sdk.identity.getGuestId === 'function')

@@ -64,11 +64,34 @@ export function resolveBackendConfig(explicitConfig = null) {
   const provider = raw.provider || (raw.supabaseUrl ? SUPPORTED_PROVIDERS.SUPABASE : (raw.projectId && raw.provider === SUPPORTED_PROVIDERS.FIREBASE ? SUPPORTED_PROVIDERS.FIREBASE : SUPPORTED_PROVIDERS.SUPABASE));
 
   // Strict defense-in-depth: Rejection of Supabase service role key in frontend configuration
+  // Inspect both literal markers and base64url-decoded JWT claims so real service_role JWTs cannot bypass.
   const supabaseUrl = raw.url || raw.supabaseUrl || null;
   const supabaseAnonKey = raw.anonKey || raw.supabaseAnonKey || null;
 
-  if (raw.serviceRoleKey ||
-      (typeof supabaseAnonKey === 'string' && supabaseAnonKey.includes('service_role'))) {
+  function isJwtServiceRole(token) {
+    if (typeof token !== 'string') return false;
+    if (token.includes('service_role')) return true;
+    const parts = token.split('.');
+    if (parts.length !== 3) return false;
+    try {
+      const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const padded = b64.padEnd(b64.length + ((4 - (b64.length % 4)) % 4), '=');
+      const jsonStr =
+        typeof Buffer !== 'undefined'
+          ? Buffer.from(padded, 'base64').toString('utf8')
+          : atob(padded);
+      const claims = JSON.parse(jsonStr);
+      return Boolean(
+        claims &&
+        typeof claims === 'object' &&
+        (claims.role === 'service_role' || claims.user_role === 'service_role')
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  if (raw.serviceRoleKey || isJwtServiceRole(supabaseAnonKey)) {
     const err = new Error('SECURITY VIOLATION: Service role key must NEVER be passed to frontend configuration');
     err.code = 'SERVICE_ROLE_KEY_FORBIDDEN';
     throw err;

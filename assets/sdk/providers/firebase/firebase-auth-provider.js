@@ -22,7 +22,7 @@ export function createFirebaseAuthProvider(client) {
       role: sessionOrUser.role || 'authenticated',
       isAnonymous: Boolean(sessionOrUser.isAnonymous),
       metadata: Object.freeze({ ...(sessionOrUser.metadata || {}) }),
-      accessToken: sessionOrUser.idToken || sessionOrUser.accessToken || null
+      expiresAt: sessionOrUser.expiresAt || null
     });
   }
 

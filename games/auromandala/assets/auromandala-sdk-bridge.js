@@ -544,15 +544,48 @@ function attachSeniorModeListener() {
       if (document.body) {
         document.body.classList.toggle('senior-mode', isSenior);
       }
+    } else if (
+      event.data.type === 'AUROMIND_IDENTITY_CHANGED' &&
+      currentOrigin &&
+      currentOrigin !== 'null' &&
+      event.origin === currentOrigin
+    ) {
+      syncGameIdentityGlobals({
+        mode: event.data.mode === 'authenticated' ? 'authenticated' : 'guest',
+        guestId: typeof event.data.guestId === 'string' ? event.data.guestId : null,
+        account: typeof event.data.userId === 'string' && event.data.userId ? { userId: event.data.userId } : null
+      });
     }
   });
 }
 
+function syncGameIdentityGlobals(snapshot) {
+  if (typeof window === 'undefined' || !snapshot) return;
+  const guestId = snapshot.guestId || (snapshot.guest ? snapshot.guest.guestId : null);
+  const userId = snapshot.account && snapshot.account.userId ? snapshot.account.userId : null;
+  const mode = userId ? 'authenticated' : 'guest';
+  if (guestId) window.__AUROMIND_GUEST_ID__ = guestId;
+  window.__AUROMIND_USER_ID__ = userId;
+  window.__AUROMIND_AUTH_MODE__ = mode;
+  try {
+    if (typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+      window.dispatchEvent(new CustomEvent('auromind:identity-changed', { detail: { mode, guestId, userId } }));
+    }
+  } catch (_e) {}
+}
+
 (async function initAuroMandalaSdkBridge() {
+  if (typeof window === 'undefined') return;
   attachSeniorModeListener();
   mountPortalReturnButton();
   try {
-    let sdk = window.AuroMind || (window.parent && window.parent.AuroMind);
+    let parentSdk = null;
+    try {
+      parentSdk = typeof window !== 'undefined' && window.parent && window.parent !== window ? window.parent.AuroMind : null;
+    } catch (_crossOriginErr) {
+      parentSdk = null;
+    }
+    let sdk = (typeof window !== 'undefined' && window.AuroMind) || parentSdk;
     if (!sdk || typeof sdk.init !== 'function') {
       try {
         const mod = await import('../../../assets/sdk/auromind-sdk.js');
@@ -572,6 +605,10 @@ function attachSeniorModeListener() {
     }
 
     if (sdk && typeof sdk.init === 'function') {
+      if (typeof window !== 'undefined') {
+        window.AuroMind = sdk;
+        window.AuroMindSDK = sdk;
+      }
       const ctx = await sdk.init({
         gameId: 'auromandala',
         appVersion: '1.0.0'
@@ -583,6 +620,16 @@ function attachSeniorModeListener() {
         if (!sdk.adapters.get('auromandala')?.initialized && typeof sdk.adapters.init === 'function') {
           await sdk.adapters.init('auromandala');
         }
+      }
+
+      const initialIdentity =
+        sdk.identity && typeof sdk.identity.get === 'function'
+          ? sdk.identity.get()
+          : (ctx && ctx.identity ? ctx.identity : null);
+      syncGameIdentityGlobals(initialIdentity);
+
+      if (sdk.identity && typeof sdk.identity.subscribe === 'function') {
+        sdk.identity.subscribe((snapshot) => syncGameIdentityGlobals(snapshot));
       }
 
       const guestId = (sdk.identity && typeof sdk.identity.getGuestId === 'function')
