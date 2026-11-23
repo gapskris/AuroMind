@@ -22,67 +22,84 @@ const SANKALPA_FORBIDDEN_VALUE_RE =
 const MAX_PRIVACY_INSPECTION_DEPTH = 64;
 const MAX_PRIVACY_INSPECTION_NODES = 10000;
 
+function isPlainInspectableObject(val) {
+  if (val === null || typeof val !== 'object' || Array.isArray(val)) return false;
+  const proto = Object.getPrototypeOf(val);
+  if (proto !== Object.prototype && proto !== null) return false;
+  return Object.prototype.toString.call(val) === '[object Object]';
+}
+
 /**
- * Iterative, cycle-safe, fail-closed Sankalpa privacy inspector.
- * Returns true if any forbidden Sankalpa key/marker is found at any depth OR
- * if the structure exceeds safe inspection bounds (never silently accepts uninspected data).
+ * Iterative, descriptor-based, cycle-safe, fail-closed Sankalpa privacy inspector.
+ * Rejects forbidden Sankalpa keys/markers, accessor properties (without invoking getters),
+ * hostile proxies, unsupported non-plain objects, cycles, and depth/node limit breaches.
  */
 function payloadContainsForbiddenSankalpa(payload) {
-  if (payload === null || payload === undefined) return false;
-  if (typeof payload === 'string') return SANKALPA_FORBIDDEN_VALUE_RE.test(payload);
-  if (typeof payload !== 'object') return false;
-
-  const activeAncestors = new Set();
-  const completed = new WeakSet();
-  const stack = [{ node: payload, depth: 0, phase: 'enter' }];
-  let inspectedNodes = 0;
-
-  while (stack.length > 0) {
-    const { node, depth, phase } = stack.pop();
-    if (phase === 'exit') {
-      activeAncestors.delete(node);
-      completed.add(node);
-      continue;
+  try {
+    if (payload === null || payload === undefined || typeof payload === 'boolean' || typeof payload === 'number') {
+      return false;
     }
-    if (depth > MAX_PRIVACY_INSPECTION_DEPTH) return true; // Fail closed
-    inspectedNodes += 1;
-    if (inspectedNodes > MAX_PRIVACY_INSPECTION_NODES) return true; // Fail closed
+    if (typeof payload === 'string') return SANKALPA_FORBIDDEN_VALUE_RE.test(payload);
+    if (typeof payload !== 'object') return true; // Reject function, symbol, bigint
 
-    if (node === null || node === undefined) continue;
-    if (typeof node === 'string') {
-      if (SANKALPA_FORBIDDEN_VALUE_RE.test(node)) return true;
-      continue;
-    }
-    if (typeof node !== 'object') continue;
-    if (activeAncestors.has(node)) return true; // Fail closed on cyclic payload
-    if (completed.has(node)) continue;
-    activeAncestors.add(node);
-    stack.push({ node, depth, phase: 'exit' });
+    const activeAncestors = new Set();
+    const completed = new WeakSet();
+    const stack = [{ node: payload, depth: 0, phase: 'enter' }];
+    let inspectedNodes = 0;
 
-    if (Array.isArray(node)) {
-      for (let i = 0; i < node.length; i++) {
-        const item = node[i];
-        if (typeof item === 'string') {
-          if (SANKALPA_FORBIDDEN_VALUE_RE.test(item)) return true;
-        } else if (item && typeof item === 'object') {
-          stack.push({ node: item, depth: depth + 1, phase: 'enter' });
-        }
+    while (stack.length > 0) {
+      const { node, depth, phase } = stack.pop();
+      if (phase === 'exit') {
+        activeAncestors.delete(node);
+        completed.add(node);
+        continue;
       }
-    } else {
-      const keys = Object.keys(node);
-      for (let i = 0; i < keys.length; i++) {
-        const k = keys[i];
+      if (depth > MAX_PRIVACY_INSPECTION_DEPTH) return true; // Fail closed
+      inspectedNodes += 1;
+      if (inspectedNodes > MAX_PRIVACY_INSPECTION_NODES) return true; // Fail closed
+
+      if (node === null || node === undefined) continue;
+      const isArr = Array.isArray(node);
+      if (!isArr && !isPlainInspectableObject(node)) return true; // Fail closed on unsupported object type
+      if (activeAncestors.has(node)) return true; // Fail closed on cyclic payload
+      if (completed.has(node)) continue;
+      activeAncestors.add(node);
+      stack.push({ node, depth, phase: 'exit' });
+
+      if (Object.getOwnPropertySymbols(node).length > 0) return true; // Fail closed on symbol properties
+
+      const propNames = Object.getOwnPropertyNames(node);
+      for (let i = 0; i < propNames.length; i++) {
+        const k = propNames[i];
+        if (isArr && k === 'length') {
+          const lenDesc = Object.getOwnPropertyDescriptor(node, 'length');
+          if (!lenDesc || typeof lenDesc.get === 'function' || typeof lenDesc.set === 'function' || !Object.prototype.hasOwnProperty.call(lenDesc, 'value')) {
+            return true;
+          }
+          continue;
+        }
         if (SANKALPA_FORBIDDEN_KEY_RE.test(k)) return true;
-        const v = node[k];
+        const desc = Object.getOwnPropertyDescriptor(node, k);
+        if (!desc || typeof desc.get === 'function' || typeof desc.set === 'function' || !Object.prototype.hasOwnProperty.call(desc, 'value')) {
+          return true; // Reject accessor without invoking getter
+        }
+        const v = desc.value;
+        if (v === null || v === undefined || typeof v === 'boolean' || typeof v === 'number') {
+          continue;
+        }
         if (typeof v === 'string') {
           if (SANKALPA_FORBIDDEN_VALUE_RE.test(v)) return true;
-        } else if (v && typeof v === 'object') {
+        } else if (typeof v === 'object') {
           stack.push({ node: v, depth: depth + 1, phase: 'enter' });
+        } else {
+          return true; // Unsupported primitive (function/symbol/bigint)
         }
       }
     }
+    return false;
+  } catch {
+    return true; // Fail closed on hostile Proxy / trap exception
   }
-  return false;
 }
 
 export function createSupabaseSyncProvider(client) {

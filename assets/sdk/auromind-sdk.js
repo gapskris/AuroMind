@@ -3300,90 +3300,110 @@ export function createAuroMindSDK(options = {}) {
           const MAX_PRIVACY_INSPECTION_DEPTH = 64;
           const MAX_PRIVACY_INSPECTION_NODES = 10000;
 
+          const isPlainInspectableObject = (val) => {
+            if (val === null || typeof val !== 'object' || Array.isArray(val)) return false;
+            const proto = Object.getPrototypeOf(val);
+            if (proto !== Object.prototype && proto !== null) return false;
+            return Object.prototype.toString.call(val) === '[object Object]';
+          };
+
           const inspectPayloadForForbiddenVault = (payload, extraVaultMarkers = []) => {
-            if (payload === null || payload === undefined) return null;
-            const extraLower = extraVaultMarkers
-              .filter((m) => typeof m === 'string' && m.length > 0)
-              .map((m) => ({ raw: m, lower: m.toLowerCase() }));
+            try {
+              if (payload === null || payload === undefined) return null;
+              const extraLower = extraVaultMarkers
+                .filter((m) => typeof m === 'string' && m.length > 0)
+                .map((m) => ({ raw: m, lower: m.toLowerCase() }));
 
-            const checkString = (str) => {
-              const markerMatch = MANDATORY_LOCAL_ONLY_VALUE_RE.exec(str);
-              if (markerMatch) return markerMatch[0].toLowerCase();
-              const lower = str.toLowerCase();
-              for (const ex of extraLower) {
-                if (lower.includes(ex.lower)) return ex.raw;
-              }
-              return null;
-            };
-
-            if (typeof payload === 'string') {
-              return checkString(payload);
-            }
-            if (typeof payload !== 'object') return null;
-
-            const activeAncestors = new Set();
-            const completed = new WeakSet();
-            const stack = [{ node: payload, depth: 0, phase: 'enter' }];
-            let inspectedNodes = 0;
-
-            while (stack.length > 0) {
-              const { node, depth, phase } = stack.pop();
-              if (phase === 'exit') {
-                activeAncestors.delete(node);
-                completed.add(node);
-                continue;
-              }
-              if (depth > MAX_PRIVACY_INSPECTION_DEPTH) {
-                return 'PRIVACY_INSPECTION_DEPTH_EXCEEDED';
-              }
-              inspectedNodes += 1;
-              if (inspectedNodes > MAX_PRIVACY_INSPECTION_NODES) {
-                return 'PRIVACY_INSPECTION_NODE_LIMIT_EXCEEDED';
-              }
-              if (node === null || node === undefined) continue;
-              if (typeof node === 'string') {
-                const hit = checkString(node);
-                if (hit) return hit;
-                continue;
-              }
-              if (typeof node !== 'object') continue;
-              if (activeAncestors.has(node)) {
-                return 'PRIVACY_INSPECTION_CYCLE_DETECTED';
-              }
-              if (completed.has(node)) continue;
-              activeAncestors.add(node);
-              stack.push({ node, depth, phase: 'exit' });
-
-              if (Array.isArray(node)) {
-                for (let i = 0; i < node.length; i++) {
-                  const item = node[i];
-                  if (typeof item === 'string') {
-                    const hit = checkString(item);
-                    if (hit) return hit;
-                  } else if (item && typeof item === 'object') {
-                    stack.push({ node: item, depth: depth + 1, phase: 'enter' });
-                  }
+              const checkString = (str) => {
+                const markerMatch = MANDATORY_LOCAL_ONLY_VALUE_RE.exec(str);
+                if (markerMatch) return markerMatch[0].toLowerCase();
+                const lower = str.toLowerCase();
+                for (const ex of extraLower) {
+                  if (lower.includes(ex.lower)) return ex.raw;
                 }
-              } else {
-                const keys = Object.keys(node);
-                for (let i = 0; i < keys.length; i++) {
-                  const k = keys[i];
+                return null;
+              };
+
+              const checkPrimitiveOrPush = (val, nextDepth, stackRef) => {
+                if (val === null || val === undefined || typeof val === 'boolean' || typeof val === 'number') {
+                  return null;
+                }
+                if (typeof val === 'string') {
+                  return checkString(val);
+                }
+                if (typeof val === 'object') {
+                  stackRef.push({ node: val, depth: nextDepth, phase: 'enter' });
+                  return null;
+                }
+                return 'PRIVACY_INSPECTION_UNSUPPORTED_TYPE';
+              };
+
+              if (typeof payload !== 'object') {
+                return checkPrimitiveOrPush(payload, 0, []);
+              }
+
+              const activeAncestors = new Set();
+              const completed = new WeakSet();
+              const stack = [{ node: payload, depth: 0, phase: 'enter' }];
+              let inspectedNodes = 0;
+
+              while (stack.length > 0) {
+                const { node, depth, phase } = stack.pop();
+                if (phase === 'exit') {
+                  activeAncestors.delete(node);
+                  completed.add(node);
+                  continue;
+                }
+                if (depth > MAX_PRIVACY_INSPECTION_DEPTH) {
+                  return 'PRIVACY_INSPECTION_DEPTH_EXCEEDED';
+                }
+                inspectedNodes += 1;
+                if (inspectedNodes > MAX_PRIVACY_INSPECTION_NODES) {
+                  return 'PRIVACY_INSPECTION_NODE_LIMIT_EXCEEDED';
+                }
+                if (node === null || node === undefined) continue;
+                const isArr = Array.isArray(node);
+                if (!isArr && !isPlainInspectableObject(node)) {
+                  return 'PRIVACY_INSPECTION_UNSUPPORTED_OBJECT';
+                }
+                if (activeAncestors.has(node)) {
+                  return 'PRIVACY_INSPECTION_CYCLE_DETECTED';
+                }
+                if (completed.has(node)) continue;
+                activeAncestors.add(node);
+                stack.push({ node, depth, phase: 'exit' });
+
+                if (Object.getOwnPropertySymbols(node).length > 0) {
+                  return 'PRIVACY_INSPECTION_SYMBOL_KEY_FORBIDDEN';
+                }
+
+                const propNames = Object.getOwnPropertyNames(node);
+                for (let i = 0; i < propNames.length; i++) {
+                  const k = propNames[i];
+                  if (isArr && k === 'length') {
+                    const lenDesc = Object.getOwnPropertyDescriptor(node, 'length');
+                    if (!lenDesc || typeof lenDesc.get === 'function' || typeof lenDesc.set === 'function' || !Object.prototype.hasOwnProperty.call(lenDesc, 'value')) {
+                      return 'PRIVACY_INSPECTION_ACCESSOR_FORBIDDEN';
+                    }
+                    continue;
+                  }
                   if (/sankalpa/i.test(k)) return k;
                   const kLower = k.toLowerCase();
                   for (const ex of extraLower) {
                     if (kLower.includes(ex.lower)) return ex.raw;
                   }
-                  const v = node[k];
-                  if (typeof v === 'string') {
-                    const hit = checkString(v);
-                    if (hit) return hit;
-                  } else if (v && typeof v === 'object') {
-                    stack.push({ node: v, depth: depth + 1, phase: 'enter' });
+                  const desc = Object.getOwnPropertyDescriptor(node, k);
+                  if (!desc || typeof desc.get === 'function' || typeof desc.set === 'function' || !Object.prototype.hasOwnProperty.call(desc, 'value')) {
+                    return 'PRIVACY_INSPECTION_ACCESSOR_FORBIDDEN';
                   }
+                  const hit = checkPrimitiveOrPush(desc.value, depth + 1, stack);
+                  if (hit) return hit;
                 }
               }
+              return null;
+            } catch {
+              return 'PRIVACY_INSPECTION_HOSTILE_OBJECT';
             }
-            return null;
           };
 
           const payloadHasForbiddenVault = (payload, caps) => {
@@ -3552,13 +3572,27 @@ export function createAuroMindSDK(options = {}) {
               }
 
               // Strict remote local-only vault guard + canonical checksum & envelope validation before merge/apply
-              if (remoteRecord && typeof remoteRecord === 'object' && !Array.isArray(remoteRecord)) {
-                const preCheckForbiddenVault = payloadHasForbiddenVault(remoteRecord.payload, caps);
-                if (preCheckForbiddenVault) {
-                  loggingService.error('sync', `Security violation: remote envelope for "${gid}" attempted to inject local-only vault "${preCheckForbiddenVault}". Rejected.`);
-                  results.push({ gameId: gid, action: 'blocked_remote_local_only_vault', vault: preCheckForbiddenVault });
-                  continue;
+              try {
+                if (remoteRecord && isPlainJsonObject(remoteRecord)) {
+                  const payloadDesc = Object.getOwnPropertyDescriptor(remoteRecord, 'payload');
+                  if (
+                    payloadDesc &&
+                    typeof payloadDesc.get !== 'function' &&
+                    typeof payloadDesc.set !== 'function' &&
+                    Object.prototype.hasOwnProperty.call(payloadDesc, 'value') &&
+                    isPlainJsonObject(payloadDesc.value)
+                  ) {
+                    const preCheckForbiddenVault = payloadHasForbiddenVault(payloadDesc.value, caps);
+                    if (preCheckForbiddenVault) {
+                      loggingService.error('sync', `Security violation: remote envelope for "${gid}" attempted to inject local-only vault "${preCheckForbiddenVault}". Rejected.`);
+                      results.push({ gameId: gid, action: 'blocked_remote_local_only_vault', vault: preCheckForbiddenVault });
+                      continue;
+                    }
+                  }
                 }
+              } catch {
+                results.push({ gameId: gid, action: 'invalid_remote_envelope', reason: 'INVALID_REMOTE_RECORD' });
+                continue;
               }
 
               const remoteValidated = await buildValidatedRemoteEnvelope(gid, remoteRecord);

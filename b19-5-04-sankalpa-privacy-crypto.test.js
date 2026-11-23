@@ -48,7 +48,7 @@ import {
 import { computePayloadChecksum, AuroBlocksMergeStrategy } from './assets/sdk/auromind-adapters.js';
 import { createSupabaseSyncProvider } from './assets/sdk/providers/supabase/supabase-sync-provider.js';
 import { createFirestoreSyncProvider } from './assets/sdk/providers/firebase/firestore-sync-provider.js';
-import { exportCanonicalData, validateCanonicalData } from './assets/sdk/migration/backend-migration.js';
+import { exportCanonicalData, importCanonicalData, validateCanonicalData } from './assets/sdk/migration/backend-migration.js';
 import { createTestEnvironment } from './e2e/browser-harness.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1161,6 +1161,336 @@ describe('Part 3 — Mandatory Sankalpa Privacy Boundary (Sync, Outbox, Provider
       assert.equal(vRes.valid, false);
       assert.ok(vRes.errors.some((e) => /CRITICAL PRIVACY VIOLATION/.test(e)));
     }
+  });
+
+  test('Privacy-5: Migration export boundary validates ALL sections (profile, linkedDevices, entitlements, extra) before any downstream export/import and preserves valid exports', async () => {
+    function nestAtDepth(leaf, depth) {
+      let cur = leaf;
+      for (let i = depth; i > 0; i--) cur = { [`n_${i}`]: cur };
+      return cur;
+    }
+
+    const badSections = [
+      {
+        label: 'deep sankalpa key in profile',
+        raw: { profile: nestAtDepth({ sankalpa: 'SECRET_PROFILE_PRAYER' }, 12), gameSaves: [], linkedDevices: [], entitlements: [] }
+      },
+      {
+        label: 'sankalpa marker in linkedDevices',
+        raw: { profile: { displayName: 'Ok' }, linkedDevices: [{ guestId: 'g1', deviceLabel: 'uses sankalpa_e2ee_vault' }], gameSaves: [], entitlements: [] }
+      },
+      {
+        label: 'sankalpa key in entitlements',
+        raw: { profile: { displayName: 'Ok' }, entitlements: [{ sku: 'pro', gameId: 'vak', sankalpaNote: 'SECRET' }], gameSaves: [], linkedDevices: [] }
+      },
+      {
+        label: 'extra top-level sensitive section',
+        raw: { profile: { displayName: 'Ok' }, extraData: nestAtDepth({ format: 'auromasti-sankalpa-backup' }, 10), gameSaves: [], linkedDevices: [], entitlements: [] }
+      }
+    ];
+
+    for (const tc of badSections) {
+      let pullCalls = 0;
+      let destPushCalls = 0;
+      let destLinkCalls = 0;
+      let partialExport = null;
+
+      await assert.rejects(
+        async () => {
+          partialExport = await exportCanonicalData({
+            accountProvider: {
+              providerName: 'mock-source',
+              async exportUserData() {
+                return tc.raw;
+              }
+            },
+            cloudSync: {
+              async pullLatest() {
+                pullCalls += 1;
+                return null;
+              }
+            }
+          }, 'u_boundary_1');
+          // Destination import must never be reached
+          await importCanonicalData({
+            auth: { async linkGuestIdentity() { destLinkCalls += 1; return { linked: true }; } },
+            cloudSync: {
+              providerName: 'mock-dest',
+              async pullLatest() { return null; },
+              async pushWithOptimisticLock() { destPushCalls += 1; return { status: 'success', newRevision: 1 }; }
+            }
+          }, partialExport);
+        },
+        /MIGRATION_PRIVACY_INSPECTION_FAILED/,
+        `Section violation "${tc.label}" must reject before returning any export`
+      );
+
+      assert.equal(partialExport, null, `No partial export may be returned for "${tc.label}"`);
+      assert.equal(pullCalls, 0, `No downstream pullLatest calls for "${tc.label}"`);
+      assert.equal(destPushCalls, 0, `No destination cloudSync calls for "${tc.label}"`);
+      assert.equal(destLinkCalls, 0, `No destination auth calls for "${tc.label}"`);
+    }
+
+    // Positive control: safe data across profile, linkedDevices, entitlements, and gameSaves exports & imports cleanly
+    let destImported = 0;
+    let destLinked = 0;
+    const safeExport = await exportCanonicalData({
+      accountProvider: {
+        providerName: 'supabase-source',
+        async exportUserData() {
+          return {
+            email: 'seeker@example.com',
+            profile: { displayName: 'Peaceful Seeker', locale: 'en' },
+            linkedDevices: [{ guestId: 'guest_11111111-1111-4111-8111-111111111111', deviceLabel: 'Desktop' }],
+            entitlements: [{ sku: 'auro_full', gameId: 'vak', tier: 'full', status: 'active' }],
+            gameSaves: [{ gameId: 'vak', revision: 2, checksum: 'a'.repeat(64), payload: { level: 12 } }]
+          };
+        }
+      }
+    }, 'u_safe_1');
+
+    assert.equal(safeExport.schemaVersion, 1);
+    assert.equal(safeExport.identity.profile.displayName, 'Peaceful Seeker');
+    assert.equal(safeExport.guestLinks.length, 1);
+    assert.equal(safeExport.entitlements.length, 1);
+    assert.equal(safeExport.gameSaves.length, 1);
+    assert.equal((await validateCanonicalData(safeExport)).valid, true);
+
+    const importReport = await importCanonicalData({
+      auth: { async linkGuestIdentity() { destLinked += 1; return { linked: true }; } },
+      cloudSync: {
+        providerName: 'firebase-dest',
+        async pullLatest() { return null; },
+        async pushWithOptimisticLock() { destImported += 1; return { status: 'success', newRevision: 1 }; }
+      }
+    }, safeExport);
+    assert.equal(importReport.success, true);
+    assert.equal(destImported, 1);
+    assert.equal(destLinked, 1);
+  });
+
+  test('Privacy-6: Hostile object inspection rejects getters without invoking them, throwing proxies, unsupported objects, cycles, and over-limit trees across all 4 boundaries', async () => {
+    let getterInvocationCount = 0;
+
+    // 1. Counting getter (must NEVER be invoked -> counter stays 0!)
+    const countingGetterObj = { safe: 1 };
+    Object.defineProperty(countingGetterObj, 'trap', {
+      enumerable: true,
+      get() {
+        getterInvocationCount += 1;
+        return 'SHOULD_NEVER_EXECUTE';
+      }
+    });
+
+    // 2. Throwing getter inside nested object
+    const throwingGetterObj = { nested: {} };
+    Object.defineProperty(throwingGetterObj.nested, 'boom', {
+      enumerable: true,
+      get() {
+        getterInvocationCount += 1;
+        throw new Error('HOSTILE_GETTER_INVOKED');
+      }
+    });
+
+    // 3. Counting getter on an array element
+    const getterArray = [];
+    Object.defineProperty(getterArray, '0', {
+      enumerable: true,
+      get() {
+        getterInvocationCount += 1;
+        return 'ARRAY_GETTER';
+      }
+    });
+    const arrayGetterPayload = { items: getterArray };
+
+    // 4. Proxy whose ownKeys trap throws
+    const throwingOwnKeysProxy = new Proxy({}, {
+      ownKeys() {
+        throw new Error('PROXY_OWNKEYS_BOOM');
+      }
+    });
+
+    // 5. Proxy whose getOwnPropertyDescriptor trap throws
+    const throwingDescProxy = new Proxy({ a: 1 }, {
+      getOwnPropertyDescriptor() {
+        throw new Error('PROXY_DESC_BOOM');
+      }
+    });
+
+    // 6. Unsupported non-plain objects (Date, Map, class instance, Symbol key, function)
+    class HostileClass { constructor() { this.score = 1; } }
+    const symKeyObj = { a: 1 };
+    symKeyObj[Symbol('hidden_sankalpa')] = 'SECRET';
+
+    const hostilePayloads = [
+      { label: 'counting getter', payload: countingGetterObj },
+      { label: 'throwing getter', payload: throwingGetterObj },
+      { label: 'array element getter', payload: arrayGetterPayload },
+      { label: 'throwing ownKeys proxy', payload: { wrap: throwingOwnKeysProxy } },
+      { label: 'throwing descriptor proxy', payload: { wrap: throwingDescProxy } },
+      { label: 'Date object', payload: { ts: new Date() } },
+      { label: 'Map object', payload: { m: new Map([['k', 'v']]) } },
+      { label: 'class instance', payload: { c: new HostileClass() } },
+      { label: 'symbol-keyed object', payload: symKeyObj },
+      { label: 'function property', payload: { fn: () => 'secret' } }
+    ];
+
+    // A. SupabaseSyncProvider: ZERO RPC/DB calls, ZERO getter invocations
+    let sbCalls = 0;
+    const sbSync = createSupabaseSyncProvider({
+      isConfigured: () => true,
+      from() { sbCalls += 1; throw new Error('Supabase must not be called'); },
+      async rpc() { sbCalls += 1; throw new Error('Supabase RPC must not be called'); }
+    });
+    for (const tc of hostilePayloads) {
+      const res = await sbSync.pushWithOptimisticLock({ gameId: 'auromandala', payload: tc.payload }, 'u_hostile', 0);
+      assert.equal(res.status, 'disabled', `Supabase provider must reject "${tc.label}"`);
+    }
+    assert.equal(sbCalls, 0);
+    assert.equal(getterInvocationCount, 0, 'Supabase privacy guard must NEVER invoke getters');
+
+    // B. FirestoreSyncProvider: ZERO Firestore calls, ZERO getter invocations
+    let fsCalls = 0;
+    const fsSync = createFirestoreSyncProvider({
+      isConfigured: () => true,
+      firestore: {
+        async getDocument() { fsCalls += 1; throw new Error('Firestore get must not be called'); },
+        async setDocument() { fsCalls += 1; throw new Error('Firestore set must not be called'); }
+      }
+    });
+    for (const tc of hostilePayloads) {
+      const res = await fsSync.pushWithOptimisticLock({ gameId: 'auromandala', payload: tc.payload }, 'u_hostile', 0);
+      assert.equal(res.status, 'disabled', `Firestore provider must reject "${tc.label}"`);
+    }
+    assert.equal(fsCalls, 0);
+    assert.equal(getterInvocationCount, 0, 'Firestore privacy guard must NEVER invoke getters');
+
+    // C. Shared SDK syncNow(): ZERO cloudSync push calls, ZERO getter invocations
+    for (const tc of hostilePayloads) {
+      const storage = createMemoryStorage();
+      const fakeIdb = createFakeIndexedDB();
+      let sdkPushCalls = 0;
+      const authListeners = new Set();
+      const acct = {
+        userId: 'u_sdk_hostile',
+        email: 'hostile@example.com',
+        displayName: 'hostile',
+        provider: 'email',
+        expiresAt: new Date(Date.now() + 3600_000).toISOString()
+      };
+      const auth = {
+        providerName: 'mock-auth',
+        isConfigured: () => true,
+        async getSession() { return { ...acct }; },
+        async getCurrentSession() { return { ...acct }; },
+        async signIn() {
+          for (const cb of authListeners) cb({ ...acct });
+          return { status: 'authenticated', account: { ...acct } };
+        },
+        async signOut() {},
+        onAuthStateChange(cb) { authListeners.add(cb); return () => authListeners.delete(cb); }
+      };
+      const cloudSync = {
+        providerName: 'mock-sync',
+        isConfigured: () => true,
+        async pullLatest() { return null; },
+        async pushWithOptimisticLock() { sdkPushCalls += 1; return { status: 'success', newRevision: 1 }; }
+      };
+
+      const sdk = createAuroMindSDK({ env: { localStorage: storage, indexedDB: fakeIdb, BroadcastChannel: null } });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth, cloudSync }
+      });
+
+      sdk.adapters.register({
+        gameId: 'auroblocks',
+        adapterVersion: '1.0.0',
+        contractVersion: 1,
+        integrationMode: 'native',
+        storage: { kind: 'ls', ownedDatabases: [], ownedLocalStorageKeys: ['hostile_blocks'], localOnlyVaults: [] },
+        capabilities: { offlinePlay: true, localPersistence: true, cloudSyncEligible: true },
+        hasLocalProgress: () => true,
+        exportEnvelope: async (guestId) => ({
+          envelopeVersion: 1,
+          gameId: 'auroblocks',
+          gameSchemaVersion: 1,
+          guestId,
+          baseRevision: 0,
+          clientUpdatedAt: new Date().toISOString(),
+          isEmpty: false,
+          checksum: 'a'.repeat(64),
+          payload: tc.payload
+        }),
+        applyEnvelope: async () => true
+      }, { mergeStrategy: AuroBlocksMergeStrategy });
+      await sdk.adapters.init('auroblocks');
+      await sdk.auth.signIn('email', { email: 'hostile@example.com' });
+      sdk.sync.setConsent(true);
+
+      const syncRes = await sdk.sync.syncNow('auroblocks');
+      assert.equal(syncRes.results[0].action, 'blocked_local_only_vault', `SDK syncNow must block "${tc.label}"`);
+      assert.equal(sdkPushCalls, 0, `SDK must make ZERO cloud pushes for "${tc.label}"`);
+      sdk.dispose();
+    }
+    assert.equal(getterInvocationCount, 0, 'SDK privacy guard must NEVER invoke getters');
+
+    // D. Migration exportCanonicalData & validateCanonicalData & importCanonicalData: ZERO destination calls, ZERO getter invocations
+    let destCalls = 0;
+    const mockDestBundle = {
+      auth: { async linkGuestIdentity() { destCalls += 1; return { linked: true }; } },
+      cloudSync: {
+        providerName: 'mock-dest',
+        async pullLatest() { destCalls += 1; return null; },
+        async pushWithOptimisticLock() { destCalls += 1; return { status: 'success', newRevision: 1 }; }
+      }
+    };
+
+    for (const tc of hostilePayloads) {
+      await assert.rejects(
+        async () => exportCanonicalData({
+          accountProvider: {
+            async exportUserData() {
+              return { profile: { displayName: 'Seeker' }, gameSaves: [{ gameId: 'vak', payload: tc.payload }] };
+            }
+          }
+        }, 'u_mig_hostile'),
+        /MIGRATION_PRIVACY_INSPECTION_FAILED/,
+        `Migration export must reject hostile gameSave payload "${tc.label}"`
+      );
+
+      await assert.rejects(
+        async () => exportCanonicalData({
+          accountProvider: {
+            async exportUserData() {
+              return { profile: tc.payload, gameSaves: [] };
+            }
+          }
+        }, 'u_mig_hostile_prof'),
+        /MIGRATION_PRIVACY_INSPECTION_FAILED/,
+        `Migration export must reject hostile profile "${tc.label}"`
+      );
+
+      const vRes = await validateCanonicalData({
+        schemaVersion: 1,
+        sourceUserId: 'u_mig_hostile',
+        gameSaves: [{ gameId: 'vak', payload: tc.payload }]
+      });
+      assert.equal(vRes.valid, false, `validateCanonicalData must reject "${tc.label}"`);
+
+      await assert.rejects(
+        async () => importCanonicalData(mockDestBundle, {
+          schemaVersion: 1,
+          sourceUserId: 'u_mig_hostile',
+          gameSaves: [{ gameId: 'vak', payload: tc.payload }]
+        }),
+        /Canonical validation failed/
+      );
+    }
+
+    assert.equal(destCalls, 0, 'Destination migration provider must NEVER be called for rejected hostile data');
+    assert.equal(getterInvocationCount, 0, 'Migration privacy guard must NEVER invoke getters');
   });
 });
 
