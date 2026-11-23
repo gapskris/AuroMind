@@ -31,75 +31,6 @@
       })();
     </script>
 
-    <!-- Immediate Senior Mode Initialization & Portal Listener (Zero-FOUC B17-DEFECT-02 / B19.5-01A / B19.5-01B) -->
-    <script>
-      (function() {
-        try {
-          var savedSenior = localStorage.getItem('auromind_senior_mode') === 'true';
-          if (savedSenior) {
-            document.documentElement.classList.add('senior-mode');
-            if (document.body) document.body.classList.add('senior-mode');
-            window.__AUROMIND_SENIOR_MODE__ = true;
-          }
-
-          function handleSeniorModeMessage(event) {
-            // 1. Mandatory Source Validation: message MUST originate from expected parent window
-            if (!window.parent || event.source !== window.parent) return;
-
-            // 2. Strict Same-Origin Validation (B19.5-01E)
-            // Confirmed same-origin architecture: portal and game share the exact same HTTP(S) origin
-            // Reject opaque ('null'), empty (''), wildcard ('*'), and mismatched origins
-            var currentOrigin = window.location.origin;
-            if (
-              !currentOrigin ||
-              currentOrigin === 'null' ||
-              currentOrigin === '' ||
-              (!currentOrigin.startsWith('http://') && !currentOrigin.startsWith('https://'))
-            ) {
-              return;
-            }
-
-            var isTrustedOrigin = (event.origin === currentOrigin);
-            if (!isTrustedOrigin) return;
-
-            // 3. Strict Payload and Type Allowlist Validation
-            if (!event.data || typeof event.data !== 'object' || Array.isArray(event.data)) return;
-            if (event.data.type !== 'AUROMIND_SET_SENIOR_MODE') return;
-            if (typeof event.data.enabled !== 'boolean') return;
-
-            var isSenior = event.data.enabled;
-
-            // 4. Idempotency: Repeated messages do not cause redundant state transitions or persistence writes
-            if (window.__AUROMIND_SENIOR_MODE__ === isSenior &&
-                document.documentElement && document.documentElement.classList.contains('senior-mode') === isSenior &&
-                (!window.activeGameManager || window.activeGameManager.seniorView === isSenior)) {
-              return;
-            }
-
-            window.__AUROMIND_SENIOR_MODE__ = isSenior;
-
-            if (document.documentElement) {
-              document.documentElement.classList.toggle('senior-mode', isSenior);
-            }
-            if (document.body) {
-              document.body.classList.toggle('senior-mode', isSenior);
-            }
-            try {
-              localStorage.setItem('auromind_senior_mode', isSenior ? 'true' : 'false');
-            } catch (e) {}
-
-            if (window.activeGameManager && typeof window.activeGameManager.toggleSeniorView === 'function') {
-              window.activeGameManager.toggleSeniorView(isSenior);
-            }
-          }
-
-          // Register single authoritative listener and set flag only after successful registration (B19.5-01C)
-          window.addEventListener('message', handleSeniorModeMessage);
-          window.__AUROMIND_SENIOR_HANDLER_ATTACHED__ = true;
-        } catch(e) {}
-      })();
-    </script>
-
     <!-- Cross-Platform PWA & Mobile Meta (Android, iOS, iPadOS, Tablets, PC) -->
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -114,8 +45,6 @@
     <link rel="alternate icon" type="image/png" href="./Assets/icons/favicon.png">
     <link rel="apple-touch-icon" sizes="180x180" href="./Assets/icons/apple-touch-icon.png">
     <link rel="manifest" href="./manifest.json">
-    <!-- AuroMind Shared Platform SDK Bridge (TASK-ADP-02) -->
-    <script type="module" src="./Assets/auromatch-sdk-bridge.js"></script>
 
     <!-- CSS Design System -->
     <style>
@@ -3303,7 +3232,12 @@ body {
     height: calc(100% - 4px) !important;
     object-fit: contain !important;
     border-radius: 7px !important;
-    display: block !important;
+    display: block;
+}
+
+.tile-element.tile-authentic-art .tile-art-img.tile-img-hidden,
+.tile-element.tile-authentic-art .tile-art-img[style*="display: none"] {
+    display: none !important;
 }
 
 
@@ -5986,7 +5920,7 @@ body {
 }
 
 #center-stage-col.theme-botanical-stage {
-    background: url('../Assets/themes/botanical_art/background.png') center/cover no-repeat !important;
+    background: url('./Assets/themes/botanical_art/background.png') center/cover no-repeat !important;
     box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.7);
 }
 
@@ -6012,7 +5946,7 @@ body {
 }
 
 [data-theme="imperial_gold"] #center-stage-col.theme-standard-stage {
-    background: url('../Assets/themes/standard_gold/background.png') center/cover no-repeat !important;
+    background: url('./Assets/themes/standard_gold/background.png') center/cover no-repeat !important;
     box-shadow: inset 0 0 90px rgba(0, 0, 0, 0.75);
 }
 
@@ -6049,7 +5983,7 @@ body {
 }
 
 [data-theme="royal_lapis"] #center-stage-col.theme-standard-stage {
-    background: url('../Assets/themes/standard_lapis/background.png') center/cover no-repeat !important;
+    background: url('./Assets/themes/standard_lapis/background.png') center/cover no-repeat !important;
     box-shadow: inset 0 0 90px rgba(0, 0, 0, 0.75);
 }
 
@@ -6163,6 +6097,10 @@ body[data-theme="botanical"] .app-container {
     --text-current: #fdf2f8 !important;
     --accent-current: #f472b6 !important;
     --overlay-current: rgba(4, 9, 16, 0.90) !important;
+    --tile-base-dark: #07101f !important;
+    --tile-base-rim: #be185d !important;
+    --tile-surface-bg: linear-gradient(145deg, #132442 0%, #0a1426 100%) !important;
+    --tile-border: 1.5px solid rgba(244, 114, 182, 0.65) !important;
 }
 
 /* 2. Outer Viewport Surrounding Canvas */
@@ -59498,7 +59436,7 @@ class BoardRenderer {
 
           <div class="tile-face tile-art-face">
 
-            <img class="tile-art-img" src="${customImg}" alt="${tileName}" draggable="false" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
+            <img class="tile-art-img" src="${customImg}" alt="${tileName}" draggable="false" onload="if(this.naturalWidth<=1&&this.naturalHeight<=1){this.classList.add('tile-img-hidden');this.style.setProperty('display','none','important');if(this.nextElementSibling)this.nextElementSibling.style.display='flex';}" onerror="this.classList.add('tile-img-hidden');this.style.setProperty('display','none','important'); if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
 
             <div class="tile-art-fallback" style="display: none; width: 100%; height: 100%; flex-direction: column; align-items: center; justify-content: center; background: #1e293b; border: 2px solid #fbbf24; border-radius: 12px; color: #fff; text-align: center; padding: 4px;">
 
@@ -62380,13 +62318,7 @@ class GameManager {
     this.standardTheme = this.loadStandardTheme(); // 'imperial_gold' | 'royal_lapis'
     this.seniorView = (options.seniorView !== undefined) 
       ? !!options.seniorView 
-      : (typeof window !== 'undefined' && typeof window.__AUROMIND_SENIOR_MODE__ === 'boolean')
-        ? window.__AUROMIND_SENIOR_MODE__
-        : (typeof document !== 'undefined' && document.documentElement && document.documentElement.classList.contains('senior-mode'))
-          ? true
-          : (typeof localStorage !== 'undefined' && localStorage.getItem('auromind_senior_mode') === 'true')
-            ? true
-            : !!(profileState && profileState.settings && profileState.settings.seniorViewActive);
+      : !!(profileState && profileState.settings && profileState.settings.seniorViewActive);
     this.tuningBase = (options.tuningBase !== undefined) ? options.tuningBase : 'off';
     this.boardRenderer = null;
     this.inputDispatcher = null;
@@ -63012,18 +62944,6 @@ class GameManager {
       rootEl.classList.remove('senior-view');
       rootEl.classList.remove('senior-view-active');
     }
-    if (typeof document !== 'undefined') {
-      if (document.documentElement) document.documentElement.classList.toggle('senior-mode', this.seniorView);
-      if (document.body) document.body.classList.toggle('senior-mode', this.seniorView);
-    }
-    if (typeof window !== 'undefined') {
-      window.__AUROMIND_SENIOR_MODE__ = this.seniorView;
-    }
-    try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('auromind_senior_mode', this.seniorView ? 'true' : 'false');
-      }
-    } catch (e) {}
     // Persist to storage
     if (profileState && profileState.settings) {
       profileState.settings.seniorViewActive = this.seniorView;
@@ -63875,13 +63795,6 @@ class GameManager {
 }
 
 const activeGameManager = new GameManager();
-window.activeGameManager = activeGameManager;
-// Apply any early Senior Mode preference received before activeGameManager was created
-if (typeof window.__AUROMIND_SENIOR_MODE__ === 'boolean') {
-  activeGameManager.toggleSeniorView(window.__AUROMIND_SENIOR_MODE__);
-} else if (typeof document !== 'undefined' && document.documentElement && document.documentElement.classList.contains('senior-mode')) {
-  activeGameManager.toggleSeniorView(true);
-}
 
 
 const gardens = REALMS.map(r => ({
@@ -64156,7 +64069,9 @@ try {
 
 
 
-window.addEventListener('load', async () => {
+const bootAuroMatchApp = async () => {
+    if (window.__auroMatchBooted) return;
+    window.__auroMatchBooted = true;
     // 0. Auto-heal: restore all state from AuroMatchDB if localStorage was wiped (e.g. Safari 7-day ITP)
     try {
         await autoHealFromIndexedDB();
@@ -64281,7 +64196,8 @@ window.addEventListener('load', async () => {
                                  role="button"
                                  aria-label="${tileName}, tap to return to board">
                                 <img class="tray-tile-img" src="${customImg}" alt="${tileName}" draggable="false"
-                                     onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
+                                     onload="if(this.naturalWidth<=1&&this.naturalHeight<=1){this.classList.add('tile-img-hidden');this.style.setProperty('display','none','important');if(this.nextElementSibling)this.nextElementSibling.style.display='flex';}"
+                                     onerror="this.classList.add('tile-img-hidden');this.style.setProperty('display','none','important'); if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
                                 <div class="tray-tile-fallback" style="display: none;">
                                     <span class="tray-tile-symbol">${tileSym}</span>
                                     <span class="tray-tile-label">${tileName}</span>
@@ -65213,28 +65129,13 @@ window.addEventListener('load', async () => {
         routeToScreen('welcome');
     };
     
-    // Return to AuroMind Portal action (B17-GAP-05 / B17.4 / B19.5-01D)
-    // Delegate to authoritative implementation from Assets/auromatch-sdk-bridge.js
-    if (typeof window.exitToAuroMindPortal !== 'function') {
-        window.exitToAuroMindPortal = () => {
-            try {
-                if (window.parent && window.parent !== window) {
-                    const targetOrigin = (typeof window.resolveParentPortalOrigin === 'function')
-                        ? window.resolveParentPortalOrigin()
-                        : ((window.location.origin && window.location.origin !== 'null' && (window.location.origin.startsWith('http:') || window.location.origin.startsWith('https:'))) ? window.location.origin : null);
-                    if (!targetOrigin) {
-                        window.location.href = '../../index.html';
-                        return;
-                    }
-                    window.parent.postMessage({ type: 'AUROMIND_CLOSE_THEATER', gameId: 'auromatch' }, targetOrigin);
-                } else {
-                    window.location.href = '../../index.html';
-                }
-            } catch (_err) {
-                window.location.href = '../../index.html';
-            }
-        };
-    }
+    window.exitToAuroMindPortal = () => {
+        if (window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: 'AUROMIND_CLOSE_THEATER' }, '*');
+        } else {
+            window.location.href = 'https://gapskris.github.io/AuroMind/';
+        }
+    };
 
     window.backFromSettings = () => {
         const prev = getPreviousScreen();
@@ -66058,7 +65959,31 @@ window.addEventListener('load', async () => {
     };
 
         initDynamicScreenAdjuster();
+        // Sequentially pre-warm Botanical Art tile sets during idle time without saturating HTTP sockets
+        setTimeout(() => {
+            try {
+                const preloadUrls = [];
+                if (BOTANICAL_CAMPAIGN) {
+                    if (BOTANICAL_CAMPAIGN.bgImage) preloadUrls.push(BOTANICAL_CAMPAIGN.bgImage);
+                    (BOTANICAL_CAMPAIGN.customTiles || []).forEach(t => { if (t && t.image) preloadUrls.push(t.image); });
+                }
+                let idx = 0;
+                const loadNext = () => {
+                    if (idx >= preloadUrls.length) return;
+                    const img = new Image();
+                    img.onload = img.onerror = () => setTimeout(loadNext, 60);
+                    img.src = preloadUrls[idx++];
+                };
+                loadNext();
+            } catch (e) {}
+        }, 2500);
+
         if (typeof window !== 'undefined' && window.location && window.location.search && window.location.search.includes('screen=game')) {
+            const params = new URLSearchParams(window.location.search);
+            const reqMode = params.get('mode');
+            if (reqMode && activeGameManager) {
+                activeGameManager.gameplayMode = reqMode;
+            }
             document.querySelectorAll('.screen-view').forEach(s => s.classList.remove('active-screen'));
             const gameScreen = document.getElementById('game-screen');
             if (gameScreen) gameScreen.classList.add('active-screen');
@@ -66075,7 +66000,12 @@ window.addEventListener('load', async () => {
                 }
             }
         }
-});
+};
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootAuroMatchApp);
+} else {
+    bootAuroMatchApp();
+}
 
 </script>
 </body>
