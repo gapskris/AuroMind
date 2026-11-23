@@ -12,6 +12,7 @@ import {
   createAuroMindSDK,
   LS_GUEST_KEY,
   LS_PROFILE_KEY,
+  LS_SYNC_META_KEY,
   AVATAR_MAX_BYTES,
   sanitizeDisplayName,
   validateAvatarInput
@@ -749,6 +750,240 @@ describe('B19.5-02 Part 1 — Identity, Auth, Profile & Security (Unit/Integrati
     await new Promise((r) => setTimeout(r, 20));
     assert.equal(tabB.auth.getAccount(), null);
     assert.equal(tabB.identity.get().mode, 'guest');
+
+    tabA.dispose();
+    tabB.dispose();
+  });
+
+  test('13. Sync metadata isolation: Account A -> Account B (after logout and direct switch without logout), logout/offline sign-out, reinit, same-account refresh, and outbox/save preservation', async () => {
+    const storage = createMemoryStorage();
+    let activeSession = null;
+    let authChangeCb = null;
+    let failSignOut = false;
+
+    const mockAuth = {
+      providerName: 'mock-sync-iso-auth',
+      isConfigured: () => true,
+      getCurrentSession: async () => activeSession,
+      signIn: async (_m, { email }) => {
+        const uid = email.startsWith('alice') ? 'usr_sync_alice' : 'usr_sync_bob';
+        activeSession = { userId: uid, email };
+        return { ok: true, account: activeSession };
+      },
+      signOut: async () => {
+        activeSession = null;
+        if (failSignOut) throw new Error('OFFLINE_SIGNOUT_ERROR');
+      },
+      onAuthStateChange: (cb) => {
+        authChangeCb = cb;
+        return () => { authChangeCb = null; };
+      }
+    };
+
+    const mockCloudSync = {
+      providerName: 'mock-cloud-sync',
+      isConfigured: () => true,
+      pullLatest: async () => null,
+      pushWithOptimisticLock: async () => ({ status: 'success', newRevision: 7 }),
+      listSaves: async () => []
+    };
+
+    const makeSyncAdapter = () => ({
+      gameId: 'auromatch',
+      adapterVersion: '1.0.0',
+      contractVersion: 1,
+      integrationMode: 'native',
+      storage: { kind: 'ls', ownedDatabases: [], ownedLocalStorageKeys: ['auromatch_test_save'], localOnlyVaults: [] },
+      capabilities: { offlinePlay: true, localPersistence: true, cloudSyncEligible: true, hasLocalOnlyVaults: false, localOnlyVaults: [] },
+      hasLocalProgress: () => true,
+      exportEnvelope: async (guestId) => ({
+        envelopeVersion: 1,
+        gameId: 'auromatch',
+        gameSchemaVersion: 1,
+        guestId,
+        baseRevision: 0,
+        checksum: 'chk_alice_v1',
+        payload: { level: 12 },
+        clientUpdatedAt: new Date().toISOString(),
+        isEmpty: false
+      }),
+      applyEnvelope: async () => true,
+      init: async () => {}
+    });
+
+    const sdk = createAuroMindSDK({ env: { localStorage: storage, indexedDB: null } });
+    await sdk.init({
+      gameId: 'portal',
+      capabilities: { authEnabled: true, cloudSyncEnabled: true },
+      providers: { auth: mockAuth, cloudSync: mockCloudSync }
+    });
+    sdk.adapters.register(makeSyncAdapter());
+    await sdk.adapters.init('auromatch');
+
+    // Seed guest save data and a pending outbox item for another game
+    storage.setItem('auromatch_test_save', JSON.stringify({ level: 12 }));
+    await sdk.sync.queueLocalChange('auroblocks');
+    sdk.sync.setConsent(true);
+
+    // 1. Account A (Alice) signs in and completes a sync
+    await sdk.auth.signInWithEmail('alice@auromasti.test', 'pw');
+    const syncRes = await sdk.sync.syncNow('auromatch');
+    assert.equal(syncRes.status, 'success');
+
+    const aliceStatus = sdk.sync.getSyncStatus();
+    assert.ok(aliceStatus.lastSyncAt, 'Alice must have persisted lastSyncAt after sync');
+    assert.equal(aliceStatus.metadata.auromatch?.revision, 7);
+    assert.equal(storage.getItem(LS_SYNC_META_KEY), null, 'Account sync metadata must NOT be stored under shared flat LS_SYNC_META_KEY');
+
+    // 2. Same-account session refresh preserves Alice's valid metadata
+    const refreshedExp = new Date(Date.now() + 3600_000).toISOString();
+    activeSession = { userId: 'usr_sync_alice', email: 'alice@auromasti.test', expiresAt: refreshedExp };
+    authChangeCb(activeSession);
+    const aliceAfterRefresh = sdk.sync.getSyncStatus();
+    assert.equal(aliceAfterRefresh.lastSyncAt, aliceStatus.lastSyncAt, 'Same-account refresh must preserve lastSyncAt');
+    assert.equal(aliceAfterRefresh.metadata.auromatch?.revision, 7);
+
+    // 3. Direct account switch from Alice -> Bob WITHOUT intermediate logout
+    await sdk.auth.signInWithEmail('bob@auromasti.test', 'pw');
+    const bobDirectStatus = sdk.sync.getSyncStatus();
+    assert.equal(bobDirectStatus.lastSyncAt, null, 'Bob must NOT see Alice lastSyncAt after direct switch');
+    assert.deepEqual(bobDirectStatus.metadata, {}, 'Bob must NOT see Alice per-game sync metadata');
+    assert.ok(bobDirectStatus.pendingGames.includes('auroblocks'), 'Pending outbox entries must remain intact');
+    assert.equal(JSON.parse(storage.getItem('auromatch_test_save')).level, 12, 'Guest save data must remain intact');
+
+    // Also test direct switch via provider onAuthStateChange (Alice -> Bob)
+    authChangeCb({ userId: 'usr_sync_alice', email: 'alice@auromasti.test' });
+    assert.equal(sdk.sync.getSyncStatus().metadata.auromatch?.revision, 7, 'Alice own metadata restored when switching back to Alice');
+    authChangeCb({ userId: 'usr_sync_bob', email: 'bob@auromasti.test' });
+    assert.equal(sdk.sync.getSyncStatus().lastSyncAt, null);
+    assert.deepEqual(sdk.sync.getSyncStatus().metadata, {});
+
+    // 4. Switch back to Alice, then sign out WITH failing/offline provider signOut -> Guest cannot see Alice metadata
+    await sdk.auth.signInWithEmail('alice@auromasti.test', 'pw');
+    assert.equal(sdk.sync.getSyncStatus().metadata.auromatch?.revision, 7);
+    failSignOut = true;
+    await sdk.auth.signOut();
+    const guestStatusAfterFailedSignOut = sdk.sync.getSyncStatus();
+    assert.equal(sdk.auth.getAccount(), null);
+    assert.equal(guestStatusAfterFailedSignOut.lastSyncAt, null, 'Guest mode must NOT see Alice lastSyncAt after logout');
+    assert.deepEqual(guestStatusAfterFailedSignOut.metadata, {}, 'Guest mode must NOT see Alice metadata after logout');
+    assert.ok(guestStatusAfterFailedSignOut.pendingGames.includes('auroblocks'), 'Outbox preserved after failed provider signOut');
+    assert.equal(JSON.parse(storage.getItem('auromatch_test_save')).level, 12, 'Guest save preserved after logout');
+
+    // 5. Bob signs in after Alice logged out -> Bob cannot see Alice metadata
+    failSignOut = false;
+    await sdk.auth.signInWithEmail('bob@auromasti.test', 'pw');
+    assert.equal(sdk.sync.getSyncStatus().lastSyncAt, null);
+    assert.deepEqual(sdk.sync.getSyncStatus().metadata, {});
+    await sdk.auth.signOut();
+    sdk.dispose();
+
+    // 6. Reinitialize brand-new SDK instance after logout (even if legacy flat LS_SYNC_META_KEY existed)
+    storage.setItem(LS_SYNC_META_KEY, JSON.stringify({ lastSyncAt: '2026-01-01T00:00:00.000Z', auromatch: { revision: 99 } }));
+    const sdkReinitGuest = createAuroMindSDK({ env: { localStorage: storage, indexedDB: null } });
+    await sdkReinitGuest.init({
+      gameId: 'portal',
+      capabilities: { authEnabled: true, cloudSyncEnabled: true },
+      providers: { auth: mockAuth, cloudSync: mockCloudSync }
+    });
+    assert.equal(sdkReinitGuest.sync.getSyncStatus().lastSyncAt, null, 'Stale metadata must NOT reappear on reinit in guest mode');
+    assert.deepEqual(sdkReinitGuest.sync.getSyncStatus().metadata, {});
+    assert.equal(storage.getItem(LS_SYNC_META_KEY), null, 'Stale legacy flat key must be cleared on reinit');
+    assert.ok(sdkReinitGuest.sync.getSyncStatus().pendingGames.includes('auroblocks'), 'Pending outbox survives reinit');
+    sdkReinitGuest.dispose();
+
+    // 7. Reinitialize SDK as Alice (same-account reload) -> Alice's valid metadata IS preserved
+    activeSession = { userId: 'usr_sync_alice', email: 'alice@auromasti.test' };
+    const sdkReinitAlice = createAuroMindSDK({ env: { localStorage: storage, indexedDB: null } });
+    await sdkReinitAlice.init({
+      gameId: 'portal',
+      capabilities: { authEnabled: true, cloudSyncEnabled: true },
+      providers: { auth: mockAuth, cloudSync: mockCloudSync }
+    });
+    assert.equal(sdkReinitAlice.sync.getSyncStatus().lastSyncAt, aliceStatus.lastSyncAt);
+    assert.equal(sdkReinitAlice.sync.getSyncStatus().metadata.auromatch?.revision, 7);
+    sdkReinitAlice.dispose();
+  });
+
+  test('14. Multi-tab sync metadata isolation: two tabs switching accounts never expose another account sync metadata', async () => {
+    const sharedStorage = createMemoryStorage();
+    const FakeBC = createFakeBroadcastBus();
+    let sharedSession = null;
+
+    const makeTabAuth = () => ({
+      providerName: 'multi-tab-sync-auth',
+      isConfigured: () => true,
+      getCurrentSession: async () => sharedSession,
+      signIn: async (_m, { email }) => {
+        const uid = email.startsWith('alice') ? 'usr_mt_alice' : 'usr_mt_bob';
+        sharedSession = { userId: uid, email };
+        return { ok: true, account: sharedSession };
+      },
+      signOut: async () => { sharedSession = null; },
+      onAuthStateChange: () => () => {}
+    });
+
+    const mockCloudSync = {
+      providerName: 'mock-mt-sync',
+      isConfigured: () => true,
+      pullLatest: async () => null,
+      pushWithOptimisticLock: async () => ({ status: 'success', newRevision: 3 }),
+      listSaves: async () => []
+    };
+
+    const tabA = createAuroMindSDK({ env: { localStorage: sharedStorage, indexedDB: null, BroadcastChannel: FakeBC } });
+    const tabB = createAuroMindSDK({ env: { localStorage: sharedStorage, indexedDB: null, BroadcastChannel: FakeBC } });
+
+    await tabA.init({ gameId: 'portal', capabilities: { authEnabled: true, cloudSyncEnabled: true }, providers: { auth: makeTabAuth(), cloudSync: mockCloudSync } });
+    await tabB.init({ gameId: 'portal', capabilities: { authEnabled: true, cloudSyncEnabled: true }, providers: { auth: makeTabAuth(), cloudSync: mockCloudSync } });
+
+    tabA.adapters.register({
+      gameId: 'auromatch',
+      adapterVersion: '1.0.0',
+      contractVersion: 1,
+      integrationMode: 'native',
+      storage: { kind: 'ls', ownedDatabases: [], ownedLocalStorageKeys: ['mt_save'], localOnlyVaults: [] },
+      capabilities: { offlinePlay: true, localPersistence: true, cloudSyncEligible: true, hasLocalOnlyVaults: false, localOnlyVaults: [] },
+      hasLocalProgress: () => true,
+      exportEnvelope: async (guestId) => ({
+        envelopeVersion: 1,
+        gameId: 'auromatch',
+        gameSchemaVersion: 1,
+        guestId,
+        baseRevision: 0,
+        checksum: 'chk_mt_1',
+        payload: { score: 900 },
+        clientUpdatedAt: new Date().toISOString(),
+        isEmpty: false
+      }),
+      applyEnvelope: async () => true,
+      init: async () => {}
+    });
+    await tabA.adapters.init('auromatch');
+
+    // Tab A signs in as Alice and syncs -> Tab B syncs to Alice and sees Alice's metadata
+    tabA.sync.setConsent(true);
+    await tabA.auth.signInWithEmail('alice@auromasti.test', 'pw');
+    await new Promise((r) => setTimeout(r, 20));
+    await tabA.sync.syncNow('auromatch');
+    await new Promise((r) => setTimeout(r, 20));
+
+    assert.equal(tabB.auth.getAccount()?.userId, 'usr_mt_alice');
+    assert.equal(tabB.sync.getSyncStatus().metadata.auromatch?.revision, 3);
+
+    // Tab A switches directly to Bob -> Tab B immediately isolates & cannot see Alice's metadata
+    await tabA.auth.signInWithEmail('bob@auromasti.test', 'pw');
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal(tabB.auth.getAccount()?.userId, 'usr_mt_bob');
+    assert.equal(tabB.sync.getSyncStatus().lastSyncAt, null, 'Tab B as Bob must NOT see Alice lastSyncAt');
+    assert.deepEqual(tabB.sync.getSyncStatus().metadata, {}, 'Tab B as Bob must NOT see Alice sync metadata');
+
+    // Tab A signs out -> Tab B reverts to guest with empty sync metadata
+    await tabA.auth.signOut();
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal(tabB.auth.getAccount(), null);
+    assert.equal(tabB.sync.getSyncStatus().lastSyncAt, null);
+    assert.deepEqual(tabB.sync.getSyncStatus().metadata, {});
 
     tabA.dispose();
     tabB.dispose();

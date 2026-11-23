@@ -1179,6 +1179,75 @@ export function createAuroMindSDK(options = {}) {
   let syncConsent = false;
   let syncOutbox = new Set();
   let syncMetadata = {};
+  let syncMetadataOwnerUserId = null;
+  const memorySyncMetadataByUser = new Map();
+
+  function getSyncMetaStorageKey(userId) {
+    if (typeof userId !== 'string' || !userId.trim()) return null;
+    const safeId = userId.trim().replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 96);
+    return `${LS_SYNC_META_KEY}.user.${safeId}`;
+  }
+
+  function sanitizeSyncMetadataObject(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    const clean = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        clean[k] = { ...v };
+      } else if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || v === null) {
+        clean[k] = v;
+      }
+    }
+    return clean;
+  }
+
+  function loadSyncMetadataForUser(userId) {
+    if (typeof userId !== 'string' || !userId.trim()) {
+      return {};
+    }
+    const key = getSyncMetaStorageKey(userId);
+    if (key) {
+      try {
+        const mRes = lsGetRaw(key);
+        if (mRes.ok && mRes.raw) {
+          const parsed = JSON.parse(mRes.raw);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            const clean = sanitizeSyncMetadataObject(parsed);
+            memorySyncMetadataByUser.set(userId, clean);
+            return { ...clean };
+          }
+        }
+      } catch {}
+    }
+    if (memorySyncMetadataByUser.has(userId)) {
+      return { ...memorySyncMetadataByUser.get(userId) };
+    }
+    return {};
+  }
+
+  function persistSyncMetadataForUser(userId, meta) {
+    if (typeof userId !== 'string' || !userId.trim()) return;
+    const clean = sanitizeSyncMetadataObject(meta);
+    memorySyncMetadataByUser.set(userId, clean);
+    const key = getSyncMetaStorageKey(userId);
+    if (key) {
+      try {
+        lsSetRaw(key, JSON.stringify(clean));
+      } catch {}
+    }
+  }
+
+  function refreshActiveSyncMetadata(accountOverride = undefined) {
+    const activeAcct =
+      accountOverride !== undefined
+        ? accountOverride
+        : (capabilities.authEnabled ? sanitizeAccountRecord(currentAccount, getNow().getTime()) : null);
+    const activeUserId = activeAcct?.userId || null;
+    syncMetadataOwnerUserId = activeUserId;
+    syncMetadata = activeUserId ? loadSyncMetadataForUser(activeUserId) : {};
+    return syncMetadata;
+  }
 
   function loadPersistedSyncState() {
     try {
@@ -1193,13 +1262,10 @@ export function createAuroMindSDK(options = {}) {
           syncOutbox = new Set(parsed);
         }
       }
-      const mRes = lsGetRaw(LS_SYNC_META_KEY);
-      if (mRes.ok && mRes.raw) {
-        const parsed = JSON.parse(mRes.raw);
-        if (parsed && typeof parsed === 'object') {
-          syncMetadata = parsed;
-        }
-      }
+      // Never load legacy flat LS_SYNC_META_KEY into guest or arbitrary accounts;
+      // account-scoped sync metadata is loaded strictly after session resolution.
+      syncMetadata = {};
+      syncMetadataOwnerUserId = null;
     } catch {}
   }
 
@@ -1207,7 +1273,10 @@ export function createAuroMindSDK(options = {}) {
     try {
       lsSetRaw(LS_SYNC_CONSENT_KEY, String(syncConsent));
       lsSetRaw(LS_OUTBOX_KEY, JSON.stringify(Array.from(syncOutbox)));
-      lsSetRaw(LS_SYNC_META_KEY, JSON.stringify(syncMetadata));
+      const activeAcct = capabilities.authEnabled ? sanitizeAccountRecord(currentAccount, getNow().getTime()) : null;
+      if (activeAcct && activeAcct.userId && syncMetadataOwnerUserId === activeAcct.userId) {
+        persistSyncMetadataForUser(activeAcct.userId, syncMetadata);
+      }
     } catch {}
   }
   const memoryPlatformMeta = new Map();
@@ -1659,11 +1728,14 @@ export function createAuroMindSDK(options = {}) {
     currentAccount = nextAccount;
 
     if (accountChanged) {
-      // Strictly isolate cached profile, entitlements, and sync metadata across accounts/logout
+      // Strictly isolate cached profile, entitlements, and persisted sync metadata across every account transition
       cachedPlayerProfile = null;
       cachedEntitlements = Object.freeze([]);
+      // Remove any legacy unscoped flat LS_SYNC_META_KEY so stale metadata can never reappear on reinit
+      lsRemoveRaw(LS_SYNC_META_KEY);
+      // Load ONLY the new account's namespaced sync metadata (or {} in guest mode); never touch syncOutbox or saves
+      refreshActiveSyncMetadata(nextAccount);
       if (!nextAccount) {
-        syncMetadata = {};
         pendingAuthFlow = null;
       }
       if (broadcast) {
@@ -1927,6 +1999,13 @@ export function createAuroMindSDK(options = {}) {
           if (data.type === 'PROFILE_UPDATED' && initialized && !disposed) {
             cachedPlayerProfile = null;
             emitIdentityChange();
+            return;
+          }
+          if (data.type === 'SYNC_META_UPDATED' && initialized && !disposed) {
+            const activeAcct = getActiveAccountSanitized({ expireSideEffects: false });
+            if (activeAcct && data.userId && activeAcct.userId === data.userId) {
+              refreshActiveSyncMetadata(activeAcct);
+            }
           }
         };
       } catch {
@@ -1952,6 +2031,16 @@ export function createAuroMindSDK(options = {}) {
           if (initialized && !disposed) {
             cachedPlayerProfile = null;
             emitIdentityChange();
+          }
+          return;
+        }
+        if (event.key.startsWith(`${LS_SYNC_META_KEY}.user.`)) {
+          if (initialized && !disposed) {
+            const activeAcct = getActiveAccountSanitized({ expireSideEffects: false });
+            const expectedKey = activeAcct ? getSyncMetaStorageKey(activeAcct.userId) : null;
+            if (expectedKey && event.key === expectedKey) {
+              refreshActiveSyncMetadata(activeAcct);
+            }
           }
           return;
         }
@@ -3115,6 +3204,20 @@ export function createAuroMindSDK(options = {}) {
       return Array.from(syncOutbox);
     },
     getSyncStatus() {
+      const activeAcct = getActiveAccountSanitized({ expireSideEffects: true });
+      if (!activeAcct || !activeAcct.userId) {
+        return Object.freeze({
+          available: this.isAvailable(),
+          consent: this.hasConsent(),
+          outboxCount: syncOutbox.size,
+          pendingGames: Array.from(syncOutbox),
+          lastSyncAt: null,
+          metadata: Object.freeze({})
+        });
+      }
+      if (syncMetadataOwnerUserId !== activeAcct.userId) {
+        refreshActiveSyncMetadata(activeAcct);
+      }
       return Object.freeze({
         available: this.isAvailable(),
         consent: this.hasConsent(),
@@ -3137,11 +3240,14 @@ export function createAuroMindSDK(options = {}) {
           if (!this.hasConsent()) {
             return Object.freeze({ status: 'skipped', reason: 'consent_not_granted' });
           }
-          if (!currentAccount || !currentAccount.userId) {
+          const activeAcct = getActiveAccountSanitized({ expireSideEffects: true });
+          if (!activeAcct || !activeAcct.userId) {
             return Object.freeze({ status: 'skipped', reason: 'auth_required' });
           }
 
-          const userId = currentAccount.userId;
+          const userId = activeAcct.userId;
+          const syncStartEpoch = authEpoch;
+          const nextSyncMeta = loadSyncMetadataForUser(userId);
           const gameIds = targetGameId
             ? [targetGameId]
             : adaptersRegistry.list().map((item) => (typeof item === 'string' ? item : item.gameId));
@@ -3197,7 +3303,7 @@ export function createAuroMindSDK(options = {}) {
                   );
                   if (pushRes && pushRes.status === 'success') {
                     syncOutbox.delete(gid);
-                    syncMetadata[gid] = {
+                    nextSyncMeta[gid] = {
                       revision: pushRes.newRevision,
                       syncedAt: getNow().toISOString()
                     };
@@ -3228,7 +3334,7 @@ export function createAuroMindSDK(options = {}) {
               // Idempotent sync: if local and remote checksums match, records are identical
               if (localEnvelope.checksum && remoteRecord.checksum && localEnvelope.checksum === remoteRecord.checksum) {
                 syncOutbox.delete(gid);
-                syncMetadata[gid] = {
+                nextSyncMeta[gid] = {
                   revision: remoteRecord.revision || 1,
                   syncedAt: getNow().toISOString()
                 };
@@ -3249,7 +3355,7 @@ export function createAuroMindSDK(options = {}) {
 
                 if (pushRes && pushRes.status === 'success') {
                   syncOutbox.delete(gid);
-                  syncMetadata[gid] = {
+                  nextSyncMeta[gid] = {
                     revision: pushRes.newRevision,
                     syncedAt: getNow().toISOString()
                   };
@@ -3271,7 +3377,7 @@ export function createAuroMindSDK(options = {}) {
               } else if (mergeResolution.status === 'use_remote') {
                 await adaptersRegistry.applyRemoteEnvelope(gid, remoteEnvelope);
                 syncOutbox.delete(gid);
-                syncMetadata[gid] = {
+                nextSyncMeta[gid] = {
                   revision: remoteRecord.revision,
                   syncedAt: getNow().toISOString()
                 };
@@ -3292,7 +3398,7 @@ export function createAuroMindSDK(options = {}) {
                 );
                 if (pushRes && pushRes.status === 'success') {
                   syncOutbox.delete(gid);
-                  syncMetadata[gid] = {
+                  nextSyncMeta[gid] = {
                     revision: pushRes.newRevision,
                     syncedAt: getNow().toISOString()
                   };
@@ -3315,12 +3421,24 @@ export function createAuroMindSDK(options = {}) {
             }
           }
 
-          syncMetadata.lastSyncAt = getNow().toISOString();
-          persistSyncState();
+          const syncedAt = getNow().toISOString();
+          nextSyncMeta.lastSyncAt = syncedAt;
+          // Persist strictly under the synced user's namespace; never leak into a newly switched account or guest
+          persistSyncMetadataForUser(userId, nextSyncMeta);
+          const stillSameAccount =
+            authEpoch === syncStartEpoch &&
+            currentAccount &&
+            currentAccount.userId === userId;
+          if (stillSameAccount) {
+            syncMetadataOwnerUserId = userId;
+            syncMetadata = { ...nextSyncMeta };
+            persistSyncState();
+            broadcastPlatformEvent('SYNC_META_UPDATED', { userId });
+          }
 
           return Object.freeze({
             status: 'success',
-            syncedAt: syncMetadata.lastSyncAt,
+            syncedAt,
             results: Object.freeze(results)
           });
         } finally {
@@ -4754,6 +4872,10 @@ export function createAuroMindSDK(options = {}) {
           currentAccount = null;
         }
 
+        // Load strictly account-scoped sync metadata (or {} in guest mode) & clear any stale legacy flat key
+        lsRemoveRaw(LS_SYNC_META_KEY);
+        refreshActiveSyncMetadata(currentAccount);
+
         initialized = true;
         emitIdentityChange();
 
@@ -4850,6 +4972,9 @@ export function createAuroMindSDK(options = {}) {
     authInFlight = false;
     consumedAuthCallbacks.clear();
     memoryProfiles.clear();
+    syncMetadata = {};
+    syncMetadataOwnerUserId = null;
+    memorySyncMetadataByUser.clear();
     memoryLogBuffer.length = 0;
     memoryTelemetryQueue.length = 0;
   }
