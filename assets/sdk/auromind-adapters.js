@@ -455,19 +455,27 @@ export function generateArtworkUuid() {
   });
 }
 
+function formatRecoveredTitle(title) {
+  const base = typeof title === 'string' && title.trim() ? title.trim() : 'Mandala';
+  return base.endsWith('(Recovered Copy)') ? base : `${base} (Recovered Copy)`;
+}
+
 /**
- * Normalizes and caps snapshots to the last 10 snapshots (TASK-ART-01).
+ * Normalizes and caps snapshots to the last 10 immutable snapshots (TASK-ART-01 / B19.5-03).
  * @param {Array} snapshots
  * @returns {Array}
  */
 export function capSnapshots(snapshots) {
   if (!Array.isArray(snapshots)) return [];
-  return snapshots.slice(-10);
+  return snapshots
+    .filter((s) => s && typeof s === 'object')
+    .slice(-10)
+    .map((s) => Object.freeze({ ...s }));
 }
 
 /**
- * Migrates legacy artwork array or dictionary to canonical map schema (TASK-ART-01).
- * Keyed by artworkId (UUIDv4), with rolling 10-snapshot history and tombstone flags.
+ * Migrates legacy artwork array or dictionary to canonical map schema (TASK-ART-01 / B19.5-03).
+ * Keyed by artworkId (UUIDv4), with rolling 10 immutable snapshot history, causal revision fields, and tombstone flags.
  *
  * @param {Array|object|null|undefined} artworksInput
  * @returns {Record<string, object>}
@@ -477,70 +485,63 @@ export function migrateArtworksToMap(artworksInput) {
 
   const result = {};
 
+  function normalizeEntry(art, fallbackId, fallbackTitle) {
+    if (!art || typeof art !== 'object') return null;
+    const artworkId = String(art.artworkId || art.id || fallbackId);
+    const currentVersion = Math.max(1, Number(art.currentVersion || art.revision || art.version || 1));
+    const createdAt = art.createdAt || new Date().toISOString();
+    const updatedAt = art.updatedAt || art.createdAt || createdAt;
+    const deleted = Boolean(art.deleted);
+    const deletedAt = art.deletedAt || (deleted ? updatedAt : null);
+    const tombstoneRevision = deleted ? (Number(art.tombstoneRevision || currentVersion) || currentVersion) : null;
+    const parentRevisionId = typeof art.parentRevisionId === 'string' && art.parentRevisionId.trim()
+      ? art.parentRevisionId.trim()
+      : null;
+    const strokesCount = art.strokesCount ?? (Array.isArray(art.strokes) ? art.strokes.length : 0);
+    const contentHash =
+      typeof art.contentHash === 'string' && art.contentHash.trim()
+        ? art.contentHash.trim()
+        : computePayloadChecksumSync(art.strokes || art.data || { title: art.title || fallbackTitle, strokesCount });
+
+    const snapshots = Array.isArray(art.snapshots) && art.snapshots.length > 0
+      ? capSnapshots(art.snapshots)
+      : capSnapshots([{
+          version: currentVersion,
+          revision: currentVersion,
+          contentHash,
+          timestamp: updatedAt,
+          strokesCount,
+          data: art.data || art.strokes || []
+        }]);
+
+    return {
+      artworkId,
+      title: typeof art.title === 'string' && art.title.trim() ? art.title.trim() : fallbackTitle,
+      currentVersion,
+      revision: currentVersion,
+      parentRevisionId,
+      contentHash,
+      createdAt,
+      updatedAt,
+      deleted,
+      deletedAt,
+      tombstoneRevision,
+      strokesCount,
+      ...(Array.isArray(art.strokes) ? { strokes: art.strokes } : {}),
+      snapshots
+    };
+  }
+
   if (Array.isArray(artworksInput)) {
     for (let i = 0; i < artworksInput.length; i++) {
-      const art = artworksInput[i];
-      if (!art || typeof art !== 'object') continue;
-      const artworkId = art.artworkId || art.id || generateArtworkUuid();
-      const currentVersion = Number(art.currentVersion || art.version || 1);
-      const createdAt = art.createdAt || new Date().toISOString();
-      const updatedAt = art.updatedAt || art.createdAt || createdAt;
-      const deleted = Boolean(art.deleted);
-      const deletedAt = art.deletedAt || (deleted ? updatedAt : null);
-      const strokesCount = art.strokesCount ?? (Array.isArray(art.strokes) ? art.strokes.length : 0);
-
-      const snapshots = Array.isArray(art.snapshots) && art.snapshots.length > 0
-        ? capSnapshots(art.snapshots)
-        : [{
-            version: currentVersion,
-            timestamp: updatedAt,
-            strokesCount,
-            data: art.data || art.strokes || art
-          }];
-
-      result[artworkId] = {
-        artworkId,
-        title: art.title || `Mandala Artwork ${i + 1}`,
-        currentVersion,
-        createdAt,
-        updatedAt,
-        deleted,
-        deletedAt,
-        strokesCount,
-        snapshots
-      };
+      const normalized = normalizeEntry(artworksInput[i], generateArtworkUuid(), `Mandala Artwork ${i + 1}`);
+      if (normalized) result[normalized.artworkId] = normalized;
     }
   } else if (typeof artworksInput === 'object') {
     for (const [key, art] of Object.entries(artworksInput)) {
-      if (!art || typeof art !== 'object') continue;
-      const artworkId = art.artworkId || art.id || key;
-      const currentVersion = Number(art.currentVersion || art.version || 1);
-      const createdAt = art.createdAt || new Date().toISOString();
-      const updatedAt = art.updatedAt || art.createdAt || createdAt;
-      const deleted = Boolean(art.deleted);
-      const deletedAt = art.deletedAt || (deleted ? updatedAt : null);
-      const strokesCount = art.strokesCount ?? (Array.isArray(art.strokes) ? art.strokes.length : 0);
-
-      const snapshots = Array.isArray(art.snapshots) && art.snapshots.length > 0
-        ? capSnapshots(art.snapshots)
-        : [{
-            version: currentVersion,
-            timestamp: updatedAt,
-            strokesCount,
-            data: art.data || art.strokes || art
-          }];
-
-      result[artworkId] = {
-        artworkId,
-        title: art.title || 'Mandala Artwork',
-        currentVersion,
-        createdAt,
-        updatedAt,
-        deleted,
-        deletedAt,
-        strokesCount,
-        snapshots: capSnapshots(snapshots)
-      };
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+      const normalized = normalizeEntry(art, key, 'Mandala Artwork');
+      if (normalized) result[normalized.artworkId] = normalized;
     }
   }
 
@@ -548,12 +549,7 @@ export function migrateArtworksToMap(artworksInput) {
 }
 
 /**
- * Merges two artwork maps with conflict-forking semantics (TASK-ART-02).
- * When local and remote modify the same artworkId with divergent contents:
- * 1. Local copy is preserved unchanged under its original artworkId.
- * 2. Remote conflicting copy is forked to a new UUID with title '[Title] (Recovered Copy)'.
- * 3. Deleted tombstones respect latest timestamp.
- * 4. Zero stroke loss is strictly guaranteed.
+ * Merges two artwork maps with causal parent-revision & non-destructive conflict-forking semantics (TASK-ART-02 / B19.5-03).
  *
  * @param {Record<string, object>} localMap
  * @param {Record<string, object>} remoteMap
@@ -568,7 +564,7 @@ export function mergeArtworksWithForking(localMap = {}, remoteMap = {}) {
     const localArt = merged[remoteId];
 
     if (!localArt) {
-      merged[remoteId] = { ...remoteArt };
+      merged[remoteId] = { ...remoteArt, snapshots: capSnapshots(remoteArt.snapshots) };
       continue;
     }
 
@@ -577,20 +573,46 @@ export function mergeArtworksWithForking(localMap = {}, remoteMap = {}) {
         const latestDeletedAt = (localArt.deletedAt || localArt.updatedAt) > (remoteArt.deletedAt || remoteArt.updatedAt)
           ? (localArt.deletedAt || localArt.updatedAt)
           : (remoteArt.deletedAt || remoteArt.updatedAt);
-        merged[remoteId] = { ...localArt, deleted: true, deletedAt: latestDeletedAt };
+        const latestRev = Math.max(localArt.currentVersion || 1, remoteArt.currentVersion || 1);
+        merged[remoteId] = {
+          ...localArt,
+          currentVersion: latestRev,
+          revision: latestRev,
+          tombstoneRevision: Math.max(localArt.tombstoneRevision || latestRev, remoteArt.tombstoneRevision || latestRev),
+          deleted: true,
+          deletedAt: latestDeletedAt
+        };
       } else if (localArt.deleted && !remoteArt.deleted) {
-        const localDelTime = new Date(localArt.deletedAt || localArt.updatedAt).getTime();
-        const remoteUpdTime = new Date(remoteArt.updatedAt).getTime();
-        if (remoteUpdTime > localDelTime) {
-          const forkedId = generateArtworkUuid();
-          merged[forkedId] = {
+        const tombstoneTag = `${localArt.artworkId}@rev_${localArt.tombstoneRevision || localArt.currentVersion}`;
+        if (remoteArt.parentRevisionId && remoteArt.parentRevisionId === tombstoneTag) {
+          // Genuine causal resurrection: remote explicitly branched from tombstone revision
+          merged[remoteId] = {
             ...remoteArt,
-            artworkId: forkedId,
-            title: `${remoteArt.title || 'Mandala'} (Recovered Copy)`,
-            updatedAt: new Date().toISOString()
+            deleted: false,
+            deletedAt: null,
+            tombstoneRevision: null,
+            snapshots: capSnapshots(remoteArt.snapshots)
           };
+        } else {
+          // Honor local tombstone; fork concurrent pre-tombstone edit if causally branched or newer
+          const localDelTime = new Date(localArt.deletedAt || localArt.updatedAt).getTime();
+          const remoteUpdTime = new Date(remoteArt.updatedAt).getTime();
+          if (remoteArt.parentRevisionId || remoteUpdTime > localDelTime) {
+            const forkedId = generateArtworkUuid();
+            merged[forkedId] = {
+              ...remoteArt,
+              artworkId: forkedId,
+              title: formatRecoveredTitle(remoteArt.title),
+              deleted: false,
+              deletedAt: null,
+              tombstoneRevision: null,
+              updatedAt: new Date().toISOString(),
+              snapshots: capSnapshots(remoteArt.snapshots)
+            };
+          }
         }
       } else if (!localArt.deleted && remoteArt.deleted) {
+        // Local active edit preserved over concurrent remote delete
         merged[remoteId] = { ...localArt };
       }
       continue;
@@ -598,25 +620,48 @@ export function mergeArtworksWithForking(localMap = {}, remoteMap = {}) {
 
     const localStrokes = localArt.strokesCount || 0;
     const remoteStrokes = remoteArt.strokesCount || 0;
-    const isSame = localArt.currentVersion === remoteArt.currentVersion &&
-                   localArt.updatedAt === remoteArt.updatedAt &&
-                   localStrokes === remoteStrokes;
+    const isIdentical =
+      localArt.currentVersion === remoteArt.currentVersion &&
+      localArt.contentHash === remoteArt.contentHash &&
+      localStrokes === remoteStrokes;
 
-    if (isSame) {
+    if (isIdentical) {
       continue;
     }
 
-    // Divergent conflict: Fork remote copy!
+    // Check direct causal lineage before forking
+    const localRevTag = `${localArt.artworkId}@rev_${localArt.currentVersion}`;
+    const remoteRevTag = `${remoteArt.artworkId}@rev_${remoteArt.currentVersion}`;
+
+    if (remoteArt.parentRevisionId && remoteArt.parentRevisionId === localRevTag) {
+      merged[remoteId] = {
+        ...remoteArt,
+        snapshots: capSnapshots([...(localArt.snapshots || []), ...(remoteArt.snapshots || [])])
+      };
+      continue;
+    }
+
+    if (localArt.parentRevisionId && localArt.parentRevisionId === remoteRevTag) {
+      merged[remoteId] = {
+        ...localArt,
+        snapshots: capSnapshots([...(remoteArt.snapshots || []), ...(localArt.snapshots || [])])
+      };
+      continue;
+    }
+
+    // Divergent edit/edit conflict: keep local original unchanged, fork remote non-destructively!
     const forkedId = generateArtworkUuid();
     merged[forkedId] = {
       ...remoteArt,
       artworkId: forkedId,
-      title: `${remoteArt.title || 'Mandala'} (Recovered Copy)`,
+      title: formatRecoveredTitle(remoteArt.title),
       currentVersion: remoteArt.currentVersion || 1,
+      revision: 1,
       updatedAt: new Date().toISOString(),
       createdAt: remoteArt.createdAt || new Date().toISOString(),
       deleted: false,
       deletedAt: null,
+      tombstoneRevision: null,
       strokesCount: remoteArt.strokesCount,
       snapshots: capSnapshots(remoteArt.snapshots)
     };
@@ -644,28 +689,61 @@ export const AuroBlocksMergeStrategy = Object.freeze({
 
     const highScore = Math.max(highScoreClassic, highScoreSudoku, localSave.highScore ?? 0, remoteSave.highScore ?? 0);
 
-    const stagesMap = {};
-    const localStages = Array.isArray(localSave.stages) ? localSave.stages : (localSave.stages && typeof localSave.stages === 'object' ? Object.values(localSave.stages) : []);
-    const remoteStages = Array.isArray(remoteSave.stages) ? remoteSave.stages : (remoteSave.stages && typeof remoteSave.stages === 'object' ? Object.values(remoteSave.stages) : []);
+    const mergeStageCollection = (localCol, remoteCol) => {
+      const stagesMap = {};
+      const primitiveStages = new Set();
+      let hasObjectStages = false;
+      const localList = Array.isArray(localCol) ? localCol : (localCol && typeof localCol === 'object' ? Object.values(localCol) : []);
+      const remoteList = Array.isArray(remoteCol) ? remoteCol : (remoteCol && typeof remoteCol === 'object' ? Object.values(remoteCol) : []);
 
-    for (const st of [...localStages, ...remoteStages]) {
-      if (!st) continue;
-      const id = st.stageId ?? st.id;
-      if (id === undefined) continue;
-      if (!stagesMap[id]) {
-        stagesMap[id] = { ...st };
-      } else {
-        stagesMap[id] = {
-          ...stagesMap[id],
-          ...st,
-          score: Math.max(stagesMap[id].score || 0, st.score || 0),
-          stars: Math.max(stagesMap[id].stars || 0, st.stars || 0),
-          cleared: Boolean(stagesMap[id].cleared || st.cleared)
-        };
+      for (const st of [...localList, ...remoteList]) {
+        if (st === null || st === undefined) continue;
+        if (typeof st === 'number' || typeof st === 'string') {
+          primitiveStages.add(st);
+          continue;
+        }
+        if (typeof st === 'object') {
+          const id = st.stageId ?? st.id;
+          if (id === undefined) continue;
+          hasObjectStages = true;
+          if (!stagesMap[id]) {
+            stagesMap[id] = { ...st };
+          } else {
+            stagesMap[id] = {
+              ...stagesMap[id],
+              ...st,
+              score: Math.max(stagesMap[id].score || 0, st.score || 0),
+              stars: Math.max(stagesMap[id].stars || 0, st.stars || 0),
+              cleared: Boolean(stagesMap[id].cleared || st.cleared)
+            };
+          }
+        }
+      }
+
+      const sortedPrimitives = Array.from(primitiveStages).sort((a, b) => Number(a) - Number(b));
+      if (hasObjectStages) {
+        if (Array.isArray(localCol) || Array.isArray(remoteCol)) {
+          return [...sortedPrimitives, ...Object.values(stagesMap)];
+        }
+        return stagesMap;
+      }
+      return sortedPrimitives;
+    };
+
+    const mergedStages = mergeStageCollection(localSave.stages, remoteSave.stages);
+    const hasCompletedStages = Array.isArray(localSave.completedStages) || Array.isArray(remoteSave.completedStages);
+    const mergedCompletedStages = hasCompletedStages
+      ? mergeStageCollection(localSave.completedStages, remoteSave.completedStages)
+      : undefined;
+
+    const mergedStageScores = { ...(localSave.stageScores || {}) };
+    if (remoteSave.stageScores && typeof remoteSave.stageScores === 'object') {
+      for (const [k, v] of Object.entries(remoteSave.stageScores)) {
+        if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
+        mergedStageScores[k] = Math.max(Number(mergedStageScores[k] || 0), Number(v || 0));
       }
     }
 
-    const mergedStages = Array.isArray(localSave.stages) ? Object.values(stagesMap) : stagesMap;
     const resolvedPayload = {
       ...local,
       ...remote,
@@ -673,6 +751,8 @@ export const AuroBlocksMergeStrategy = Object.freeze({
       highScoreClassic,
       highScoreSudoku,
       stages: mergedStages,
+      ...(hasCompletedStages ? { completedStages: mergedCompletedStages } : {}),
+      ...(Object.keys(mergedStageScores).length > 0 ? { stageScores: mergedStageScores } : {}),
       lastMergedAt: new Date().toISOString()
     };
 
@@ -684,6 +764,8 @@ export const AuroBlocksMergeStrategy = Object.freeze({
         highScoreClassic,
         highScoreSudoku,
         stages: mergedStages,
+        ...(hasCompletedStages ? { completedStages: mergedCompletedStages } : {}),
+        ...(Object.keys(mergedStageScores).length > 0 ? { stageScores: mergedStageScores } : {}),
         updatedAt: new Date().toISOString()
       };
     }
@@ -697,26 +779,123 @@ export const AuroBlocksMergeStrategy = Object.freeze({
 
 export const AuroMatchMergeStrategy = Object.freeze({
   gameId: 'auromatch',
-  strategyVersion: '1.0.0',
+  strategyVersion: '1.1.0',
   resolve(localEnvelope, remoteEnvelope) {
     const local = (localEnvelope && localEnvelope.payload) || {};
     const remote = (remoteEnvelope && remoteEnvelope.payload) || {};
+
+    const unionUnique = (arrA, arrB) => {
+      const seen = new Set();
+      const out = [];
+      for (const item of [...(Array.isArray(arrA) ? arrA : []), ...(Array.isArray(arrB) ? arrB : [])]) {
+        if (item === null || item === undefined) continue;
+        const k = typeof item === 'object' ? JSON.stringify(canonicalizeObject(item)) : `${typeof item}:${String(item)}`;
+        if (!seen.has(k)) {
+          seen.add(k);
+          out.push(item);
+        }
+      }
+      return out;
+    };
+
+    const mergeReflections = (arrA, arrB) => {
+      const map = new Map();
+      for (const r of [...(Array.isArray(arrA) ? arrA : []), ...(Array.isArray(arrB) ? arrB : [])]) {
+        if (!r) continue;
+        const key = (typeof r === 'object' && (r.id || r.promptId || r.timestamp)) || JSON.stringify(canonicalizeObject(r));
+        if (!map.has(key)) map.set(key, r);
+      }
+      return Array.from(map.values());
+    };
 
     const localLevels = Array.isArray(local.completedLevels) ? local.completedLevels : [];
     const remoteLevels = Array.isArray(remote.completedLevels) ? remote.completedLevels : [];
     const completedLevels = Array.from(new Set([...localLevels, ...remoteLevels])).sort((a, b) => Number(a) - Number(b));
 
     const petals = Math.max(Number(local.petals || 0), Number(remote.petals || 0));
+    const reflections = mergeReflections(local.reflections, remote.reflections);
 
-    const reflMap = new Map();
-    const localRefls = Array.isArray(local.reflections) ? local.reflections : [];
-    const remoteRefls = Array.isArray(remote.reflections) ? remote.reflections : [];
-    for (const r of [...localRefls, ...remoteRefls]) {
-      if (!r) continue;
-      const key = r.id || r.promptId || r.timestamp || JSON.stringify(r);
-      if (!reflMap.has(key)) {
-        reflMap.set(key, r);
-      }
+    // Bridge format: { user, consecrations, unlockedTiles } (preserves canonical Flora tile unlocks)
+    const hasBridgeShape = Boolean(
+      local.user || remote.user ||
+      Array.isArray(local.unlockedTiles) || Array.isArray(remote.unlockedTiles) ||
+      Array.isArray(local.consecrations) || Array.isArray(remote.consecrations)
+    );
+
+    const mergedUnlockedTiles = hasBridgeShape
+      ? unionUnique(local.unlockedTiles, remote.unlockedTiles)
+      : undefined;
+    const mergedConsecrations = hasBridgeShape
+      ? mergeReflections(local.consecrations, remote.consecrations)
+      : undefined;
+
+    let mergedUser = undefined;
+    if (local.user || remote.user) {
+      const lu = local.user || {};
+      const ru = remote.user || {};
+      const lp = lu.progression || {};
+      const rp = ru.progression || {};
+      const lprof = lu.profile || {};
+      const rprof = ru.profile || {};
+      const mergedLevelIds = unionUnique(
+        unionUnique(lp.completedLevelIds, rp.completedLevelIds),
+        mergedUnlockedTiles
+      );
+      mergedUser = {
+        ...lu,
+        ...ru,
+        profile: {
+          ...lprof,
+          ...rprof,
+          lotusPetalCount: Math.max(Number(lprof.lotusPetalCount || 0), Number(rprof.lotusPetalCount || 0), petals),
+          consciousnessPoints: Math.max(Number(lprof.consciousnessPoints || 0), Number(rprof.consciousnessPoints || 0))
+        },
+        progression: {
+          ...lp,
+          ...rp,
+          completedLevelsCount: Math.max(
+            Number(lp.completedLevelsCount || 0),
+            Number(rp.completedLevelsCount || 0),
+            mergedLevelIds.length
+          ),
+          completedLevelIds: mergedLevelIds,
+          unlockedThemes: unionUnique(lp.unlockedThemes, rp.unlockedThemes)
+        }
+      };
+    }
+
+    // Native storageAdapter format: { profileState }
+    let mergedProfileState = undefined;
+    if (local.profileState || remote.profileState) {
+      const lps = local.profileState || {};
+      const rps = remote.profileState || {};
+      const lp = lps.progression || {};
+      const rp = rps.progression || {};
+      const lprof = lps.profile || {};
+      const rprof = rps.profile || {};
+      const mergedIds = unionUnique(lp.completedLevelIds, rp.completedLevelIds);
+      mergedProfileState = {
+        ...lps,
+        ...rps,
+        profile: {
+          ...lprof,
+          ...rprof,
+          lotusPetalCount: Math.max(Number(lprof.lotusPetalCount || 0), Number(rprof.lotusPetalCount || 0)),
+          consciousnessPoints: Math.max(Number(lprof.consciousnessPoints || 0), Number(rprof.consciousnessPoints || 0))
+        },
+        progression: {
+          ...lp,
+          ...rp,
+          completedLevelsCount: Math.max(
+            Number(lp.completedLevelsCount || 0),
+            Number(rp.completedLevelsCount || 0),
+            mergedIds.length
+          ),
+          completedLevelIds: mergedIds,
+          unlockedThemes: unionUnique(lp.unlockedThemes, rp.unlockedThemes)
+        },
+        reflections: mergeReflections(lps.reflections, rps.reflections)
+      };
     }
 
     const resolvedPayload = {
@@ -724,7 +903,11 @@ export const AuroMatchMergeStrategy = Object.freeze({
       ...remote,
       completedLevels,
       petals,
-      reflections: Array.from(reflMap.values()),
+      reflections,
+      ...(mergedUser !== undefined ? { user: mergedUser } : {}),
+      ...(mergedUnlockedTiles !== undefined ? { unlockedTiles: mergedUnlockedTiles } : {}),
+      ...(mergedConsecrations !== undefined ? { consecrations: mergedConsecrations } : {}),
+      ...(mergedProfileState !== undefined ? { profileState: mergedProfileState } : {}),
       lastMergedAt: new Date().toISOString()
     };
 
@@ -1592,9 +1775,25 @@ export async function computeEnvelopeChecksum(envelope, cryptoApi = globalThis.c
 }
 
 /**
+ * Synchronous deterministic SHA-256 checksum for canonicalized payloads (browser + Node).
+ * @param {unknown} payload
+ * @returns {string}
+ */
+export function computePayloadChecksumSync(payload) {
+  let toHash = payload;
+  if (payload && typeof payload === 'object' && !Array.isArray(payload) && 'exportedAt' in payload) {
+    const copy = { ...payload };
+    delete copy.exportedAt;
+    toHash = copy;
+  }
+  const canonical = canonicalizeObject(toHash);
+  return computeSha256Fallback(JSON.stringify(canonical));
+}
+
+/**
  * Pure JS synchronous SHA-256 fallback implementation
  */
-function computeSha256Fallback(str) {
+function computeSha256Fallback(inputStr) {
   function rightRotate(value, amount) {
     return (value >>> amount) | (value << (32 - amount));
   }
@@ -1603,9 +1802,13 @@ function computeSha256Fallback(str) {
   let i, j;
   let result = '';
 
+  const bytes = typeof TextEncoder !== 'undefined'
+    ? Array.from(new TextEncoder().encode(String(inputStr)))
+    : Array.from(unescape(encodeURIComponent(String(inputStr)))).map((ch) => ch.charCodeAt(0));
+
   const words = [];
-  const asciiBitLength = str.length * 8;
-  const hash = [];
+  const bitLength = bytes.length * 8;
+  let hash = [];
   const k = [];
   let primeCounter = 0;
 
@@ -1620,14 +1823,13 @@ function computeSha256Fallback(str) {
     }
   }
 
-  str += '\x80';
-  while ((str.length % 64) - 56) str += '\x00';
-  for (i = 0; i < str.length; i++) {
-    j = str.charCodeAt(i);
-    words[i >> 2] |= (j & 0xff) << (((3 - i) % 4) * 8);
+  bytes.push(0x80);
+  while ((bytes.length % 64) !== 56) bytes.push(0x00);
+  for (i = 0; i < bytes.length; i++) {
+    words[i >> 2] = (words[i >> 2] || 0) | ((bytes[i] & 0xff) << (((3 - i) % 4) * 8));
   }
-  words[words.length] = (asciiBitLength / maxWord) | 0;
-  words[words.length] = asciiBitLength;
+  words[words.length] = (bitLength / maxWord) | 0;
+  words[words.length] = bitLength;
 
   for (j = 0; j < words.length; ) {
     const w = words.slice(j, (j += 16));

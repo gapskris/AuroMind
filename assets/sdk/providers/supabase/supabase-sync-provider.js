@@ -5,6 +5,17 @@
  * using the server-authoritative PostgreSQL database and `upsert_game_save_checked` RPC.
  */
 
+const KNOWN_SYNC_GAME_IDS = new Set([
+  'vak',
+  'auromatch',
+  'auromandala',
+  'word-riddle',
+  'wordriddle',
+  'vak-living-sanctuary',
+  'vak-sanctuary',
+  'auroblocks'
+]);
+
 export function createSupabaseSyncProvider(client) {
   function isConfigured() {
     return Boolean(client && client.isConfigured());
@@ -18,7 +29,8 @@ export function createSupabaseSyncProvider(client) {
     let userId = first;
     let gameId = second;
     if (typeof first === 'string' && typeof second === 'string') {
-      if (!first.includes('-') && second.includes('-')) {
+      // Only swap when caller passes (gameId, userId) using a known game slug
+      if (KNOWN_SYNC_GAME_IDS.has(first) && !KNOWN_SYNC_GAME_IDS.has(second)) {
         gameId = first;
         userId = second;
       }

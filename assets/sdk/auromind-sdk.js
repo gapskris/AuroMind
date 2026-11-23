@@ -3189,6 +3189,18 @@ export function createAuroMindSDK(options = {}) {
       return Math.min(base + jitter, 15 * 60 * 1000);
     },
     async drainOutbox() {
+      // Hydrate any durable IndexedDB outbox entries (offline recovery if localStorage was cleared)
+      try {
+        const idbMutations = await idbGetOutbox();
+        let added = false;
+        for (const mut of idbMutations) {
+          if (mut && typeof mut.gameId === 'string' && mut.gameId.trim() && !syncOutbox.has(mut.gameId.trim())) {
+            syncOutbox.add(mut.gameId.trim());
+            added = true;
+          }
+        }
+        if (added) persistSyncState();
+      } catch {}
       return this.syncNow();
     },
     async onReconnect() {
@@ -3247,6 +3259,76 @@ export function createAuroMindSDK(options = {}) {
 
           const userId = activeAcct.userId;
           const syncStartEpoch = authEpoch;
+          const isStillActiveUser = () =>
+            authEpoch === syncStartEpoch &&
+            Boolean(currentAccount && currentAccount.userId === userId);
+
+          const clearIdbOutboxForGame = async (gid) => {
+            try {
+              const idbMutations = await idbGetOutbox();
+              for (const mut of idbMutations) {
+                if (mut && mut.gameId === gid && mut.id) {
+                  await idbDeleteOutbox(mut.id);
+                }
+              }
+            } catch {}
+          };
+
+          const payloadHasForbiddenVault = (payload, caps) => {
+            if (!caps || !caps.hasLocalOnlyVaults || !Array.isArray(caps.localOnlyVaults)) return false;
+            const payloadStr = JSON.stringify(payload || {});
+            for (const vaultKey of caps.localOnlyVaults) {
+              if (payloadStr.includes(vaultKey)) {
+                return vaultKey;
+              }
+            }
+            return false;
+          };
+
+          const buildValidatedRemoteEnvelope = (gid, remoteRec) => {
+            if (!remoteRec || typeof remoteRec !== 'object' || Array.isArray(remoteRec)) {
+              return { valid: false, reason: 'INVALID_REMOTE_RECORD' };
+            }
+            if (remoteRec.gameId && remoteRec.gameId !== gid) {
+              return { valid: false, reason: 'REMOTE_GAME_ID_MISMATCH' };
+            }
+            if (!remoteRec.payload || typeof remoteRec.payload !== 'object' || Array.isArray(remoteRec.payload)) {
+              return { valid: false, reason: 'INVALID_REMOTE_PAYLOAD' };
+            }
+            const rev = Number(remoteRec.revision ?? 1);
+            if (!Number.isInteger(rev) || rev < 0) {
+              return { valid: false, reason: 'INVALID_REMOTE_REVISION' };
+            }
+            const rawGuest = remoteRec.sourceGuestId;
+            const safeGuestId =
+              typeof rawGuest === 'string' && GUEST_ID_RE.test(rawGuest)
+                ? rawGuest
+                : (currentGuestRecord ? currentGuestRecord.guestId : 'guest_00000000-0000-4000-8000-000000000000');
+            const rawTs = remoteRec.clientUpdatedAt || remoteRec.serverUpdatedAt;
+            const safeTs =
+              typeof rawTs === 'string' && !Number.isNaN(Date.parse(rawTs))
+                ? rawTs
+                : getNow().toISOString();
+            const safeChecksum =
+              typeof remoteRec.checksum === 'string' && remoteRec.checksum.trim().length > 0
+                ? remoteRec.checksum.trim()
+                : 'remote_unknown_checksum';
+            return {
+              valid: true,
+              envelope: Object.freeze({
+                envelopeVersion: Number.isInteger(remoteRec.envelopeVersion) ? remoteRec.envelopeVersion : 1,
+                gameId: gid,
+                gameSchemaVersion: Number.isInteger(remoteRec.gameSchemaVersion) && remoteRec.gameSchemaVersion >= 1 ? remoteRec.gameSchemaVersion : 1,
+                guestId: safeGuestId,
+                baseRevision: rev,
+                checksum: safeChecksum,
+                payload: remoteRec.payload,
+                clientUpdatedAt: safeTs,
+                isEmpty: Boolean(remoteRec.isEmpty)
+              })
+            };
+          };
+
           const nextSyncMeta = loadSyncMetadataForUser(userId);
           const gameIds = targetGameId
             ? [targetGameId]
@@ -3254,6 +3336,14 @@ export function createAuroMindSDK(options = {}) {
           const results = [];
 
           for (const gid of gameIds) {
+            if (!isStillActiveUser()) {
+              return Object.freeze({
+                status: 'aborted',
+                reason: 'account_changed_mid_sync',
+                results: Object.freeze(results)
+              });
+            }
+
             try {
               const caps = adaptersRegistry.discoverCapabilities(gid);
               if (!caps || !caps.cloudSyncEligible) {
@@ -3275,23 +3365,24 @@ export function createAuroMindSDK(options = {}) {
 
               // Strict privacy guarantee: local-only vaults (such as Sankalpa E2EE vault)
               // must NEVER be uploaded or synchronized to the cloud.
-              if (caps.hasLocalOnlyVaults && Array.isArray(caps.localOnlyVaults)) {
-                const payloadStr = JSON.stringify(localEnvelope.payload || {});
-                let containsForbiddenVault = false;
-                for (const vaultKey of caps.localOnlyVaults) {
-                  if (payloadStr.includes(vaultKey)) {
-                    loggingService.error('sync', `Security violation: local envelope for "${gid}" contains local-only vault "${vaultKey}". Sync aborted for this game.`);
-                    containsForbiddenVault = true;
-                    break;
-                  }
-                }
-                if (containsForbiddenVault) {
-                  continue;
-                }
+              const forbiddenLocalVault = payloadHasForbiddenVault(localEnvelope.payload, caps);
+              if (forbiddenLocalVault) {
+                loggingService.error('sync', `Security violation: local envelope for "${gid}" contains local-only vault "${forbiddenLocalVault}". Sync aborted for this game.`);
+                results.push({ gameId: gid, action: 'blocked_local_only_vault', vault: forbiddenLocalVault });
+                continue;
               }
 
               // Pull remote save
               const remoteRecord = await providers.cloudSync.pullLatest(userId, gid);
+
+              // Guard again immediately after network await before mutating local or remote state
+              if (!isStillActiveUser()) {
+                return Object.freeze({
+                  status: 'aborted',
+                  reason: 'account_changed_mid_sync',
+                  results: Object.freeze(results)
+                });
+              }
 
               if (!remoteRecord) {
                 // No remote record exists yet
@@ -3301,41 +3392,52 @@ export function createAuroMindSDK(options = {}) {
                     userId,
                     0
                   );
+                  if (!isStillActiveUser()) {
+                    return Object.freeze({
+                      status: 'aborted',
+                      reason: 'account_changed_mid_sync',
+                      results: Object.freeze(results)
+                    });
+                  }
                   if (pushRes && pushRes.status === 'success') {
                     syncOutbox.delete(gid);
+                    await clearIdbOutboxForGame(gid);
                     nextSyncMeta[gid] = {
                       revision: pushRes.newRevision,
+                      checksum: localEnvelope.checksum,
                       syncedAt: getNow().toISOString()
                     };
                     results.push({ gameId: gid, action: 'pushed_initial', revision: pushRes.newRevision });
                   } else {
-                    results.push({ gameId: gid, action: 'push_failed', error: pushRes?.message });
+                    syncOutbox.add(gid);
+                    results.push({ gameId: gid, action: 'push_failed', error: pushRes?.message || pushRes?.status });
                   }
                 }
                 continue;
               }
 
-              // Remote save exists: construct remote envelope
-              const remoteEnvelope = Object.freeze({
-                envelopeVersion: remoteRecord.envelopeVersion || 1,
-                gameId: gid,
-                gameSchemaVersion: remoteRecord.gameSchemaVersion || 1,
-                guestId:
-                  remoteRecord.sourceGuestId ||
-                  (currentGuestRecord ? currentGuestRecord.guestId : 'guest_00000000-0000-4000-8000-000000000000'),
-                baseRevision: remoteRecord.revision || 1,
-                checksum: remoteRecord.checksum,
-                payload: remoteRecord.payload,
-                clientUpdatedAt:
-                  remoteRecord.clientUpdatedAt || remoteRecord.serverUpdatedAt || getNow().toISOString(),
-                isEmpty: Boolean(remoteRecord.isEmpty)
-              });
+              // Validate incoming remote record before merge/apply
+              const remoteValidated = buildValidatedRemoteEnvelope(gid, remoteRecord);
+              if (!remoteValidated.valid) {
+                loggingService.warn('sync', `Rejected invalid remote save record for "${gid}": ${remoteValidated.reason}`);
+                results.push({ gameId: gid, action: 'invalid_remote_envelope', reason: remoteValidated.reason });
+                continue;
+              }
+              const remoteEnvelope = remoteValidated.envelope;
+              const forbiddenRemoteVault = payloadHasForbiddenVault(remoteEnvelope.payload, caps);
+              if (forbiddenRemoteVault) {
+                loggingService.error('sync', `Security violation: remote envelope for "${gid}" attempted to inject local-only vault "${forbiddenRemoteVault}". Rejected.`);
+                results.push({ gameId: gid, action: 'blocked_remote_local_only_vault', vault: forbiddenRemoteVault });
+                continue;
+              }
 
               // Idempotent sync: if local and remote checksums match, records are identical
               if (localEnvelope.checksum && remoteRecord.checksum && localEnvelope.checksum === remoteRecord.checksum) {
                 syncOutbox.delete(gid);
+                await clearIdbOutboxForGame(gid);
                 nextSyncMeta[gid] = {
                   revision: remoteRecord.revision || 1,
+                  checksum: localEnvelope.checksum,
                   syncedAt: getNow().toISOString()
                 };
                 results.push({ gameId: gid, action: 'in_sync', revision: remoteRecord.revision || 1 });
@@ -3352,11 +3454,20 @@ export function createAuroMindSDK(options = {}) {
                   userId,
                   expectedRev
                 );
+                if (!isStillActiveUser()) {
+                  return Object.freeze({
+                    status: 'aborted',
+                    reason: 'account_changed_mid_sync',
+                    results: Object.freeze(results)
+                  });
+                }
 
                 if (pushRes && pushRes.status === 'success') {
                   syncOutbox.delete(gid);
+                  await clearIdbOutboxForGame(gid);
                   nextSyncMeta[gid] = {
                     revision: pushRes.newRevision,
+                    checksum: localEnvelope.checksum,
                     syncedAt: getNow().toISOString()
                   };
                   results.push({ gameId: gid, action: 'pushed_update', revision: pushRes.newRevision });
@@ -3365,28 +3476,88 @@ export function createAuroMindSDK(options = {}) {
                     'sync',
                     `Optimistic concurrency conflict on "${gid}". Current revision: ${pushRes.currentRevision}`
                   );
-                  results.push({
-                    gameId: gid,
-                    action: 'conflict',
-                    currentRevision: pushRes.currentRevision,
-                    serverRecord: pushRes.serverRecord
-                  });
+                  // Deterministic 1-shot conflict recovery if serverRecord is provided
+                  let recovered = false;
+                  if (pushRes.serverRecord && typeof pushRes.serverRecord === 'object') {
+                    const retryRemote = buildValidatedRemoteEnvelope(gid, {
+                      ...pushRes.serverRecord,
+                      revision: pushRes.currentRevision ?? pushRes.serverRecord.revision ?? expectedRev + 1
+                    });
+                    if (retryRemote.valid && !payloadHasForbiddenVault(retryRemote.envelope.payload, caps)) {
+                      const retryMerge = adaptersRegistry.resolveMerge(gid, localEnvelope, retryRemote.envelope);
+                      if (retryMerge.status === 'auto_merged' && isStillActiveUser()) {
+                        const retryChecksum = await computePayloadChecksum(retryMerge.resolvedPayload);
+                        const retryEnv = Object.freeze({
+                          ...localEnvelope,
+                          baseRevision: pushRes.currentRevision ?? expectedRev + 1,
+                          payload: retryMerge.resolvedPayload,
+                          checksum: retryChecksum,
+                          clientUpdatedAt: getNow().toISOString()
+                        });
+                        await adaptersRegistry.applyRemoteEnvelope(gid, retryEnv);
+                        const retryPush = await providers.cloudSync.pushWithOptimisticLock(
+                          retryEnv,
+                          userId,
+                          pushRes.currentRevision ?? expectedRev + 1
+                        );
+                        if (retryPush && retryPush.status === 'success' && isStillActiveUser()) {
+                          syncOutbox.delete(gid);
+                          await clearIdbOutboxForGame(gid);
+                          nextSyncMeta[gid] = {
+                            revision: retryPush.newRevision,
+                            checksum: retryChecksum,
+                            syncedAt: getNow().toISOString()
+                          };
+                          results.push({ gameId: gid, action: 'conflict_resolved_and_pushed', revision: retryPush.newRevision });
+                          recovered = true;
+                        }
+                      }
+                    }
+                  }
+                  if (!recovered) {
+                    syncOutbox.add(gid);
+                    results.push({
+                      gameId: gid,
+                      action: 'conflict',
+                      currentRevision: pushRes.currentRevision,
+                      serverRecord: pushRes.serverRecord
+                    });
+                  }
                 } else {
+                  syncOutbox.add(gid);
                   results.push({ gameId: gid, action: 'push_failed', error: pushRes?.message });
                 }
               } else if (mergeResolution.status === 'use_remote') {
+                if (!isStillActiveUser()) {
+                  return Object.freeze({
+                    status: 'aborted',
+                    reason: 'account_changed_mid_sync',
+                    results: Object.freeze(results)
+                  });
+                }
                 await adaptersRegistry.applyRemoteEnvelope(gid, remoteEnvelope);
                 syncOutbox.delete(gid);
+                await clearIdbOutboxForGame(gid);
                 nextSyncMeta[gid] = {
                   revision: remoteRecord.revision,
+                  checksum: remoteEnvelope.checksum,
                   syncedAt: getNow().toISOString()
                 };
                 results.push({ gameId: gid, action: 'applied_remote', revision: remoteRecord.revision });
               } else if (mergeResolution.status === 'auto_merged') {
+                if (!isStillActiveUser()) {
+                  return Object.freeze({
+                    status: 'aborted',
+                    reason: 'account_changed_mid_sync',
+                    results: Object.freeze(results)
+                  });
+                }
+                const canonicalMergedChecksum = await computePayloadChecksum(mergeResolution.resolvedPayload);
                 const mergedEnvelope = Object.freeze({
                   ...localEnvelope,
+                  baseRevision: remoteRecord.revision || 0,
                   payload: mergeResolution.resolvedPayload,
-                  checksum: `merged_${Date.now()}`,
+                  checksum: canonicalMergedChecksum,
                   clientUpdatedAt: getNow().toISOString()
                 });
                 await adaptersRegistry.applyRemoteEnvelope(gid, mergedEnvelope);
@@ -3396,17 +3567,36 @@ export function createAuroMindSDK(options = {}) {
                   userId,
                   expectedRev
                 );
+                if (!isStillActiveUser()) {
+                  return Object.freeze({
+                    status: 'aborted',
+                    reason: 'account_changed_mid_sync',
+                    results: Object.freeze(results)
+                  });
+                }
                 if (pushRes && pushRes.status === 'success') {
                   syncOutbox.delete(gid);
+                  await clearIdbOutboxForGame(gid);
                   nextSyncMeta[gid] = {
                     revision: pushRes.newRevision,
+                    checksum: canonicalMergedChecksum,
                     syncedAt: getNow().toISOString()
                   };
                   results.push({ gameId: gid, action: 'auto_merged_and_pushed', revision: pushRes.newRevision });
+                } else if (pushRes && pushRes.status === 'conflict') {
+                  syncOutbox.add(gid);
+                  results.push({
+                    gameId: gid,
+                    action: 'conflict',
+                    currentRevision: pushRes.currentRevision,
+                    serverRecord: pushRes.serverRecord
+                  });
                 } else {
+                  syncOutbox.add(gid);
                   results.push({ gameId: gid, action: 'auto_merged_push_failed', error: pushRes?.message });
                 }
               } else {
+                syncOutbox.add(gid);
                 results.push({
                   gameId: gid,
                   action: 'conflict_requires_user_choice',
@@ -3414,6 +3604,7 @@ export function createAuroMindSDK(options = {}) {
                 });
               }
             } catch (err) {
+              syncOutbox.add(gid);
               loggingService.error('sync', `Sync failed for game "${gid}": ${err.message}`, {
                 error: err.message
               });
@@ -3421,20 +3612,22 @@ export function createAuroMindSDK(options = {}) {
             }
           }
 
+          if (!isStillActiveUser()) {
+            return Object.freeze({
+              status: 'aborted',
+              reason: 'account_changed_mid_sync',
+              results: Object.freeze(results)
+            });
+          }
+
           const syncedAt = getNow().toISOString();
           nextSyncMeta.lastSyncAt = syncedAt;
           // Persist strictly under the synced user's namespace; never leak into a newly switched account or guest
           persistSyncMetadataForUser(userId, nextSyncMeta);
-          const stillSameAccount =
-            authEpoch === syncStartEpoch &&
-            currentAccount &&
-            currentAccount.userId === userId;
-          if (stillSameAccount) {
-            syncMetadataOwnerUserId = userId;
-            syncMetadata = { ...nextSyncMeta };
-            persistSyncState();
-            broadcastPlatformEvent('SYNC_META_UPDATED', { userId });
-          }
+          syncMetadataOwnerUserId = userId;
+          syncMetadata = { ...nextSyncMeta };
+          persistSyncState();
+          broadcastPlatformEvent('SYNC_META_UPDATED', { userId });
 
           return Object.freeze({
             status: 'success',
@@ -4875,6 +5068,19 @@ export function createAuroMindSDK(options = {}) {
         // Load strictly account-scoped sync metadata (or {} in guest mode) & clear any stale legacy flat key
         lsRemoveRaw(LS_SYNC_META_KEY);
         refreshActiveSyncMetadata(currentAccount);
+
+        // Non-destructively hydrate any pending mutations from durable IDB outbox
+        try {
+          const idbMutations = await idbGetOutbox();
+          let hydrated = false;
+          for (const mut of idbMutations) {
+            if (mut && typeof mut.gameId === 'string' && mut.gameId.trim() && !syncOutbox.has(mut.gameId.trim())) {
+              syncOutbox.add(mut.gameId.trim());
+              hydrated = true;
+            }
+          }
+          if (hydrated) persistSyncState();
+        } catch {}
 
         initialized = true;
         emitIdentityChange();

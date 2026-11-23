@@ -5,10 +5,301 @@ const DB_VERSION = 1;
 
 let dbPromise = null;
 let isClosedByRemote = false;
+const pendingDualWriteKeys = new Map();
 
 export function resetIndexedDBConnection() {
     isClosedByRemote = false;
     dbPromise = null;
+    pendingDualWriteKeys.clear();
+}
+
+export function mergeUniqueItems(baseItems = [], incomingItems = []) {
+    const seen = new Set();
+    const merged = [];
+    for (const list of [baseItems, incomingItems]) {
+        if (!Array.isArray(list)) continue;
+        for (const item of list) {
+            if (item === null || item === undefined) continue;
+            let key;
+            if (typeof item === 'object') {
+                const stableId = item.id || item.tileId || item.floraId || item.key || item.timestamp;
+                key = stableId ? `obj:${String(stableId)}` : `json:${JSON.stringify(item)}`;
+            } else {
+                key = `prim:${typeof item}:${String(item)}`;
+            }
+            if (!seen.has(key)) {
+                seen.add(key);
+                merged.push(item);
+            }
+        }
+    }
+    return merged;
+}
+
+export function mergeAuroMatchUserRecords(localUser = null, incomingUser = null) {
+    if (!localUser || typeof localUser !== 'object') return incomingUser ? JSON.parse(JSON.stringify(incomingUser)) : null;
+    if (!incomingUser || typeof incomingUser !== 'object') return JSON.parse(JSON.stringify(localUser));
+
+    const localProg = localUser.progression || {};
+    const incProg = incomingUser.progression || {};
+    const mergedIds = mergeUniqueItems(localProg.completedLevelIds || [], incProg.completedLevelIds || []);
+    const mergedThemes = mergeUniqueItems(localProg.unlockedThemes || [], incProg.unlockedThemes || []);
+    const completedLevelsCount = Math.max(
+        Number(localProg.completedLevelsCount || 0),
+        Number(incProg.completedLevelsCount || 0),
+        mergedIds.length
+    );
+
+    const localProf = localUser.profile || {};
+    const incProf = incomingUser.profile || {};
+
+    return {
+        ...localUser,
+        ...incomingUser,
+        profile: {
+            ...localProf,
+            ...incProf,
+            lotusPetalCount: Math.max(Number(localProf.lotusPetalCount || 0), Number(incProf.lotusPetalCount || 0)),
+            consciousnessPoints: Math.max(Number(localProf.consciousnessPoints || 0), Number(incProf.consciousnessPoints || 0)),
+            createdTimestamp: Math.min(
+                Number(localProf.createdTimestamp || Date.now()),
+                Number(incProf.createdTimestamp || Date.now())
+            ),
+            lastLaunchTimestamp: Math.max(
+                Number(localProf.lastLaunchTimestamp || 0),
+                Number(incProf.lastLaunchTimestamp || 0)
+            )
+        },
+        progression: {
+            ...localProg,
+            ...incProg,
+            completedLevelsCount,
+            unlockedThemes: mergedThemes,
+            completedLevelIds: mergedIds
+        },
+        settings: {
+            ...(localUser.settings || {}),
+            ...(incomingUser.settings || {})
+        },
+        dailyDrawDate:
+            String(localUser.dailyDrawDate || '') >= String(incomingUser.dailyDrawDate || '')
+                ? (localUser.dailyDrawDate || '')
+                : (incomingUser.dailyDrawDate || '')
+    };
+}
+
+function tryParseJson(raw) {
+    if (typeof raw !== 'string') return { ok: false, value: null };
+    try {
+        return { ok: true, value: JSON.parse(raw) };
+    } catch {
+        return { ok: false, value: null };
+    }
+}
+
+async function writeToIndexedDBOnce(key, serialized) {
+    const db = await initIndexedDB();
+    if (!db) {
+        return { ok: false, unavailable: true, error: 'IDB_UNAVAILABLE' };
+    }
+    await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        tx.objectStore(STORE_NAME).put(serialized, key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error || new Error('IndexedDB transaction error'));
+        tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
+    });
+    return { ok: true, unavailable: false, error: null };
+}
+
+async function writeToIndexedDBWithRetry(key, serialized, { maxRetries = 2, retryDelayMs = 10 } = {}) {
+    let attempts = 0;
+    let lastError = null;
+    const totalAttempts = Math.max(1, maxRetries + 1);
+
+    for (let i = 0; i < totalAttempts; i++) {
+        attempts += 1;
+        try {
+            const res = await writeToIndexedDBOnce(key, serialized);
+            if (res.ok) {
+                return { ok: true, attempts, unavailable: false, error: null };
+            }
+            lastError = res.error || 'IDB_UNAVAILABLE';
+            if (res.unavailable) {
+                return { ok: false, attempts, unavailable: true, error: lastError };
+            }
+        } catch (err) {
+            lastError = err && err.message ? err.message : String(err);
+        }
+        if (i + 1 < totalAttempts && retryDelayMs > 0) {
+            await new Promise((r) => setTimeout(r, retryDelayMs));
+        }
+    }
+
+    return { ok: false, attempts, unavailable: false, error: lastError };
+}
+
+export function getDualWriteStatus(key = null) {
+    if (key !== null && key !== undefined) {
+        const pending = pendingDualWriteKeys.get(key) || null;
+        return {
+            key,
+            inSync: !pending,
+            pendingRepair: Boolean(pending),
+            lsOk: pending ? pending.lsOk : true,
+            idbOk: pending ? pending.idbOk : true,
+            lastError: pending ? pending.lastError : null,
+            attempts: pending ? pending.attempts : 0
+        };
+    }
+    const entries = Array.from(pendingDualWriteKeys.entries()).map(([k, v]) => ({
+        key: k,
+        lsOk: v.lsOk,
+        idbOk: v.idbOk,
+        lastError: v.lastError,
+        attempts: v.attempts,
+        updatedAt: v.updatedAt
+    }));
+    return {
+        inSync: entries.length === 0,
+        pendingCount: entries.length,
+        pendingKeys: entries
+    };
+}
+
+export async function setItemDualWrite(key, value, options = {}) {
+    if (isPurgeActive()) {
+        console.warn(`[Storage] setItemDualWrite blocked for ${key}: Purge is active.`);
+        return { ok: false, blockedByPurge: true, lsOk: false, idbOk: false, partialFailure: false, attempts: 0 };
+    }
+    const serialized = (typeof value === 'string') ? value : JSON.stringify(value);
+    const maxRetries = typeof options.maxRetries === 'number' ? options.maxRetries : 2;
+    const retryDelayMs = typeof options.retryDelayMs === 'number' ? options.retryDelayMs : 10;
+
+    // 1. Synchronous mirror in localStorage for instantaneous UI access
+    let lsOk = false;
+    let lsError = null;
+    if (typeof localStorage !== 'undefined') {
+        try {
+            localStorage.setItem(key, serialized);
+            lsOk = true;
+        } catch (e) {
+            lsError = e && e.message ? e.message : String(e);
+            console.warn('[Storage] localStorage setItem error:', e);
+        }
+    }
+
+    // 2. Durable IndexedDB write with bounded retry
+    const idbRes = await writeToIndexedDBWithRetry(key, serialized, { maxRetries, retryDelayMs });
+    const idbOk = idbRes.ok;
+
+    if (lsOk && idbOk) {
+        pendingDualWriteKeys.delete(key);
+        return {
+            ok: true,
+            lsOk: true,
+            idbOk: true,
+            partialFailure: false,
+            pendingRepair: false,
+            attempts: idbRes.attempts,
+            error: null
+        };
+    }
+
+    const partialFailure = lsOk !== idbOk || (!lsOk && !idbOk);
+    const error = idbRes.error || lsError || 'DUAL_WRITE_INCOMPLETE';
+
+    // Track divergence so getItemAsync() never serves stale secondary data and reconcileDualWriteParity() can heal it
+    if (lsOk || idbOk) {
+        pendingDualWriteKeys.set(key, {
+            serialized,
+            lsOk,
+            idbOk,
+            lastError: error,
+            attempts: idbRes.attempts,
+            updatedAt: Date.now()
+        });
+    } else {
+        pendingDualWriteKeys.set(key, {
+            serialized,
+            lsOk: false,
+            idbOk: false,
+            lastError: error,
+            attempts: idbRes.attempts,
+            updatedAt: Date.now()
+        });
+    }
+
+    if (!idbOk && !idbRes.unavailable) {
+        console.warn('[Storage] IndexedDB setItem error after retries:', error);
+    }
+
+    return {
+        ok: lsOk || idbOk,
+        lsOk,
+        idbOk,
+        partialFailure,
+        pendingRepair: true,
+        attempts: idbRes.attempts,
+        error
+    };
+}
+
+export async function reconcileDualWriteParity(options = {}) {
+    if (isPurgeActive()) {
+        return { reconciled: 0, remaining: pendingDualWriteKeys.size, details: [] };
+    }
+    const maxRetries = typeof options.maxRetries === 'number' ? options.maxRetries : 2;
+    const retryDelayMs = typeof options.retryDelayMs === 'number' ? options.retryDelayMs : 5;
+    let reconciled = 0;
+    const details = [];
+
+    for (const [key, entry] of Array.from(pendingDualWriteKeys.entries())) {
+        let lsOk = entry.lsOk;
+        let idbOk = entry.idbOk;
+        let payloadToWrite = entry.serialized;
+
+        if (!lsOk && typeof localStorage !== 'undefined') {
+            try {
+                localStorage.setItem(key, payloadToWrite);
+                lsOk = true;
+            } catch (e) {
+                entry.lastError = e?.message || String(e);
+            }
+        } else if (lsOk && typeof localStorage !== 'undefined') {
+            try {
+                const latestLocal = localStorage.getItem(key);
+                if (latestLocal !== null) payloadToWrite = latestLocal;
+            } catch {}
+        }
+
+        if (!idbOk) {
+            const idbRes = await writeToIndexedDBWithRetry(key, payloadToWrite, { maxRetries, retryDelayMs });
+            idbOk = idbRes.ok;
+            if (!idbOk) entry.lastError = idbRes.error;
+        }
+
+        if (lsOk && idbOk) {
+            pendingDualWriteKeys.delete(key);
+            reconciled += 1;
+            details.push({ key, status: 'reconciled' });
+        } else {
+            pendingDualWriteKeys.set(key, {
+                ...entry,
+                serialized: payloadToWrite,
+                lsOk,
+                idbOk,
+                updatedAt: Date.now()
+            });
+            details.push({ key, status: 'pending', error: entry.lastError });
+        }
+    }
+
+    return {
+        reconciled,
+        remaining: pendingDualWriteKeys.size,
+        details
+    };
 }
 
 export function initIndexedDB() {
@@ -50,53 +341,48 @@ export function initIndexedDB() {
 }
 
 export async function setItemAsync(key, value) {
-    if (isPurgeActive()) {
-        console.warn(`[Storage] setItemAsync blocked for ${key}: Purge is active.`);
-        return false;
-    }
-    const serialized = (typeof value === 'string') ? value : JSON.stringify(value);
-
-    // 1. Synchronous mirror in localStorage for instantaneous UI access
-    if (typeof localStorage !== 'undefined') {
-        try {
-            localStorage.setItem(key, serialized);
-        } catch (e) {
-            console.warn('[Storage] localStorage setItem error:', e);
-        }
-    }
-
-    // 2. Asynchronous write into durable IndexedDB vault
-    try {
-        const db = await initIndexedDB();
-        if (db) {
-            await new Promise((resolve, reject) => {
-                const tx = db.transaction(STORE_NAME, 'readwrite');
-                tx.objectStore(STORE_NAME).put(serialized, key);
-                tx.oncomplete = () => resolve();
-                tx.onerror = () => reject(tx.error);
-                tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
-            });
-        }
-    } catch (err) {
-        console.warn('[Storage] IndexedDB setItem error:', err);
-    }
-    return true;
+    const result = await setItemDualWrite(key, value);
+    return Boolean(result && result.ok);
 }
 
 export async function getItemAsync(key) {
+    // 0. Read-after-write consistency guard: if IndexedDB write failed for this key,
+    // NEVER serve stale IndexedDB data — read fresh localStorage and opportunistically repair IDB.
+    const pending = pendingDualWriteKeys.get(key);
+    if (pending && pending.lsOk && !pending.idbOk) {
+        let freshVal = pending.serialized;
+        if (typeof localStorage !== 'undefined') {
+            try {
+                const lsVal = localStorage.getItem(key);
+                if (lsVal !== null && lsVal !== undefined) freshVal = lsVal;
+            } catch {}
+        }
+        try {
+            const repair = await writeToIndexedDBWithRetry(key, freshVal, { maxRetries: 1, retryDelayMs: 0 });
+            if (repair.ok) {
+                pendingDualWriteKeys.delete(key);
+            }
+        } catch {}
+        return freshVal;
+    }
+
     // 1. Try IndexedDB primary vault
+    let idbVal = undefined;
     try {
         const db = await initIndexedDB();
         if (db) {
-            const val = await new Promise((resolve, reject) => {
+            idbVal = await new Promise((resolve, reject) => {
                 const tx = db.transaction(STORE_NAME, 'readonly');
                 const req = tx.objectStore(STORE_NAME).get(key);
                 req.onsuccess = () => resolve(req.result);
                 req.onerror = () => reject(req.error);
             });
-            if (val !== undefined && val !== null) return val;
         }
     } catch (err) {}
+
+    if (idbVal !== undefined && idbVal !== null) {
+        return idbVal;
+    }
 
     // 2. Fallback to localStorage
     if (typeof localStorage !== 'undefined') {
@@ -164,31 +450,77 @@ export async function autoHealFromIndexedDB() {
         ];
 
         if (hasHealthyLocal) {
-            // Bidirectional healing: verify IndexedDB is not missing healthy local records
+            // Bidirectional & divergence-aware healing: verify IndexedDB and localStorage
+            // are in parity without losing Flora unlocks or consecrations from either store.
             let idbHealedCount = 0;
+            let localHealedFromIdb = false;
             for (const key of keysToRestore) {
                 const localVal = localStorage.getItem(key);
-                if (localVal !== null && localVal !== undefined) {
-                    const idbVal = await new Promise((resolve) => {
-                        try {
-                            const tx = db.transaction(STORE_NAME, 'readonly');
-                            const req = tx.objectStore(STORE_NAME).get(key);
-                            req.onsuccess = () => resolve(req.result);
-                            req.onerror = () => resolve(null);
-                        } catch (e) {
-                            resolve(null);
-                        }
-                    });
-                    if (idbVal === null || idbVal === undefined) {
-                        await setItemAsync(key, localVal);
-                        idbHealedCount++;
+                const idbVal = await new Promise((resolve) => {
+                    try {
+                        const tx = db.transaction(STORE_NAME, 'readonly');
+                        const req = tx.objectStore(STORE_NAME).get(key);
+                        req.onsuccess = () => resolve(req.result);
+                        req.onerror = () => resolve(null);
+                    } catch (e) {
+                        resolve(null);
                     }
+                });
+
+                const idbStr = idbVal === null || idbVal === undefined
+                    ? null
+                    : (typeof idbVal === 'string' ? idbVal : JSON.stringify(idbVal));
+
+                if (localVal === null || localVal === undefined) {
+                    if (idbStr !== null) {
+                        localStorage.setItem(key, idbStr);
+                        localHealedFromIdb = true;
+                    }
+                    continue;
+                }
+
+                if (idbStr === null) {
+                    await setItemDualWrite(key, localVal);
+                    idbHealedCount++;
+                    continue;
+                }
+
+                if (idbStr !== localVal) {
+                    // Reconcile diverged canonical Flora records non-destructively via set-union / HWM
+                    if (key === 'auro_match_unlocked_tiles' || key === 'auro_match_consecrations') {
+                        const pLocal = tryParseJson(localVal);
+                        const pIdb = tryParseJson(idbStr);
+                        if (pLocal.ok && Array.isArray(pLocal.value) && pIdb.ok && Array.isArray(pIdb.value)) {
+                            const mergedArr = mergeUniqueItems(pLocal.value, pIdb.value);
+                            const mergedStr = JSON.stringify(mergedArr);
+                            if (mergedStr !== localVal) localHealedFromIdb = true;
+                            await setItemDualWrite(key, mergedArr);
+                            idbHealedCount++;
+                            continue;
+                        }
+                    } else if (key === 'auro_match_user') {
+                        const pLocal = tryParseJson(localVal);
+                        const pIdb = tryParseJson(idbStr);
+                        if (pLocal.ok && pLocal.value && typeof pLocal.value === 'object' &&
+                            pIdb.ok && pIdb.value && typeof pIdb.value === 'object') {
+                            const mergedUser = mergeAuroMatchUserRecords(pLocal.value, pIdb.value);
+                            const mergedStr = JSON.stringify(mergedUser);
+                            if (mergedStr !== localVal) localHealedFromIdb = true;
+                            await setItemDualWrite(key, mergedUser);
+                            idbHealedCount++;
+                            continue;
+                        }
+                    }
+
+                    // For non-union scalar/snapshot keys or pending repairs, localStorage wins and heals IDB
+                    await setItemDualWrite(key, localVal);
+                    idbHealedCount++;
                 }
             }
             if (idbHealedCount > 0) {
-                console.info(`[Storage] Bidirectional auto-heal: populated ${idbHealedCount} records from localStorage into IndexedDB.`);
+                console.info(`[Storage] Bidirectional auto-heal: reconciled ${idbHealedCount} records between localStorage and IndexedDB.`);
             }
-            return false;
+            return localHealedFromIdb;
         }
 
         // Local state is corrupt or empty: quarantine corrupt string if present
@@ -291,37 +623,70 @@ export function saveProfileState() {
         return false;
     }
     if (typeof localStorage !== 'undefined') {
-        // Fresh-Read-Before-Merge: Prevent stale tab from stomping concurrent reflections or tile completions
+        // Fresh-Read-Before-Merge (Set-Union & High-Water-Mark):
+        // Prevent stale tab or concurrent session from dropping Flora tile unlocks or reflections
         try {
             const freshConsecrations = localStorage.getItem('auro_match_consecrations');
             if (freshConsecrations) {
                 const parsed = JSON.parse(freshConsecrations);
-                if (Array.isArray(parsed) && parsed.length > profileState.reflections.length) {
-                    profileState.reflections = parsed;
+                if (Array.isArray(parsed)) {
+                    profileState.reflections = mergeUniqueItems(parsed, profileState.reflections);
                 }
             }
             const freshUnlocked = localStorage.getItem('auro_match_unlocked_tiles');
             if (freshUnlocked) {
                 const parsed = JSON.parse(freshUnlocked);
-                if (Array.isArray(parsed) && parsed.length > profileState.progression.completedLevelIds.length) {
-                    profileState.progression.completedLevelIds = parsed;
+                if (Array.isArray(parsed)) {
+                    profileState.progression.completedLevelIds = mergeUniqueItems(
+                        parsed,
+                        profileState.progression.completedLevelIds
+                    );
                 }
             }
             const freshUser = localStorage.getItem('auro_match_user');
             if (freshUser) {
                 const parsed = JSON.parse(freshUser);
-                if (parsed && parsed.progression) {
-                    if (parsed.progression.completedLevelsCount > profileState.progression.completedLevelsCount) {
-                        profileState.progression.completedLevelsCount = parsed.progression.completedLevelsCount;
+                if (parsed && typeof parsed === 'object') {
+                    if (parsed.progression) {
+                        if (Array.isArray(parsed.progression.completedLevelIds)) {
+                            profileState.progression.completedLevelIds = mergeUniqueItems(
+                                parsed.progression.completedLevelIds,
+                                profileState.progression.completedLevelIds
+                            );
+                        }
+                        profileState.progression.completedLevelsCount = Math.max(
+                            Number(parsed.progression.completedLevelsCount || 0),
+                            Number(profileState.progression.completedLevelsCount || 0),
+                            profileState.progression.completedLevelIds.length
+                        );
+                        if (Array.isArray(parsed.progression.unlockedThemes)) {
+                            profileState.progression.unlockedThemes = mergeUniqueItems(
+                                profileState.progression.unlockedThemes,
+                                parsed.progression.unlockedThemes
+                            );
+                        }
                     }
-                    if (Array.isArray(parsed.progression.unlockedThemes)) {
-                        profileState.progression.unlockedThemes = Array.from(
-                            new Set([...profileState.progression.unlockedThemes, ...parsed.progression.unlockedThemes])
+                    if (parsed.profile && profileState.profile) {
+                        profileState.profile.lotusPetalCount = Math.max(
+                            Number(parsed.profile.lotusPetalCount || 0),
+                            Number(profileState.profile.lotusPetalCount || 0)
+                        );
+                        profileState.profile.consciousnessPoints = Math.max(
+                            Number(parsed.profile.consciousnessPoints || 0),
+                            Number(profileState.profile.consciousnessPoints || 0)
                         );
                     }
                 }
             }
         } catch (e) {}
+
+        // Deduplicate own arrays even on cold writes
+        profileState.reflections = mergeUniqueItems(profileState.reflections, []);
+        profileState.progression.completedLevelIds = mergeUniqueItems(profileState.progression.completedLevelIds, []);
+        profileState.progression.completedLevelsCount = Math.max(
+            Number(profileState.progression.completedLevelsCount || 0),
+            profileState.progression.completedLevelIds.length
+        );
 
         const userObj = {
             profile: profileState.profile,
@@ -333,7 +698,7 @@ export function saveProfileState() {
         localStorage.setItem('auro_match_consecrations', JSON.stringify(profileState.reflections));
         localStorage.setItem('auro_match_unlocked_tiles', JSON.stringify(profileState.progression.completedLevelIds));
 
-        // Asynchronously mirror into durable IndexedDB vault
+        // Asynchronously mirror into durable IndexedDB vault with retry & divergence tracking
         setItemAsync('auro_match_user', userObj);
         setItemAsync('auro_match_consecrations', profileState.reflections);
         setItemAsync('auro_match_unlocked_tiles', profileState.progression.completedLevelIds);
@@ -517,6 +882,7 @@ export async function decryptAndImportBackup(password, jsonString) {
 export async function executeAbsolutePurge(targetGm = null) {
     // 1. Establish persistent purge lock before executing destructive operations
     setPurgeLock(true);
+    pendingDualWriteKeys.clear();
 
     try {
         // 2. Broadcast purge event across tabs immediately

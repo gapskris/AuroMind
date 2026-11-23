@@ -19,8 +19,11 @@ import {
 import {
   autoHealFromIndexedDB,
   loadProfileState,
+  mergeAuroMatchUserRecords,
+  mergeUniqueItems,
   saveProfileState,
-  setItemAsync
+  setItemAsync,
+  setItemDualWrite
 } from '../src/controllers/storageAdapter.js';
 
 const OWNED_STORAGE_KEYS = Object.freeze([
@@ -96,18 +99,20 @@ export function createAuroMatchGameAdapter() {
         }
       } catch {}
 
+      const normalizedConsecrations = mergeUniqueItems(Array.isArray(consecrations) ? consecrations : [], []);
+      const normalizedTiles = mergeUniqueItems(Array.isArray(unlockedTiles) ? unlockedTiles : [], []);
+
       const hasProgress = Boolean(
-        userObj &&
-        (userObj.progression?.completedLevelsCount > 0 ||
-          (Array.isArray(unlockedTiles) && unlockedTiles.length > 0) ||
-          (Array.isArray(consecrations) && consecrations.length > 0))
+        (userObj && (userObj.progression?.completedLevelsCount > 0 || (userObj.progression?.completedLevelIds?.length || 0) > 0)) ||
+        normalizedTiles.length > 0 ||
+        normalizedConsecrations.length > 0
       );
 
       const payload = {
         schemaVersion: 1,
         user: userObj || null,
-        consecrations: Array.isArray(consecrations) ? consecrations : [],
-        unlockedTiles: Array.isArray(unlockedTiles) ? unlockedTiles : [],
+        consecrations: normalizedConsecrations,
+        unlockedTiles: normalizedTiles,
         exportedAt: new Date().toISOString()
       };
 
@@ -115,7 +120,7 @@ export function createAuroMatchGameAdapter() {
       try {
         checksum = await computePayloadChecksum(payload);
       } catch {
-        checksum = 'match_' + (unlockedTiles.length || 0) + '_' + (consecrations.length || 0);
+        checksum = 'match_' + (normalizedTiles.length || 0) + '_' + (normalizedConsecrations.length || 0);
       }
 
       return {
@@ -131,24 +136,56 @@ export function createAuroMatchGameAdapter() {
       };
     },
     applyEnvelope: async (envelope) => {
-      if (!envelope || !envelope.payload) return false;
+      if (!envelope || !envelope.payload || typeof envelope.payload !== 'object') return false;
+      if (envelope.gameId && envelope.gameId !== 'auromatch') return false;
       try {
+        if (typeof localStorage === 'undefined') return false;
         const { user, consecrations, unlockedTiles } = envelope.payload;
-        if (user && typeof localStorage !== 'undefined') {
-          localStorage.setItem('auro_match_user', JSON.stringify(user));
-          await setItemAsync('auro_match_user', user);
+
+        let localUser = null;
+        let localConsecrations = [];
+        let localTiles = [];
+        try {
+          const rawUser = localStorage.getItem('auro_match_user');
+          if (rawUser) localUser = JSON.parse(rawUser);
+        } catch {}
+        try {
+          const rawCons = localStorage.getItem('auro_match_consecrations');
+          if (rawCons) localConsecrations = JSON.parse(rawCons);
+        } catch {}
+        try {
+          const rawTiles = localStorage.getItem('auro_match_unlocked_tiles');
+          if (rawTiles) localTiles = JSON.parse(rawTiles);
+        } catch {}
+
+        const mergedTiles = Array.isArray(unlockedTiles)
+          ? mergeUniqueItems(localTiles, unlockedTiles)
+          : mergeUniqueItems(localTiles, []);
+        const mergedConsecrations = Array.isArray(consecrations)
+          ? mergeUniqueItems(localConsecrations, consecrations)
+          : mergeUniqueItems(localConsecrations, []);
+
+        if (user && typeof user === 'object') {
+          const mergedUser = mergeAuroMatchUserRecords(localUser, user);
+          if (mergedUser.progression) {
+            mergedUser.progression.completedLevelIds = mergeUniqueItems(
+              mergedUser.progression.completedLevelIds || [],
+              mergedTiles
+            );
+            mergedUser.progression.completedLevelsCount = Math.max(
+              Number(mergedUser.progression.completedLevelsCount || 0),
+              mergedUser.progression.completedLevelIds.length
+            );
+          }
+          await setItemDualWrite('auro_match_user', mergedUser);
         }
-        if (Array.isArray(consecrations) && typeof localStorage !== 'undefined') {
-          localStorage.setItem('auro_match_consecrations', JSON.stringify(consecrations));
-          await setItemAsync('auro_match_consecrations', consecrations);
+        if (Array.isArray(consecrations)) {
+          await setItemDualWrite('auro_match_consecrations', mergedConsecrations);
         }
-        if (Array.isArray(unlockedTiles) && typeof localStorage !== 'undefined') {
-          localStorage.setItem('auro_match_unlocked_tiles', JSON.stringify(unlockedTiles));
-          await setItemAsync('auro_match_unlocked_tiles', unlockedTiles);
+        if (Array.isArray(unlockedTiles)) {
+          await setItemDualWrite('auro_match_unlocked_tiles', mergedTiles);
         }
-        if (typeof localStorage !== 'undefined') {
-          loadProfileState();
-        }
+        loadProfileState();
         return true;
       } catch (err) {
         console.warn('[AuroMatch Bridge] Failed to apply save envelope:', err);

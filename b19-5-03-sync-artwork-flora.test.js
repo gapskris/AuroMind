@@ -1,0 +1,1501 @@
+/**
+ * B19.5-03 — Save Synchronization, Artwork Persistence & Flora Integrity Test Suite
+ *
+ * Part 1: Unit & integration tests executing actual production SDK, adapters,
+ *         SupabaseSyncProvider, AuroMandala artwork concurrency/bridge, and
+ *         AuroMatch Flora dual-write storageAdapter/bridge code paths.
+ * Part 2: Real Chromium/Edge browser verification via ./e2e/browser-harness.js
+ *         (real localStorage, real IndexedDB AuroMatchDB, real browser ES modules,
+ *         real page reloads, and offline boundary verification).
+ */
+
+import test, { describe } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+
+import { createAuroMindSDK } from './assets/sdk/auromind-sdk.js';
+import {
+  AuroBlocksMergeStrategy,
+  AuroMatchMergeStrategy,
+  AuroMandalaMergeStrategy,
+  computePayloadChecksum,
+  computePayloadChecksumSync,
+  mergeArtworksWithForking,
+  capSnapshots
+} from './assets/sdk/auromind-adapters.js';
+import { createSupabaseSyncProvider } from './assets/sdk/providers/supabase/supabase-sync-provider.js';
+import {
+  MAX_ARTWORK_SNAPSHOTS,
+  computeArtworkContentHash,
+  createArtworkEntity,
+  appendArtworkSnapshot,
+  markArtworkDeleted,
+  resurrectArtwork,
+  resolveArtworkCausalConflict,
+  createLocalArtworkStore
+} from './assets/sdk/artwork-concurrency.js';
+import {
+  CACHE_KEY as MANDALA_CACHE_KEY,
+  SANKALPA_VAULT_KEY,
+  createAuroMandalaGameAdapter
+} from './games/auromandala/assets/auromandala-sdk-bridge.js';
+import {
+  resetIndexedDBConnection,
+  setItemDualWrite,
+  setItemAsync,
+  getItemAsync,
+  getDualWriteStatus,
+  reconcileDualWriteParity,
+  autoHealFromIndexedDB,
+  saveProfileState,
+  loadProfileState,
+  profileState
+} from './games/auromatch/src/controllers/storageAdapter.js';
+import { createAuroMatchGameAdapter as createAuroMatchBridgeAdapter } from './games/auromatch/Assets/auromatch-sdk-bridge.js';
+import { createTestEnvironment } from './e2e/browser-harness.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// =============================================================================
+// Shared Test Helpers (In-Memory Storage, Mock IDB, Mock Sync/Auth Providers)
+// =============================================================================
+
+function createMemoryStorage({ failOnSet = false, quotaError = false } = {}) {
+  const map = new Map();
+  let shouldFailSet = failOnSet;
+  return {
+    get length() {
+      return map.size;
+    },
+    key(i) {
+      return Array.from(map.keys())[i] ?? null;
+    },
+    getItem(k) {
+      return map.has(String(k)) ? map.get(String(k)) : null;
+    },
+    setItem(k, v) {
+      if (shouldFailSet) {
+        const err = new Error(quotaError ? 'QuotaExceededError: storage full' : 'Storage write failed');
+        if (quotaError) err.name = 'QuotaExceededError';
+        throw err;
+      }
+      map.set(String(k), String(v));
+    },
+    removeItem(k) {
+      map.delete(String(k));
+    },
+    clear() {
+      map.clear();
+    },
+    setFailOnWrite(flag) {
+      shouldFailSet = Boolean(flag);
+    },
+    _dump() {
+      return Object.fromEntries(map.entries());
+    }
+  };
+}
+
+function createFakeIndexedDB({ failPutCount = 0, alwaysFailPut = false } = {}) {
+  const dbs = new Map();
+  let remainingPutFailures = failPutCount;
+  let forceFailPut = alwaysFailPut;
+
+  function getOrCreateDb(name) {
+    if (!dbs.has(name)) {
+      dbs.set(name, new Map());
+    }
+    const stores = dbs.get(name);
+    return {
+      name,
+      objectStoreNames: {
+        contains: (storeName) => stores.has(storeName)
+      },
+      createObjectStore: (storeName) => {
+        if (!stores.has(storeName)) stores.set(storeName, new Map());
+        return {};
+      },
+      close() {},
+      transaction(storeName, _mode) {
+        if (!stores.has(storeName)) stores.set(storeName, new Map());
+        const store = stores.get(storeName);
+        const tx = {
+          oncomplete: null,
+          onerror: null,
+          onabort: null,
+          error: null,
+          objectStore() {
+            return {
+              get(key) {
+                const req = { result: undefined, onsuccess: null, onerror: null };
+                queueMicrotask(() => {
+                  req.result = store.has(key) ? store.get(key) : undefined;
+                  if (req.onsuccess) req.onsuccess({ target: req });
+                  if (tx.oncomplete) tx.oncomplete({ target: tx });
+                });
+                return req;
+              },
+              getAll() {
+                const req = { result: [], onsuccess: null, onerror: null };
+                queueMicrotask(() => {
+                  req.result = Array.from(store.values());
+                  if (req.onsuccess) req.onsuccess({ target: req });
+                  if (tx.oncomplete) tx.oncomplete({ target: tx });
+                });
+                return req;
+              },
+              put(value, explicitKey) {
+                const req = { result: undefined, onsuccess: null, onerror: null };
+                queueMicrotask(() => {
+                  if (forceFailPut || remainingPutFailures > 0) {
+                    if (remainingPutFailures > 0) remainingPutFailures--;
+                    const err = new Error('Simulated IndexedDB write failure');
+                    tx.error = err;
+                    req.error = err;
+                    if (req.onerror) req.onerror({ target: req });
+                    if (tx.onerror) tx.onerror({ target: tx });
+                    return;
+                  }
+                  const k = explicitKey !== undefined ? explicitKey : (value && (value.id || value.key));
+                  store.set(k, value);
+                  req.result = k;
+                  if (req.onsuccess) req.onsuccess({ target: req });
+                  if (tx.oncomplete) tx.oncomplete({ target: tx });
+                });
+                return req;
+              },
+              delete(key) {
+                const req = { result: undefined, onsuccess: null, onerror: null };
+                queueMicrotask(() => {
+                  store.delete(key);
+                  if (req.onsuccess) req.onsuccess({ target: req });
+                  if (tx.oncomplete) tx.oncomplete({ target: tx });
+                });
+                return req;
+              }
+            };
+          }
+        };
+        return tx;
+      }
+    };
+  }
+
+  return {
+    open(name) {
+      const req = { result: null, onupgradeneeded: null, onsuccess: null, onerror: null, onblocked: null };
+      queueMicrotask(() => {
+        const db = getOrCreateDb(name);
+        req.result = db;
+        if (req.onupgradeneeded) req.onupgradeneeded({ target: req });
+        if (req.onsuccess) req.onsuccess({ target: req });
+      });
+      return req;
+    },
+    deleteDatabase(name) {
+      const req = { onsuccess: null, onerror: null, onblocked: null };
+      queueMicrotask(() => {
+        dbs.delete(name);
+        if (req.onsuccess) req.onsuccess({ target: req });
+      });
+      return req;
+    },
+    _setAlwaysFailPut(flag) {
+      forceFailPut = Boolean(flag);
+    },
+    _setFailPutCount(n) {
+      remainingPutFailures = n;
+    },
+    _peekStore(dbName, storeName) {
+      const db = dbs.get(dbName);
+      if (!db || !db.has(storeName)) return {};
+      return Object.fromEntries(db.get(storeName).entries());
+    },
+    _seedStore(dbName, storeName, key, value) {
+      if (!dbs.has(dbName)) dbs.set(dbName, new Map());
+      const db = dbs.get(dbName);
+      if (!db.has(storeName)) db.set(storeName, new Map());
+      db.get(storeName).set(key, value);
+    }
+  };
+}
+
+function createFakeBroadcastBus() {
+  const channels = new Map();
+  class FakeBroadcastChannel {
+    constructor(name) {
+      this.name = name;
+      this.onmessage = null;
+      this._closed = false;
+      if (!channels.has(name)) channels.set(name, new Set());
+      channels.get(name).add(this);
+    }
+    postMessage(data) {
+      if (this._closed) return;
+      const peers = channels.get(this.name);
+      if (!peers) return;
+      for (const peer of peers) {
+        if (peer !== this && !peer._closed && typeof peer.onmessage === 'function') {
+          peer.onmessage({ data: JSON.parse(JSON.stringify(data)) });
+        }
+      }
+    }
+    close() {
+      this._closed = true;
+      const peers = channels.get(this.name);
+      if (peers) peers.delete(this);
+    }
+  }
+  return FakeBroadcastChannel;
+}
+
+function createSdkEnv({ storage = createMemoryStorage(), idb = createFakeIndexedDB(), onLine = true, BroadcastChannelImpl = null } = {}) {
+  const listeners = new Map();
+  let onlineFlag = onLine;
+  const win = {
+    addEventListener(type, fn) {
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type).add(fn);
+    },
+    removeEventListener(type, fn) {
+      if (listeners.has(type)) listeners.get(type).delete(fn);
+    },
+    dispatchEvent(evt) {
+      const set = listeners.get(evt.type);
+      if (set) {
+        for (const fn of set) fn(evt);
+      }
+    },
+    navigator: {
+      get onLine() {
+        return onlineFlag;
+      }
+    }
+  };
+
+  return {
+    env: {
+      window: win,
+      navigator: win.navigator,
+      localStorage: storage,
+      indexedDB: idb,
+      BroadcastChannel: BroadcastChannelImpl
+    },
+    setOnline(next) {
+      onlineFlag = Boolean(next);
+      win.dispatchEvent({ type: onlineFlag ? 'online' : 'offline' });
+    }
+  };
+}
+
+function createMockAuthProvider(initialAccount = null) {
+  let currentAccount = initialAccount;
+  const authListeners = new Set();
+  return {
+    providerName: 'mock-auth',
+    isConfigured: () => true,
+    async getSession() {
+      return currentAccount ? { ...currentAccount } : null;
+    },
+    async signIn(_method, options = {}) {
+      const email = options.email || 'player@example.com';
+      const userId = `user_${email.split('@')[0]}`;
+      currentAccount = {
+        userId,
+        email,
+        displayName: email.split('@')[0],
+        provider: 'email',
+        expiresAt: new Date(Date.now() + 3600_000).toISOString()
+      };
+      for (const cb of authListeners) cb({ ...currentAccount });
+      return { status: 'authenticated', account: { ...currentAccount } };
+    },
+    async linkGuestIdentity(_guestId) {
+      return { linked: true };
+    },
+    async signOut() {
+      currentAccount = null;
+      for (const cb of authListeners) cb(null);
+      return { ok: true };
+    },
+    onAuthStateChange(cb) {
+      authListeners.add(cb);
+      return () => authListeners.delete(cb);
+    },
+    _emitSwitch(userId, email = `${userId}@example.com`) {
+      currentAccount = userId
+        ? {
+            userId,
+            email,
+            displayName: userId,
+            provider: 'email',
+            expiresAt: new Date(Date.now() + 3600_000).toISOString()
+          }
+        : null;
+      for (const cb of authListeners) cb(currentAccount ? { ...currentAccount } : null);
+    }
+  };
+}
+
+function createMockCloudSyncStore() {
+  const rows = new Map(); // `${userId}::${gameId}` -> record
+  let pullCount = 0;
+  let pushCount = 0;
+  let failNextPush = null;
+  let forceConflictOnce = null;
+  let onBeforePull = null;
+  let onBeforePush = null;
+
+  return {
+    rows,
+    getStats: () => ({ pullCount, pushCount }),
+    setFailNextPush(errMsg) {
+      failNextPush = errMsg;
+    },
+    setForceConflictOnce(serverRecord) {
+      forceConflictOnce = serverRecord;
+    },
+    setOnBeforePull(fn) {
+      onBeforePull = fn;
+    },
+    setOnBeforePush(fn) {
+      onBeforePush = fn;
+    },
+    seed(userId, gameId, record) {
+      rows.set(`${userId}::${gameId}`, JSON.parse(JSON.stringify(record)));
+    },
+    get(userId, gameId) {
+      return rows.get(`${userId}::${gameId}`) || null;
+    },
+    provider: {
+      providerName: 'mock-cloud-sync',
+      isConfigured: () => true,
+      async pullLatest(userId, gameId) {
+        pullCount += 1;
+        if (onBeforePull) await onBeforePull({ userId, gameId });
+        const rec = rows.get(`${userId}::${gameId}`);
+        return rec ? JSON.parse(JSON.stringify(rec)) : null;
+      },
+      async pushWithOptimisticLock(envelope, userId, expectedRevision) {
+        const gameId = envelope.gameId;
+        pushCount += 1;
+        if (onBeforePush) await onBeforePush({ userId, gameId, envelope, expectedRevision });
+        if (failNextPush) {
+          const msg = failNextPush;
+          failNextPush = null;
+          throw new Error(msg);
+        }
+        if (forceConflictOnce) {
+          const conflictRec = forceConflictOnce;
+          forceConflictOnce = null;
+          rows.set(`${userId}::${gameId}`, JSON.parse(JSON.stringify(conflictRec)));
+          return {
+            status: 'conflict',
+            currentRevision: conflictRec.revision,
+            serverRecord: JSON.parse(JSON.stringify(conflictRec))
+          };
+        }
+        const key = `${userId}::${gameId}`;
+        const existing = rows.get(key);
+        const currentRev = existing ? existing.revision : 0;
+        if (existing && expectedRevision !== currentRev) {
+          return {
+            status: 'conflict',
+            currentRevision: currentRev,
+            serverRecord: JSON.parse(JSON.stringify(existing))
+          };
+        }
+        const nextRev = currentRev + 1;
+        const stored = {
+          userId,
+          gameId,
+          revision: nextRev,
+          checksum: envelope.checksum,
+          payload: JSON.parse(JSON.stringify(envelope.payload)),
+          updatedAt: new Date().toISOString()
+        };
+        rows.set(key, stored);
+        return { status: 'success', newRevision: nextRev, record: stored };
+      }
+    }
+  };
+}
+
+function createInMemoryGameAdapter(gameId, initialPayload) {
+  let state = JSON.parse(JSON.stringify(initialPayload));
+  return {
+    getState: () => JSON.parse(JSON.stringify(state)),
+    setState: (next) => {
+      state = JSON.parse(JSON.stringify(next));
+    },
+    adapter: {
+      gameId,
+      adapterVersion: '1.0.0',
+      contractVersion: 1,
+      integrationMode: 'native',
+      storage: {
+        kind: 'ls',
+        ownedDatabases: [],
+        ownedLocalStorageKeys: [`test_${gameId}_save`],
+        localOnlyVaults: gameId === 'auromandala' ? [SANKALPA_VAULT_KEY] : []
+      },
+      capabilities: {
+        offlinePlay: true,
+        localPersistence: true,
+        cloudSyncEligible: true
+      },
+      hasLocalProgress: () => Boolean(state && Object.keys(state).length > 0),
+      exportEnvelope: async (guestId) => ({
+        envelopeVersion: 1,
+        gameId,
+        gameSchemaVersion: 1,
+        guestId,
+        baseRevision: 0,
+        clientUpdatedAt: new Date().toISOString(),
+        isEmpty: !state || Object.keys(state).length === 0,
+        checksum: await computePayloadChecksum(state),
+        payload: JSON.parse(JSON.stringify(state))
+      }),
+      applyEnvelope: async (envelope) => {
+        if (!envelope || !envelope.payload) return false;
+        state = JSON.parse(JSON.stringify(envelope.payload));
+        return true;
+      }
+    }
+  };
+}
+
+// =============================================================================
+// PART 1 — UNIT & INTEGRATION TESTS
+// =============================================================================
+
+describe('Part 1A — Scope A: Game Save Synchronization & Guest-Save Merging', () => {
+  test('Sync-1: Guest-to-account linking merges guest + existing cloud saves without losing either side (AuroMatch + AuroBlocks)', async () => {
+    const { env } = createSdkEnv();
+    const auth = createMockAuthProvider();
+    const cloud = createMockCloudSyncStore();
+
+    // Seed existing cloud account saves for alice
+    cloud.seed('user_alice', 'auromatch', {
+      userId: 'user_alice',
+      gameId: 'auromatch',
+      revision: 3,
+      checksum: 'cloud_match_rev3',
+      payload: {
+        schemaVersion: 1,
+        user: {
+          profile: { lotusPetalCount: 40, consciousnessPoints: 300 },
+          progression: { completedLevelsCount: 2, completedLevelIds: ['flora_lotus', 'flora_rose'], unlockedThemes: ['flowers'] }
+        },
+        unlockedTiles: ['flora_lotus', 'flora_rose'],
+        consecrations: [{ id: 'c_cloud', text: 'Cloud reflection' }]
+      },
+      updatedAt: '2026-11-23T08:00:00.000Z'
+    });
+    cloud.seed('user_alice', 'auroblocks', {
+      userId: 'user_alice',
+      gameId: 'auroblocks',
+      revision: 2,
+      checksum: 'cloud_blocks_rev2',
+      payload: {
+        highScore: 1500,
+        completedStages: [1, 2, { stageId: 's5', score: 400, stars: 2, cleared: true }],
+        stageScores: { s1: 300, s5: 400 }
+      },
+      updatedAt: '2026-11-23T08:00:00.000Z'
+    });
+
+    const sdk = createAuroMindSDK({ env });
+    await sdk.init({
+      gameId: 'portal',
+      capabilities: { authEnabled: true, cloudSyncEnabled: true },
+      providers: { auth, cloudSync: cloud.provider }
+    });
+
+    const matchHarness = createInMemoryGameAdapter('auromatch', {
+      schemaVersion: 1,
+      user: {
+        profile: { lotusPetalCount: 25, consciousnessPoints: 500 },
+        progression: { completedLevelsCount: 2, completedLevelIds: ['flora_jasmine', 'flora_lotus'], unlockedThemes: ['flowers', 'qualities'] }
+      },
+      unlockedTiles: ['flora_jasmine', 'flora_lotus'],
+      consecrations: [{ id: 'c_guest', text: 'Guest reflection' }]
+    });
+    const blocksHarness = createInMemoryGameAdapter('auroblocks', {
+      highScore: 2200,
+      completedStages: [2, 3, { stageId: 's5', score: 650, stars: 3, cleared: true }],
+      stageScores: { s2: 500, s5: 650 }
+    });
+
+    sdk.adapters.register(matchHarness.adapter, { mergeStrategy: AuroMatchMergeStrategy });
+    sdk.adapters.register(blocksHarness.adapter, { mergeStrategy: AuroBlocksMergeStrategy });
+    await sdk.adapters.init('auromatch');
+    await sdk.adapters.init('auroblocks');
+
+    // Guest links/migrates into existing account alice & opts into cloud sync
+    await sdk.auth.signIn('email', { email: 'alice@example.com' });
+    sdk.sync.setConsent(true);
+
+    const res = await sdk.sync.syncNow();
+    assert.equal(res.status, 'success');
+    assert.equal(res.results.length, 2);
+
+    // Verify AuroMatch merged state preserves BOTH guest and cloud Flora unlocks & reflections
+    const mergedMatch = matchHarness.getState();
+    assert.deepEqual(
+      new Set(mergedMatch.unlockedTiles),
+      new Set(['flora_lotus', 'flora_rose', 'flora_jasmine'])
+    );
+    assert.equal(mergedMatch.consecrations.length, 2);
+    assert.equal(mergedMatch.user.profile.lotusPetalCount, 40);
+    assert.equal(mergedMatch.user.profile.consciousnessPoints, 500);
+    assert.equal(mergedMatch.user.progression.completedLevelsCount, 3);
+
+    // Verify AuroBlocks merged state preserves BOTH primitive and object stage progress
+    const mergedBlocks = blocksHarness.getState();
+    assert.equal(mergedBlocks.highScore, 2200);
+    assert.ok(mergedBlocks.completedStages.includes(1));
+    assert.ok(mergedBlocks.completedStages.includes(2));
+    assert.ok(mergedBlocks.completedStages.includes(3));
+    const s5 = mergedBlocks.completedStages.find((s) => s && typeof s === 'object' && s.stageId === 's5');
+    assert.equal(s5.score, 650);
+    assert.equal(s5.stars, 3);
+    assert.equal(mergedBlocks.stageScores.s1, 300);
+    assert.equal(mergedBlocks.stageScores.s2, 500);
+    assert.equal(mergedBlocks.stageScores.s5, 650);
+
+    sdk.dispose();
+  });
+
+  test('Sync-2: Repeated syncNow() is strictly idempotent with canonical SHA-256 checksums (zero redundant pushes)', async () => {
+    const { env } = createSdkEnv();
+    const auth = createMockAuthProvider();
+    const cloud = createMockCloudSyncStore();
+    const sdk = createAuroMindSDK({ env });
+
+    await sdk.init({
+      gameId: 'portal',
+      capabilities: { authEnabled: true, cloudSyncEnabled: true },
+      providers: { auth, cloudSync: cloud.provider }
+    });
+    const blocksHarness = createInMemoryGameAdapter('auroblocks', {
+      highScore: 900,
+      completedStages: [1, 2]
+    });
+    sdk.adapters.register(blocksHarness.adapter, { mergeStrategy: AuroBlocksMergeStrategy });
+    await sdk.adapters.init('auroblocks');
+
+    await sdk.auth.signIn('email', { email: 'idemp@example.com' });
+    sdk.sync.setConsent(true);
+
+    // First sync pushes revision 1
+    const first = await sdk.sync.syncNow('auroblocks');
+    assert.equal(first.status, 'success');
+    assert.equal(first.results[0].action, 'pushed_initial');
+    assert.equal(cloud.getStats().pushCount, 1);
+
+    const cloudRecord = cloud.get('user_idemp', 'auroblocks');
+    assert.match(cloudRecord.checksum, /^[a-f0-9]{64}$/, 'Checksum must be a canonical 64-char SHA-256 hex digest');
+    assert.equal(cloudRecord.checksum.startsWith('merged_'), false);
+
+    // Second sync with unchanged state must return in_sync with ZERO new pushes!
+    const second = await sdk.sync.syncNow('auroblocks');
+    assert.equal(second.status, 'success');
+    assert.equal(second.results[0].action, 'in_sync');
+    assert.equal(cloud.getStats().pushCount, 1, 'Idempotent re-sync must NOT push again');
+
+    // Also test idempotency right after an auto_merged_and_pushed (previously broke with fake merged_${Date.now()} checksum!)
+    cloud.seed('user_idemp', 'auroblocks', {
+      userId: 'user_idemp',
+      gameId: 'auroblocks',
+      revision: 2,
+      checksum: await computePayloadChecksum({ highScore: 1100, completedStages: [1, 3] }),
+      payload: { highScore: 1100, completedStages: [1, 3] },
+      updatedAt: new Date().toISOString()
+    });
+    const mergeSync = await sdk.sync.syncNow('auroblocks');
+    assert.equal(mergeSync.results[0].action, 'auto_merged_and_pushed');
+    const pushedCountAfterMerge = cloud.getStats().pushCount;
+    const mergedRecord = cloud.get('user_idemp', 'auroblocks');
+    assert.match(mergedRecord.checksum, /^[a-f0-9]{64}$/, 'Merged push checksum must be real SHA-256, not merged_<timestamp>');
+
+    const repeatAfterMerge = await sdk.sync.syncNow('auroblocks');
+    assert.equal(repeatAfterMerge.results[0].action, 'in_sync');
+    assert.equal(cloud.getStats().pushCount, pushedCountAfterMerge, 'Re-sync immediately after auto_merged_and_pushed must NOT push again');
+
+    sdk.dispose();
+  });
+
+  test('Sync-3: Optimistic concurrency conflict with serverRecord resolves and retries deterministically in 1 shot', async () => {
+    const { env } = createSdkEnv();
+    const auth = createMockAuthProvider();
+    const cloud = createMockCloudSyncStore();
+    const sdk = createAuroMindSDK({ env });
+
+    await sdk.init({
+      gameId: 'portal',
+      capabilities: { authEnabled: true, cloudSyncEnabled: true },
+      providers: { auth, cloudSync: cloud.provider }
+    });
+    const blocksHarness = createInMemoryGameAdapter('auroblocks', {
+      highScore: 1200,
+      completedStages: [1, 2]
+    });
+    // Use a strategy that returns use_local on first check and auto_merged on conflict retry
+    let resolveCalls = 0;
+    const customStrategy = {
+      gameId: 'auroblocks',
+      resolve(local, remote) {
+        resolveCalls += 1;
+        if (resolveCalls === 1) {
+          return { status: 'use_local', resolvedPayload: local.payload };
+        }
+        return AuroBlocksMergeStrategy.resolve(local, remote);
+      }
+    };
+    sdk.adapters.register(blocksHarness.adapter, { mergeStrategy: customStrategy });
+    await sdk.adapters.init('auroblocks');
+
+    // Seed an older server record at rev 4 so first sync takes the use_local branch
+    cloud.seed('user_conflict', 'auroblocks', {
+      userId: 'user_conflict',
+      gameId: 'auroblocks',
+      revision: 4,
+      checksum: await computePayloadChecksum({ highScore: 500, completedStages: [1] }),
+      payload: { highScore: 500, completedStages: [1] },
+      updatedAt: new Date().toISOString()
+    });
+
+    await sdk.auth.signIn('email', { email: 'conflict@example.com' });
+    sdk.sync.setConsent(true);
+
+    // Simulate concurrent remote write arriving between pull and push (rev 5)
+    cloud.setForceConflictOnce({
+      userId: 'user_conflict',
+      gameId: 'auroblocks',
+      revision: 5,
+      checksum: await computePayloadChecksum({ highScore: 1800, completedStages: [1, 4] }),
+      payload: { highScore: 1800, completedStages: [1, 4] },
+      updatedAt: new Date().toISOString()
+    });
+
+    const res = await sdk.sync.syncNow('auroblocks');
+    assert.equal(res.status, 'success');
+    assert.equal(res.results[0].action, 'conflict_resolved_and_pushed');
+    assert.equal(res.results[0].revision, 6);
+
+    const finalLocal = blocksHarness.getState();
+    assert.equal(finalLocal.highScore, 1800);
+    assert.deepEqual(new Set(finalLocal.completedStages), new Set([1, 2, 4]));
+    assert.equal(sdk.sync.getPendingOutboxCount(), 0);
+
+    sdk.dispose();
+  });
+
+  test('Sync-4 & Sync-5: Offline outbox persists to IndexedDB across SDK restart, retains failed syncs, and flushes cleanly on retry', async () => {
+    const sharedStorage = createMemoryStorage();
+    const sharedIdb = createFakeIndexedDB();
+    const { env: env1 } = createSdkEnv({ storage: sharedStorage, idb: sharedIdb, onLine: false });
+    const auth1 = createMockAuthProvider();
+    const cloud = createMockCloudSyncStore();
+
+    const sdk1 = createAuroMindSDK({ env: env1 });
+    await sdk1.init({
+      gameId: 'portal',
+      capabilities: { authEnabled: true, cloudSyncEnabled: true },
+      providers: { auth: auth1, cloudSync: cloud.provider }
+    });
+    const harness1 = createInMemoryGameAdapter('auroblocks', { highScore: 777, completedStages: [1] });
+    sdk1.adapters.register(harness1.adapter, { mergeStrategy: AuroBlocksMergeStrategy });
+    await sdk1.adapters.init('auroblocks');
+
+    // Queue mutation while offline -> persisted to AuroMindPlatformDB.platform_sync_outbox
+    await sdk1.sync.queueLocalChange('auroblocks');
+    const persistedOutbox = sharedIdb._peekStore('AuroMindPlatformDB', 'platform_sync_outbox');
+    assert.ok(
+      Object.values(persistedOutbox).some((m) => m && m.gameId === 'auroblocks'),
+      'Offline mutation must persist in IndexedDB platform_sync_outbox'
+    );
+    sdk1.dispose();
+
+    // Clear localStorage outbox mirror to prove IDB outbox alone recovers pending sync on restart!
+    sharedStorage.removeItem('auromind.platform.v1.sync.outbox');
+
+    // Cold restart on a fresh SDK instance now back online
+    const { env: env2 } = createSdkEnv({ storage: sharedStorage, idb: sharedIdb, onLine: true });
+    const auth2 = createMockAuthProvider();
+    const sdk2 = createAuroMindSDK({ env: env2 });
+    await sdk2.init({
+      gameId: 'portal',
+      capabilities: { authEnabled: true, cloudSyncEnabled: true },
+      providers: { auth: auth2, cloudSync: cloud.provider }
+    });
+    const harness2 = createInMemoryGameAdapter('auroblocks', { highScore: 777, completedStages: [1] });
+    sdk2.adapters.register(harness2.adapter, { mergeStrategy: AuroBlocksMergeStrategy });
+    await sdk2.adapters.init('auroblocks');
+
+    assert.equal(sdk2.sync.getPendingOutboxCount(), 1, 'Restarted SDK must hydrate pending mutation from IDB outbox');
+
+    await sdk2.auth.signIn('email', { email: 'retry@example.com' });
+    sdk2.sync.setConsent(true);
+
+    // First flush fails transiently -> outbox MUST retain item
+    cloud.setFailNextPush('503 Network Interrupted');
+    const failedRun = await sdk2.sync.drainOutbox();
+    assert.equal(failedRun.results[0].action, 'error');
+    assert.equal(sdk2.sync.getPendingOutboxCount(), 1, 'Failed sync must preserve item in outbox for retry');
+
+    // Second flush succeeds -> clears both memory & IDB outbox
+    const recoveredRun = await sdk2.sync.drainOutbox();
+    assert.equal(recoveredRun.status, 'success');
+    assert.equal(sdk2.sync.getPendingOutboxCount(), 0);
+    const outboxAfter = sharedIdb._peekStore('AuroMindPlatformDB', 'platform_sync_outbox');
+    assert.equal(
+      Object.values(outboxAfter).some((m) => m && m.gameId === 'auroblocks'),
+      false,
+      'Successfully synced item must be cleared from IDB outbox'
+    );
+
+    sdk2.dispose();
+  });
+
+  test('Sync-6: Mid-flight account switch during syncNow() aborts safely with zero cross-user save or metadata leakage', async () => {
+    const { env } = createSdkEnv();
+    const auth = createMockAuthProvider();
+    const cloud = createMockCloudSyncStore();
+
+    cloud.seed('user_alpha', 'auroblocks', {
+      userId: 'user_alpha',
+      gameId: 'auroblocks',
+      revision: 4,
+      checksum: 'alpha_secret_chk',
+      payload: { highScore: 99999, completedStages: [1, 2, 3, 4, 5] },
+      updatedAt: new Date().toISOString()
+    });
+
+    const sdk = createAuroMindSDK({ env });
+    await sdk.init({
+      gameId: 'portal',
+      capabilities: { authEnabled: true, cloudSyncEnabled: true },
+      providers: { auth, cloudSync: cloud.provider }
+    });
+    const blocksHarness = createInMemoryGameAdapter('auroblocks', { highScore: 100, completedStages: [1] });
+    sdk.adapters.register(blocksHarness.adapter, { mergeStrategy: AuroBlocksMergeStrategy });
+    await sdk.adapters.init('auroblocks');
+
+    await sdk.auth.signIn('email', { email: 'alpha@example.com' });
+    sdk.sync.setConsent(true);
+
+    // While pullLatest for user_alpha is in flight, switch authenticated session to user_beta!
+    cloud.setOnBeforePull(async () => {
+      auth._emitSwitch('user_beta', 'beta@example.com');
+    });
+
+    const aborted = await sdk.sync.syncNow('auroblocks');
+    assert.equal(aborted.status, 'aborted');
+    assert.equal(aborted.reason, 'account_changed_mid_sync');
+
+    // Verify user_alpha's cloud score (99999) was NEVER applied to local state after switching to beta
+    assert.equal(blocksHarness.getState().highScore, 100, 'Alpha save must not overwrite state after switch to Beta');
+    assert.equal(cloud.get('user_beta', 'auroblocks'), null, 'Alpha save must never be pushed to Beta');
+    // Verify B19.5-02 sync metadata isolation remains intact
+    assert.equal(sdk.sync.getSyncStatus().lastSyncAt, null);
+
+    sdk.dispose();
+  });
+
+  test('Sync-7: Corrupt remote envelopes, mismatched gameId, and remote Sankalpa vault injection are strictly rejected', async () => {
+    const { env } = createSdkEnv();
+    const auth = createMockAuthProvider();
+    const cloud = createMockCloudSyncStore();
+
+    // Seed corrupt remote record containing forbidden sankalpa_e2ee_vault
+    cloud.seed('user_sec', 'auromandala', {
+      userId: 'user_sec',
+      gameId: 'auromandala',
+      revision: 2,
+      checksum: 'bad_chk',
+      payload: {
+        schemaVersion: 2,
+        artworks: {},
+        sankalpa_e2ee_vault: { secret: 'INJECTED_REMOTE_SECRET' }
+      },
+      updatedAt: new Date().toISOString()
+    });
+    // Seed remote record with mismatched gameId
+    cloud.seed('user_sec', 'auroblocks', {
+      userId: 'user_sec',
+      gameId: 'wrong-game-slug',
+      revision: 2,
+      checksum: 'mismatch_chk',
+      payload: { highScore: 5000, completedStages: [1] },
+      updatedAt: new Date().toISOString()
+    });
+
+    const sdk = createAuroMindSDK({ env });
+    await sdk.init({
+      gameId: 'portal',
+      capabilities: { authEnabled: true, cloudSyncEnabled: true },
+      providers: { auth, cloudSync: cloud.provider }
+    });
+    const mandalaHarness = createInMemoryGameAdapter('auromandala', { schemaVersion: 2, artworks: {} });
+    const blocksHarness = createInMemoryGameAdapter('auroblocks', { highScore: 50, completedStages: [] });
+    sdk.adapters.register(mandalaHarness.adapter, { mergeStrategy: AuroMandalaMergeStrategy });
+    sdk.adapters.register(blocksHarness.adapter, { mergeStrategy: AuroBlocksMergeStrategy });
+    await sdk.adapters.init('auromandala');
+    await sdk.adapters.init('auroblocks');
+
+    await sdk.auth.signIn('email', { email: 'sec@example.com' });
+    sdk.sync.setConsent(true);
+
+    const res = await sdk.sync.syncNow();
+    assert.equal(res.status, 'success');
+    assert.ok(res.results.some((r) => r.gameId === 'auromandala' && r.action === 'blocked_remote_local_only_vault'));
+    assert.ok(res.results.some((r) => r.gameId === 'auroblocks' && r.action === 'invalid_remote_envelope' && r.reason === 'REMOTE_GAME_ID_MISMATCH'));
+    assert.equal(blocksHarness.getState().highScore, 50, 'Local state must remain untouched on invalid remote envelope');
+
+    sdk.dispose();
+  });
+
+  test('Sync-8: createSupabaseSyncProvider.pullLatest handles hyphenated game slugs without swapping userId/gameId', async () => {
+    const capturedQueries = [];
+    const fakeSupabaseClient = {
+      isConfigured: () => true,
+      from(table) {
+        const filters = {};
+        const builder = {
+          select() { return builder; },
+          eq(col, val) {
+            filters[col] = val;
+            return builder;
+          },
+          async maybeSingle() {
+            capturedQueries.push({ table, ...filters });
+            return { data: null, error: null };
+          }
+        };
+        return builder;
+      }
+    };
+
+    const provider = createSupabaseSyncProvider(fakeSupabaseClient);
+
+    // Standard order (userId, gameId) with non-UUID userId + hyphenated gameId
+    await provider.pullLatest('usr_non_uuid_01', 'word-riddle');
+    await provider.pullLatest('usr_non_uuid_01', 'vak-living-sanctuary');
+    // Legacy reversed order (gameId, userId)
+    await provider.pullLatest('word-riddle', 'usr_non_uuid_01');
+
+    assert.equal(capturedQueries[0].user_id, 'usr_non_uuid_01');
+    assert.equal(capturedQueries[0].game_id, 'word-riddle');
+    assert.equal(capturedQueries[1].user_id, 'usr_non_uuid_01');
+    assert.equal(capturedQueries[1].game_id, 'vak-living-sanctuary');
+    assert.equal(capturedQueries[2].user_id, 'usr_non_uuid_01');
+    assert.equal(capturedQueries[2].game_id, 'word-riddle');
+  });
+
+  test('Sync-9: Cross-tab guest identity & sync state converge cleanly without overwriting progress', async () => {
+    const sharedStorage = createMemoryStorage();
+    const sharedIdb = createFakeIndexedDB();
+    const Bus = createFakeBroadcastBus();
+    const { env: envA } = createSdkEnv({ storage: sharedStorage, idb: sharedIdb, BroadcastChannelImpl: Bus });
+    const { env: envB } = createSdkEnv({ storage: sharedStorage, idb: sharedIdb, BroadcastChannelImpl: Bus });
+
+    const sdkA = createAuroMindSDK({ env: envA });
+    const sdkB = createAuroMindSDK({ env: envB });
+    await Promise.all([sdkA.init({ gameId: 'portal' }), sdkB.init({ gameId: 'portal' })]);
+
+    assert.equal(sdkA.identity.getGuestId(), sdkB.identity.getGuestId(), 'Both tabs must converge to identical guestId');
+    sdkA.dispose();
+    sdkB.dispose();
+  });
+});
+
+describe('Part 1B — Scope B: AuroMandala Artwork Persistence & Recovery', () => {
+  test('Art-1: artwork-concurrency.js has zero node:crypto dependency and matches Web Crypto SHA-256', async () => {
+    const src = fs.readFileSync(path.join(__dirname, 'assets/sdk/artwork-concurrency.js'), 'utf8');
+    assert.equal(src.includes('node:crypto'), false, 'artwork-concurrency.js must be browser-safe with zero node:crypto import');
+
+    const sampleStrokes = [{ x: 12, y: 34, color: '#f5d061', label: 'ॐ Lotus' }];
+    const syncHash = computeArtworkContentHash(sampleStrokes);
+    const asyncHash = await computePayloadChecksum(sampleStrokes);
+    assert.match(syncHash, /^[a-f0-9]{64}$/);
+    assert.equal(syncHash, asyncHash, 'Synchronous SHA-256 fallback must match Web Crypto SHA-256 identically (including Unicode)');
+  });
+
+  test('Art-2: Local-first gallery autosave, reload persistence, CRUD, and 10 immutable snapshots', () => {
+    const storage = createMemoryStorage();
+    const store1 = createLocalArtworkStore({ storage, accountScope: 'guest' });
+    assert.equal(store1.cloudSyncOptIn, false, 'Artwork storage must remain local-first by default');
+
+    const { artwork: created } = store1.autosave({ title: 'Golden Yantra', strokes: [{ x: 1, y: 1 }] });
+    assert.equal(created.snapshots.length, 1);
+    assert.equal(Object.isFrozen(created.snapshots[0]), true, 'Snapshots must be immutable (frozen)');
+
+    // Push 13 more autosaves -> total 14 revisions, capped to latest 10 immutable snapshots
+    let latest = created;
+    for (let i = 2; i <= 14; i++) {
+      latest = store1.autosave({
+        artworkId: created.artworkId,
+        strokes: [{ x: i, y: i * 2 }]
+      }).artwork;
+    }
+
+    assert.equal(latest.revision, 14);
+    assert.equal(latest.parentRevisionId, `${created.artworkId}@rev_13`);
+    assert.equal(latest.snapshots.length, MAX_ARTWORK_SNAPSHOTS);
+    assert.equal(latest.snapshots[0].revision, 5);
+    assert.equal(latest.snapshots[9].revision, 14);
+    for (const snap of latest.snapshots) {
+      assert.equal(Object.isFrozen(snap), true);
+    }
+
+    // Simulated page reload -> new store instance reading same storage
+    const store2 = createLocalArtworkStore({ storage, accountScope: 'guest' });
+    const reloaded = store2.get(created.artworkId);
+    assert.ok(reloaded);
+    assert.equal(reloaded.title, 'Golden Yantra');
+    assert.equal(reloaded.revision, 14);
+    assert.equal(reloaded.snapshots.length, 10);
+
+    // Soft-delete (tombstone) & restore (causal resurrection)
+    const delRes = store2.softDelete(created.artworkId);
+    assert.equal(delRes.artwork.deleted, true);
+    assert.equal(store2.list().length, 0);
+    assert.equal(store2.list({ includeDeleted: true }).length, 1);
+
+    const restored = store2.restore(created.artworkId, [{ x: 99, y: 99 }]);
+    assert.equal(restored.artwork.deleted, false);
+    assert.equal(restored.artwork.parentRevisionId, `${created.artworkId}@rev_${delRes.artwork.tombstoneRevision}`);
+    assert.equal(store2.list().length, 1);
+  });
+
+  test('Art-3: Causal edit/edit conflict, pre-tombstone conflict fork, resurrection, and no double suffixing', () => {
+    const storage = createMemoryStorage();
+    const store = createLocalArtworkStore({ storage, accountScope: 'user_art' });
+
+    const base = createArtworkEntity({
+      artworkId: 'art_causal_1',
+      title: 'Dawn Mandala',
+      strokes: [{ x: 1, y: 1 }],
+      revision: 1
+    });
+    const localV2 = appendArtworkSnapshot(base, [{ x: 2, y: 2 }]);
+    const remoteV2 = appendArtworkSnapshot(base, [{ x: 9, y: 9 }]);
+
+    store.create(localV2);
+    const mergeRes = store.mergeRemote({ art_causal_1: remoteV2 });
+    assert.equal(mergeRes.actions[0].action, 'FORKED_ON_CONCURRENT_EDIT');
+
+    const all = store.list();
+    assert.equal(all.length, 2, 'Local original and forked Recovered Copy must both exist');
+    const original = all.find((a) => a.artworkId === 'art_causal_1');
+    const recovered = all.find((a) => a.artworkId !== 'art_causal_1');
+    assert.equal(original.title, 'Dawn Mandala');
+    assert.equal(recovered.title, 'Dawn Mandala (Recovered Copy)');
+
+    // Ensure already-recovered title does NOT double-append "(Recovered Copy)"
+    const conflictAgain = resolveArtworkCausalConflict(
+      createArtworkEntity({ artworkId: 'x1', title: 'Dawn Mandala (Recovered Copy)', strokes: [{ x: 1 }], revision: 2, parentRevisionId: 'x1@rev_1' }),
+      createArtworkEntity({ artworkId: 'x1', title: 'Dawn Mandala (Recovered Copy)', strokes: [{ x: 2 }], revision: 2, parentRevisionId: 'x1@rev_1' })
+    );
+    assert.equal(conflictAgain.forked.title, 'Dawn Mandala (Recovered Copy)');
+
+    // Edit/delete conflict: local tombstoned at rev 3 vs pre-delete remote edit from rev 1
+    const deletedLocal = markArtworkDeleted(localV2);
+    const preDeleteRemote = createArtworkEntity({
+      artworkId: 'art_causal_1',
+      title: 'Dawn Mandala',
+      strokes: [{ x: 42, y: 42 }],
+      revision: 2,
+      parentRevisionId: 'art_causal_1@rev_1'
+    });
+    const tombConflict = resolveArtworkCausalConflict(deletedLocal, preDeleteRemote);
+    assert.equal(tombConflict.action, 'FORKED_ON_TOMBSTONE_CONFLICT');
+    assert.equal(tombConflict.resolved.deleted, true);
+    assert.equal(tombConflict.forked.title, 'Dawn Mandala (Recovered Copy)');
+
+    // Genuine causal resurrection descending from tombstone revision
+    const resurrectedRemote = resurrectArtwork(deletedLocal, [{ x: 77, y: 77 }]);
+    const resurrectConflict = resolveArtworkCausalConflict(deletedLocal, resurrectedRemote);
+    assert.equal(resurrectConflict.action, 'RESURRECTED');
+    assert.equal(resurrectConflict.resolved.deleted, false);
+    assert.equal(resurrectConflict.forked, null);
+  });
+
+  test('Art-4: Corrupt JSON recovery, QuotaExceededError fallback, account isolation, and Sankalpa local-only invariant', async () => {
+    // 1. Corrupt JSON recovery + quarantine
+    const storage = createMemoryStorage();
+    const prevLS = globalThis.localStorage;
+    globalThis.localStorage = storage;
+    try {
+      storage.setItem('auromandala.artworks.v1:guest', '{corrupt_json_truncated');
+      const recoveredStore = createLocalArtworkStore({ storage, accountScope: 'guest' });
+      assert.equal(recoveredStore.list().length, 0);
+      assert.equal(recoveredStore.getStorageStatus().corruptedRecoveries, 1);
+      const quarantinedKeys = Object.keys(storage._dump()).filter((k) => k.startsWith('_corrupt_auromandala_guest_'));
+      assert.equal(quarantinedKeys.length, 1, 'Corrupt artwork store must be quarantined');
+
+      // 2. QuotaExceededError graceful fallback to in-memory store
+      const fullStorage = createMemoryStorage({ failOnSet: true, quotaError: true });
+      const quotaStore = createLocalArtworkStore({ storage: fullStorage, accountScope: 'guest' });
+      const { artwork, persistence } = quotaStore.autosave({ title: 'Offline Lotus', strokes: [{ x: 3, y: 3 }] });
+      assert.equal(persistence.persistedToStorage, false);
+      assert.equal(persistence.quotaExceeded, true);
+      assert.equal(persistence.fallbackMode, 'memory');
+      assert.equal(quotaStore.get(artwork.artworkId).title, 'Offline Lotus');
+
+      // 3. Per-account gallery isolation (Account A cannot leak into Account B)
+      const storeA = createLocalArtworkStore({ storage, accountScope: 'account_A' });
+      const storeB = createLocalArtworkStore({ storage, accountScope: 'account_B' });
+      storeA.autosave({ title: 'Alice Private Mandala', strokes: [{ x: 7, y: 7 }] });
+      storeB.reload();
+      assert.equal(storeA.list().length, 1);
+      assert.equal(storeB.list().length, 0, 'Account B must not see Account A artworks');
+
+      // 4. AuroMandala bridge: Sankalpa E2EE vault NEVER exported and NEVER overwritten on applyEnvelope
+      const bridgeAdapter = createAuroMandalaGameAdapter();
+      storage.setItem(SANKALPA_VAULT_KEY, JSON.stringify({ encrypted: 'AES_GCM_CIPHERTEXT_ONLY_LOCAL' }));
+      storage.setItem(MANDALA_CACHE_KEY, JSON.stringify({
+        version: 2,
+        highestStageCleared: 4,
+        sankalpa: { secretIntention: 'LOCAL_ONLY_SACRED_INTENTION' },
+        savedArtworks: [{ id: 'art_local_1', title: 'Local Sun', strokesCount: 15 }]
+      }));
+
+      const exported = await bridgeAdapter.exportEnvelope('guest_11111111-1111-4111-8111-111111111111');
+      const serializedExport = JSON.stringify(exported);
+      assert.equal(serializedExport.includes('LOCAL_ONLY_SACRED_INTENTION'), false);
+      assert.equal(serializedExport.includes('AES_GCM_CIPHERTEXT_ONLY_LOCAL'), false);
+
+      // Apply a remote envelope attempting to inject sankalpa + conflicting artwork
+      const applied = await bridgeAdapter.applyEnvelope({
+        gameId: 'auromandala',
+        payload: {
+          schemaVersion: 2,
+          sankalpa: { secretIntention: 'MALICIOUS_OVERWRITE' },
+          sankalpa_e2ee_vault: 'MALICIOUS_VAULT',
+          artworks: {
+            art_local_1: { artworkId: 'art_local_1', title: 'Local Sun', currentVersion: 2, strokesCount: 22 }
+          },
+          progression: { highestStageCleared: 6 }
+        }
+      });
+      assert.equal(applied, true);
+      const afterCache = JSON.parse(storage.getItem(MANDALA_CACHE_KEY));
+      assert.equal(afterCache.sankalpa.secretIntention, 'LOCAL_ONLY_SACRED_INTENTION', 'Local Sankalpa must remain completely untouched');
+      assert.equal(afterCache.sankalpa_e2ee_vault, undefined);
+      assert.equal(afterCache.highestStageCleared, 6);
+      assert.equal(Object.keys(afterCache.savedArtworks).length, 2, 'Conflicting remote artwork must fork non-destructively');
+    } finally {
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+    }
+  });
+});
+
+describe('Part 1C — Scope C: Flora Database Dual-Write Parity & Consistency', () => {
+  test('Flora-1, Flora-2 & Flora-3: Dual-write normal parity, transient retry recovery, persistent failure read-after-write consistency & reconciliation', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+
+    try {
+      // 1. Healthy dual-write parity + idempotency
+      const res1 = await setItemDualWrite('auro_match_unlocked_tiles', ['lotus', 'rose']);
+      assert.equal(res1.ok, true);
+      assert.equal(res1.lsOk, true);
+      assert.equal(res1.idbOk, true);
+      assert.equal(res1.partialFailure, false);
+      assert.equal(storage.getItem('auro_match_unlocked_tiles'), '["lotus","rose"]');
+      assert.equal(fakeIdb._peekStore('AuroMatchDB', 'gameState').auro_match_unlocked_tiles, '["lotus","rose"]');
+
+      // 2. Transient IDB failure on 1st attempt -> recovers automatically on retry 2
+      fakeIdb._setFailPutCount(1);
+      const resRetry = await setItemDualWrite('auro_match_unlocked_tiles', ['lotus', 'rose', 'jasmine'], {
+        maxRetries: 2,
+        retryDelayMs: 1
+      });
+      assert.equal(resRetry.ok, true);
+      assert.equal(resRetry.idbOk, true);
+      assert.equal(resRetry.partialFailure, false);
+      assert.equal(resRetry.attempts, 2);
+      assert.equal(fakeIdb._peekStore('AuroMatchDB', 'gameState').auro_match_unlocked_tiles, '["lotus","rose","jasmine"]');
+
+      // 3. Persistent IDB failure -> partialFailure tracked + read-after-write consistency NEVER returns stale IDB
+      fakeIdb._setAlwaysFailPut(true);
+      const resFail = await setItemDualWrite('auro_match_unlocked_tiles', ['lotus', 'rose', 'jasmine', 'champa'], {
+        maxRetries: 1,
+        retryDelayMs: 1
+      });
+      assert.equal(resFail.ok, true, 'Primary localStorage write succeeded');
+      assert.equal(resFail.lsOk, true);
+      assert.equal(resFail.idbOk, false);
+      assert.equal(resFail.partialFailure, true);
+      assert.equal(getDualWriteStatus('auro_match_unlocked_tiles').pendingRepair, true);
+
+      // Verify IDB still holds stale value while getItemAsync returns FRESH value (read-after-write consistency!)
+      assert.equal(fakeIdb._peekStore('AuroMatchDB', 'gameState').auro_match_unlocked_tiles, '["lotus","rose","jasmine"]');
+      const rawRead = await getItemAsync('auro_match_unlocked_tiles');
+      assert.deepEqual(JSON.parse(rawRead), ['lotus', 'rose', 'jasmine', 'champa'], 'getItemAsync must never serve stale IndexedDB data after partial write failure');
+
+      // 4. IDB recovers -> reconcileDualWriteParity() heals AuroMatchDB and clears pending status
+      fakeIdb._setAlwaysFailPut(false);
+      const recon = await reconcileDualWriteParity();
+      assert.equal(recon.reconciled, 1);
+      assert.equal(recon.remaining, 0);
+      assert.equal(getDualWriteStatus().inSync, true);
+      assert.equal(
+        fakeIdb._peekStore('AuroMatchDB', 'gameState').auro_match_unlocked_tiles,
+        '["lotus","rose","jasmine","champa"]'
+      );
+    } finally {
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
+
+  test('Flora-4 & Flora-5: saveProfileState() set-union prevents lost Flora unlocks, and autoHealFromIndexedDB() reconciles diverged stores', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+
+    try {
+      // Simulate Tab 1 writing 2 Flora unlocks & 1 consecration to localStorage
+      storage.setItem('auro_match_unlocked_tiles', JSON.stringify(['flora_a', 'flora_b']));
+      storage.setItem('auro_match_consecrations', JSON.stringify([{ id: 'ref_1', text: 'Tab 1 reflection' }]));
+      storage.setItem('auro_match_user', JSON.stringify({
+        profile: { lotusPetalCount: 15, consciousnessPoints: 200 },
+        progression: { completedLevelsCount: 2, completedLevelIds: ['flora_a', 'flora_b'], unlockedThemes: ['flowers'] },
+        settings: {},
+        dailyDrawDate: '2026-11-23'
+      }));
+
+      // Tab 2 (in-memory profileState) has EQUAL-LENGTH disjoint unlocks ['flora_c', 'flora_d'] and reflection ref_2
+      profileState.profile.lotusPetalCount = 10;
+      profileState.profile.consciousnessPoints = 350;
+      profileState.progression.completedLevelsCount = 2;
+      profileState.progression.completedLevelIds = ['flora_c', 'flora_d'];
+      profileState.progression.unlockedThemes = ['flowers', 'qualities'];
+      profileState.reflections = [{ id: 'ref_2', text: 'Tab 2 reflection' }];
+
+      assert.equal(saveProfileState(), true);
+      await new Promise((r) => setTimeout(r, 20));
+
+      const mergedTiles = JSON.parse(storage.getItem('auro_match_unlocked_tiles'));
+      const mergedRefs = JSON.parse(storage.getItem('auro_match_consecrations'));
+      const mergedUser = JSON.parse(storage.getItem('auro_match_user'));
+
+      assert.deepEqual(new Set(mergedTiles), new Set(['flora_a', 'flora_b', 'flora_c', 'flora_d']), 'Equal-length disjoint Flora unlocks must union-merge without loss');
+      assert.equal(mergedRefs.length, 2, 'Equal-length disjoint reflections must union-merge without loss');
+      assert.equal(mergedUser.profile.lotusPetalCount, 15);
+      assert.equal(mergedUser.profile.consciousnessPoints, 350);
+      assert.equal(mergedUser.progression.completedLevelsCount, 4);
+
+      // Now simulate divergence: AuroMatchDB has an extra Flora unlock 'flora_idb_only' missing from localStorage!
+      fakeIdb._seedStore(
+        'AuroMatchDB',
+        'gameState',
+        'auro_match_unlocked_tiles',
+        JSON.stringify(['flora_a', 'flora_idb_only'])
+      );
+      const healedDivergence = await autoHealFromIndexedDB();
+      assert.equal(healedDivergence, true, 'autoHealFromIndexedDB must detect and reconcile diverged Flora records');
+
+      const lsAfterHeal = JSON.parse(storage.getItem('auro_match_unlocked_tiles'));
+      const idbAfterHeal = JSON.parse(fakeIdb._peekStore('AuroMatchDB', 'gameState').auro_match_unlocked_tiles);
+      assert.deepEqual(new Set(lsAfterHeal), new Set(['flora_a', 'flora_b', 'flora_c', 'flora_d', 'flora_idb_only']));
+      assert.deepEqual(new Set(idbAfterHeal), new Set(lsAfterHeal), 'Both stores must converge identically');
+    } finally {
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
+
+  test('Flora-6: AuroMatch bridge applyEnvelope performs non-destructive union dual-write parity + Flora DB sacred file untouched', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+
+    try {
+      storage.setItem('auro_match_unlocked_tiles', JSON.stringify(['flora_local_1']));
+      storage.setItem('auro_match_consecrations', JSON.stringify([{ id: 'local_c1', text: 'Local' }]));
+      storage.setItem('auro_match_user', JSON.stringify({
+        profile: { lotusPetalCount: 20, consciousnessPoints: 100 },
+        progression: { completedLevelsCount: 1, completedLevelIds: ['flora_local_1'], unlockedThemes: ['flowers'] },
+        settings: {},
+        dailyDrawDate: '2026-11-22'
+      }));
+
+      const bridge = createAuroMatchBridgeAdapter();
+      const applied = await bridge.applyEnvelope({
+        gameId: 'auromatch',
+        payload: {
+          schemaVersion: 1,
+          user: {
+            profile: { lotusPetalCount: 12, consciousnessPoints: 260 },
+            progression: { completedLevelsCount: 1, completedLevelIds: ['flora_cloud_2'], unlockedThemes: ['qualities'] },
+            settings: {},
+            dailyDrawDate: '2026-11-23'
+          },
+          unlockedTiles: ['flora_cloud_2'],
+          consecrations: [{ id: 'cloud_c2', text: 'Cloud' }]
+        }
+      });
+
+      assert.equal(applied, true);
+      const lsTiles = JSON.parse(storage.getItem('auro_match_unlocked_tiles'));
+      const idbTiles = JSON.parse(fakeIdb._peekStore('AuroMatchDB', 'gameState').auro_match_unlocked_tiles);
+      assert.deepEqual(new Set(lsTiles), new Set(['flora_local_1', 'flora_cloud_2']));
+      assert.deepEqual(new Set(idbTiles), new Set(['flora_local_1', 'flora_cloud_2']));
+
+      // Reject wrong gameId
+      const wrongGame = await bridge.applyEnvelope({ gameId: 'auroblocks', payload: { unlockedTiles: ['bad'] } });
+      assert.equal(wrongGame, false);
+
+      // Verify sacred Flora DB remains 100% untouched
+      const floraBuf = fs.readFileSync(path.join(__dirname, 'games/auromatch/src/models/floraDatabase.js'));
+      const floraSha = crypto.createHash('sha256').update(floraBuf).digest('hex');
+      assert.equal(floraBuf.length, 2002176);
+      assert.equal(floraSha, '689d035cd52abd8d342528d8c5f61f298916b8052b8287450be4931cf8ae1a3a');
+    } finally {
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
+});
+
+// =============================================================================
+// PART 2 — REAL BROWSER VERIFICATION (CHROMIUM / EDGE VIA BROWSER HARNESS)
+// =============================================================================
+
+describe('Part 2 — Real Browser Verification (Chromium/Edge)', () => {
+  let env;
+
+  test.before(async () => {
+    env = await createTestEnvironment({ port: 3341 });
+  });
+
+  test.after(async () => {
+    if (env) await env.teardown();
+  });
+
+  test('Browser-1: Real Chromium/Edge loads artwork-concurrency.js directly, autosaves 12 revisions (10 immutable snapshots), forks conflict, isolates accounts, and persists across page.reload()', async () => {
+    const inst = await env.createInstrumentedPage();
+    try {
+      await inst.page.goto(`${env.baseUrl}/index.html`, { waitUntil: 'networkidle0' });
+
+      const firstPass = await inst.page.evaluate(async () => {
+        const mod = await import('/assets/sdk/artwork-concurrency.js');
+        const store = mod.createLocalArtworkStore({ accountScope: 'browser_guest' });
+
+        const created = store.autosave({
+          artworkId: 'art_browser_1',
+          title: 'Browser Lotus',
+          strokes: [{ x: 1, y: 1 }]
+        }).artwork;
+
+        let cur = created;
+        for (let i = 2; i <= 12; i++) {
+          cur = store.autosave({
+            artworkId: 'art_browser_1',
+            strokes: [{ x: i, y: i * 3 }]
+          }).artwork;
+        }
+
+        // Trigger concurrent edit/edit conflict from same parent rev 11
+        const remoteDivergent = mod.createArtworkEntity({
+          artworkId: 'art_browser_1',
+          title: 'Browser Lotus',
+          strokes: [{ x: 999, y: 999 }],
+          revision: 12,
+          parentRevisionId: 'art_browser_1@rev_11'
+        });
+        const mergeOutcome = store.mergeRemote({ art_browser_1: remoteDivergent });
+
+        // Account isolation check
+        const otherAccountStore = mod.createLocalArtworkStore({ accountScope: 'browser_user_b' });
+
+        return {
+          revision: cur.revision,
+          snapshotCount: cur.snapshots.length,
+          firstSnapFrozen: Object.isFrozen(cur.snapshots[0]),
+          action: mergeOutcome.actions[0].action,
+          galleryCount: store.list().length,
+          titles: store.list().map((a) => a.title).sort(),
+          otherAccountCount: otherAccountStore.list().length
+        };
+      });
+
+      assert.equal(firstPass.revision, 12);
+      assert.equal(firstPass.snapshotCount, 10);
+      assert.equal(firstPass.firstSnapFrozen, true);
+      assert.equal(firstPass.action, 'FORKED_ON_CONCURRENT_EDIT');
+      assert.equal(firstPass.galleryCount, 2);
+      assert.deepEqual(firstPass.titles, ['Browser Lotus', 'Browser Lotus (Recovered Copy)']);
+      assert.equal(firstPass.otherAccountCount, 0);
+
+      // Real full page reload -> verify localStorage persistence survives reload
+      await inst.page.reload({ waitUntil: 'networkidle0' });
+
+      const afterReload = await inst.page.evaluate(async () => {
+        const mod = await import('/assets/sdk/artwork-concurrency.js');
+        const reloadedStore = mod.createLocalArtworkStore({ accountScope: 'browser_guest' });
+        const orig = reloadedStore.get('art_browser_1');
+        return {
+          galleryCount: reloadedStore.list().length,
+          titles: reloadedStore.list().map((a) => a.title).sort(),
+          origRevision: orig ? orig.revision : null,
+          origSnapshots: orig ? orig.snapshots.length : 0
+        };
+      });
+
+      assert.equal(afterReload.galleryCount, 2);
+      assert.deepEqual(afterReload.titles, ['Browser Lotus', 'Browser Lotus (Recovered Copy)']);
+      assert.equal(afterReload.origRevision, 12);
+      assert.equal(afterReload.origSnapshots, 10);
+      const fatalErrors = inst.consoleErrors.filter((e) => e.type === 'pageerror' || !/504 \(Offline\)|Failed to load resource/i.test(e.text));
+      assert.equal(fatalErrors.length, 0, `Unexpected browser console errors: ${JSON.stringify(fatalErrors)}`);
+    } finally {
+      await inst.close();
+    }
+  });
+
+  test('Browser-2: Real Chromium/Edge executes AuroMatch Flora dual-write against real localStorage + real IndexedDB (AuroMatchDB), survives reload, heals localStorage wipe, and merges diverged Flora tiles', async () => {
+    const inst = await env.createInstrumentedPage();
+    try {
+      await inst.page.goto(`${env.baseUrl}/index.html`, { waitUntil: 'networkidle0' });
+
+      const writeRes = await inst.page.evaluate(async () => {
+        const sa = await import('/games/auromatch/src/controllers/storageAdapter.js');
+        sa.resetIndexedDBConnection();
+
+        const r1 = await sa.setItemDualWrite('auro_match_unlocked_tiles', ['lotus_real', 'rose_real']);
+        const r2 = await sa.setItemDualWrite('auro_match_consecrations', [{ id: 'real_c1', text: 'Real browser reflection' }]);
+        const r3 = await sa.setItemDualWrite('auro_match_user', {
+          profile: { lotusPetalCount: 33, consciousnessPoints: 440 },
+          progression: { completedLevelsCount: 2, completedLevelIds: ['lotus_real', 'rose_real'], unlockedThemes: ['flowers'] },
+          settings: {},
+          dailyDrawDate: '2026-11-23'
+        });
+        return { r1, r2, r3, status: sa.getDualWriteStatus() };
+      });
+
+      assert.equal(writeRes.r1.lsOk, true);
+      assert.equal(writeRes.r1.idbOk, true);
+      assert.equal(writeRes.r2.idbOk, true);
+      assert.equal(writeRes.r3.idbOk, true);
+      assert.equal(writeRes.status.inSync, true);
+
+      // Real full page reload -> wipe localStorage -> autoHealFromIndexedDB restores from REAL AuroMatchDB!
+      await inst.page.reload({ waitUntil: 'networkidle0' });
+
+      const healRes = await inst.page.evaluate(async () => {
+        const sa = await import('/games/auromatch/src/controllers/storageAdapter.js');
+        sa.resetIndexedDBConnection();
+
+        localStorage.removeItem('auro_match_unlocked_tiles');
+        localStorage.removeItem('auro_match_consecrations');
+        localStorage.removeItem('auro_match_user');
+
+        const healed = await sa.autoHealFromIndexedDB();
+        const restoredTiles = JSON.parse(localStorage.getItem('auro_match_unlocked_tiles') || '[]');
+        const restoredCons = JSON.parse(localStorage.getItem('auro_match_consecrations') || '[]');
+
+        // Now create divergence: localStorage adds 'champa_ls' while AuroMatchDB keeps ['lotus_real', 'rose_real']
+        localStorage.setItem('auro_match_unlocked_tiles', JSON.stringify(['lotus_real', 'champa_ls']));
+        await sa.autoHealFromIndexedDB();
+        const afterDivergenceLS = JSON.parse(localStorage.getItem('auro_match_unlocked_tiles') || '[]');
+        const afterDivergenceIDB = JSON.parse((await sa.getItemAsync('auro_match_unlocked_tiles')) || '[]');
+
+        return { healed, restoredTiles, restoredCons, afterDivergenceLS, afterDivergenceIDB };
+      });
+
+      assert.equal(healRes.healed, true);
+      assert.deepEqual(new Set(healRes.restoredTiles), new Set(['lotus_real', 'rose_real']));
+      assert.equal(healRes.restoredCons.length, 1);
+      assert.deepEqual(new Set(healRes.afterDivergenceLS), new Set(['lotus_real', 'rose_real', 'champa_ls']));
+      assert.deepEqual(new Set(healRes.afterDivergenceIDB), new Set(['lotus_real', 'rose_real', 'champa_ls']));
+      const fatalErrors = inst.consoleErrors.filter((e) => e.type === 'pageerror' || !/504 \(Offline\)|Failed to load resource/i.test(e.text));
+      assert.equal(fatalErrors.length, 0, `Unexpected browser console errors: ${JSON.stringify(fatalErrors)}`);
+    } finally {
+      await inst.close();
+    }
+  });
+
+  test('Browser-3: Real Chromium/Edge preserves local-only Sankalpa E2EE vault and offline save access with zero cloud dependency', async () => {
+    const inst = await env.createInstrumentedPage();
+    try {
+      await inst.page.goto(`${env.baseUrl}/index.html`, { waitUntil: 'networkidle0' });
+
+      // Seed AuroMandala local Sankalpa vault + artwork and verify exported envelope excludes Sankalpa
+      const beforeOffline = await inst.page.evaluate(async () => {
+        const mandala = await import('/games/auromandala/assets/auromandala-sdk-bridge.js');
+        localStorage.setItem(mandala.SANKALPA_VAULT_KEY, JSON.stringify({ iv: 'local_iv', ct: 'SECRET_BROWSER_SANKALPA' }));
+        localStorage.setItem(mandala.CACHE_KEY, JSON.stringify({
+          version: 2,
+          highestStageCleared: 3,
+          sankalpa: { note: 'PRIVATE_LOCAL_INTENTION' },
+          savedArtworks: [{ id: 'art_offline_1', title: 'Offline Mandala', strokesCount: 9 }]
+        }));
+
+        const adapter = mandala.createAuroMandalaGameAdapter();
+        const envObj = await adapter.exportEnvelope('guest_22222222-2222-4222-8222-222222222222');
+        const envJson = JSON.stringify(envObj);
+        return {
+          hasProgress: adapter.hasLocalProgress(),
+          leaksVault: envJson.includes('SECRET_BROWSER_SANKALPA') || envJson.includes('PRIVATE_LOCAL_INTENTION'),
+          artworkCount: Object.keys(envObj.payload.artworks || {}).length
+        };
+      });
+
+      assert.equal(beforeOffline.hasProgress, true);
+      assert.equal(beforeOffline.leaksVault, false, 'Sankalpa E2EE vault must NEVER enter save envelope in browser');
+      assert.equal(beforeOffline.artworkCount, 1);
+
+      // Go offline via CDP and verify local artwork & Sankalpa remain fully readable with zero network calls
+      await inst.setOffline(true);
+      const offlineRead = await inst.page.evaluate(() => {
+        const cache = JSON.parse(localStorage.getItem('pranamandala_game_cache_v2') || '{}');
+        const vault = JSON.parse(localStorage.getItem('sankalpa_e2ee_vault') || '{}');
+        return {
+          online: navigator.onLine,
+          stage: cache.highestStageCleared,
+          vaultCt: vault.ct
+        };
+      });
+
+      assert.equal(offlineRead.online, false);
+      assert.equal(offlineRead.stage, 3);
+      assert.equal(offlineRead.vaultCt, 'SECRET_BROWSER_SANKALPA');
+      await inst.setOffline(false);
+    } finally {
+      await inst.close();
+    }
+  });
+});

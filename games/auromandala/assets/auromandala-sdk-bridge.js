@@ -17,208 +17,25 @@
  */
 
 import {
+  capSnapshots,
   computePayloadChecksum,
-  createLocalMockBridge
+  createLocalMockBridge,
+  generateArtworkUuid,
+  mergeArtworksWithForking,
+  migrateArtworksToMap,
+  quarantineCorruptSave
 } from '../../../assets/sdk/auromind-adapters.js';
 
 export const CACHE_KEY = 'pranamandala_game_cache_v2';
 export const SANKALPA_VAULT_KEY = 'sankalpa_e2ee_vault';
 
-/**
- * Generates a standard UUIDv4.
- * @returns {string}
- */
-export function generateArtworkUuid() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
-
-/**
- * Normalizes and caps snapshots array to the last 10 snapshots (TASK-ART-01).
- * @param {Array} snapshots
- * @returns {Array}
- */
-export function capSnapshots(snapshots) {
-  if (!Array.isArray(snapshots)) return [];
-  return snapshots.slice(-10);
-}
-
-/**
- * Migrates legacy artwork array or normalizes dictionary to canonical map schema (TASK-ART-01).
- * Keyed by artworkId (UUIDv4), with rolling 10-snapshot history and tombstone flags.
- *
- * @param {Array|object|null|undefined} artworksInput
- * @returns {Record<string, object>}
- */
-export function migrateArtworksToMap(artworksInput) {
-  if (!artworksInput) return {};
-
-  const result = {};
-
-  if (Array.isArray(artworksInput)) {
-    // Legacy array migration
-    for (let i = 0; i < artworksInput.length; i++) {
-      const art = artworksInput[i];
-      if (!art || typeof art !== 'object') continue;
-      const artworkId = art.artworkId || art.id || generateArtworkUuid();
-      const currentVersion = Number(art.currentVersion || art.version || 1);
-      const createdAt = art.createdAt || new Date().toISOString();
-      const updatedAt = art.updatedAt || art.createdAt || createdAt;
-      const deleted = Boolean(art.deleted);
-      const deletedAt = art.deletedAt || (deleted ? updatedAt : null);
-      const strokesCount = art.strokesCount ?? (Array.isArray(art.strokes) ? art.strokes.length : 0);
-
-      const snapshots = Array.isArray(art.snapshots) && art.snapshots.length > 0
-        ? capSnapshots(art.snapshots)
-        : [{
-            version: currentVersion,
-            timestamp: updatedAt,
-            strokesCount,
-            data: art.data || art.strokes || art
-          }];
-
-      result[artworkId] = {
-        artworkId,
-        title: art.title || `Mandala Artwork ${i + 1}`,
-        currentVersion,
-        createdAt,
-        updatedAt,
-        deleted,
-        deletedAt,
-        strokesCount,
-        snapshots
-      };
-    }
-  } else if (typeof artworksInput === 'object') {
-    // Already dictionary or map-like object
-    for (const [key, art] of Object.entries(artworksInput)) {
-      if (!art || typeof art !== 'object') continue;
-      const artworkId = art.artworkId || art.id || key;
-      const currentVersion = Number(art.currentVersion || art.version || 1);
-      const createdAt = art.createdAt || new Date().toISOString();
-      const updatedAt = art.updatedAt || art.createdAt || createdAt;
-      const deleted = Boolean(art.deleted);
-      const deletedAt = art.deletedAt || (deleted ? updatedAt : null);
-      const strokesCount = art.strokesCount ?? (Array.isArray(art.strokes) ? art.strokes.length : 0);
-
-      const snapshots = Array.isArray(art.snapshots) && art.snapshots.length > 0
-        ? capSnapshots(art.snapshots)
-        : [{
-            version: currentVersion,
-            timestamp: updatedAt,
-            strokesCount,
-            data: art.data || art.strokes || art
-          }];
-
-      result[artworkId] = {
-        artworkId,
-        title: art.title || 'Mandala Artwork',
-        currentVersion,
-        createdAt,
-        updatedAt,
-        deleted,
-        deletedAt,
-        strokesCount,
-        snapshots: capSnapshots(snapshots)
-      };
-    }
-  }
-
-  return result;
-}
-
-/**
- * Merges two artwork maps with conflict-forking semantics (TASK-ART-02).
- * When local and remote modify the same artworkId with divergent contents:
- * 1. Local copy is preserved unchanged under its original artworkId.
- * 2. Remote conflicting copy is forked to a new UUID with title '[Title] (Recovered Copy)'.
- * 3. Deleted tombstones respect latest timestamp.
- * 4. Zero stroke loss is strictly guaranteed.
- *
- * @param {Record<string, object>} localMap
- * @param {Record<string, object>} remoteMap
- * @returns {Record<string, object>}
- */
-export function mergeArtworksWithForking(localMap = {}, remoteMap = {}) {
-  const localNorm = migrateArtworksToMap(localMap);
-  const remoteNorm = migrateArtworksToMap(remoteMap);
-  const merged = { ...localNorm };
-
-  for (const [remoteId, remoteArt] of Object.entries(remoteNorm)) {
-    const localArt = merged[remoteId];
-
-    if (!localArt) {
-      // Artwork only exists in remote -> adopt it
-      merged[remoteId] = { ...remoteArt };
-      continue;
-    }
-
-    // Both exist: check tombstone deletion
-    if (localArt.deleted || remoteArt.deleted) {
-      if (localArt.deleted && remoteArt.deleted) {
-        // Both deleted: keep tombstone with latest deletedAt
-        const latestDeletedAt = (localArt.deletedAt || localArt.updatedAt) > (remoteArt.deletedAt || remoteArt.updatedAt)
-          ? (localArt.deletedAt || localArt.updatedAt)
-          : (remoteArt.deletedAt || remoteArt.updatedAt);
-        merged[remoteId] = { ...localArt, deleted: true, deletedAt: latestDeletedAt };
-      } else if (localArt.deleted && !remoteArt.deleted) {
-        // Local deleted, but remote has non-deleted work: check if remote was updated after local deletion
-        const localDelTime = new Date(localArt.deletedAt || localArt.updatedAt).getTime();
-        const remoteUpdTime = new Date(remoteArt.updatedAt).getTime();
-        if (remoteUpdTime > localDelTime) {
-          // Remote updated after local deletion: fork remote to recovered copy so work isn't lost
-          const forkedId = generateArtworkUuid();
-          merged[forkedId] = {
-            ...remoteArt,
-            artworkId: forkedId,
-            title: `${remoteArt.title || 'Mandala'} (Recovered Copy)`,
-            updatedAt: new Date().toISOString()
-          };
-        }
-      } else if (!localArt.deleted && remoteArt.deleted) {
-        // Remote deleted, local active: keep local active
-        merged[remoteId] = { ...localArt };
-      }
-      continue;
-    }
-
-    // Both are active: check for divergence
-    const localStrokes = localArt.strokesCount || 0;
-    const remoteStrokes = remoteArt.strokesCount || 0;
-    const isSameVersion = localArt.currentVersion === remoteArt.currentVersion &&
-                          localArt.updatedAt === remoteArt.updatedAt &&
-                          localStrokes === remoteStrokes;
-
-    if (isSameVersion) {
-      // Identical, keep local
-      continue;
-    }
-
-    // Divergent: Conflict forking!
-    // Local remains at remoteId, remote forks to new UUID
-    const forkedId = generateArtworkUuid();
-    merged[forkedId] = {
-      ...remoteArt,
-      artworkId: forkedId,
-      title: `${remoteArt.title || 'Mandala'} (Recovered Copy)`,
-      currentVersion: remoteArt.currentVersion || 1,
-      updatedAt: new Date().toISOString(),
-      createdAt: remoteArt.createdAt || new Date().toISOString(),
-      deleted: false,
-      deletedAt: null,
-      strokesCount: remoteArt.strokesCount,
-      snapshots: capSnapshots(remoteArt.snapshots)
-    };
-  }
-
-  return merged;
-}
+// Re-export canonical causal & immutable artwork helpers from shared adapters (single source of truth)
+export {
+  generateArtworkUuid,
+  capSnapshots,
+  migrateArtworksToMap,
+  mergeArtworksWithForking
+};
 
 /**
  * Fallback SHA-256 implementation if adapter helper is unreachable.
@@ -301,7 +118,14 @@ export function createAuroMandalaGameAdapter() {
       try {
         if (typeof localStorage !== 'undefined') {
           const raw = localStorage.getItem(CACHE_KEY);
-          if (raw) cacheData = JSON.parse(raw);
+          if (raw) {
+            try {
+              cacheData = JSON.parse(raw);
+            } catch {
+              quarantineCorruptSave('auromandala', raw);
+              cacheData = null;
+            }
+          }
         }
       } catch {}
 
@@ -351,7 +175,8 @@ export function createAuroMandalaGameAdapter() {
       };
     },
     applyEnvelope: async (envelope) => {
-      if (!envelope || !envelope.payload) return false;
+      if (!envelope || !envelope.payload || typeof envelope.payload !== 'object') return false;
+      if (envelope.gameId && envelope.gameId !== 'auromandala') return false;
       try {
         if (typeof localStorage === 'undefined') return false;
 
@@ -360,7 +185,18 @@ export function createAuroMandalaGameAdapter() {
         let existingCache = {};
         try {
           const raw = localStorage.getItem(CACHE_KEY);
-          if (raw) existingCache = JSON.parse(raw) || {};
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw);
+              if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                existingCache = parsed;
+              } else {
+                quarantineCorruptSave('auromandala', raw);
+              }
+            } catch {
+              quarantineCorruptSave('auromandala', raw);
+            }
+          }
         } catch {}
 
         // 1. Extract incoming artworks (from payload.artworks or legacy payload.cache.savedArtworks)
@@ -402,11 +238,20 @@ export function createAuroMandalaGameAdapter() {
           updatedAtISO: new Date().toISOString()
         };
 
+        delete updatedCache.sankalpa_e2ee_vault;
+        delete updatedCache.sankalpa_reflections;
         if (existingSankalpa !== undefined) {
           updatedCache.sankalpa = existingSankalpa;
+        } else {
+          delete updatedCache.sankalpa;
         }
 
-        localStorage.setItem(CACHE_KEY, JSON.stringify(updatedCache));
+        try {
+          localStorage.setItem(CACHE_KEY, JSON.stringify(updatedCache));
+        } catch (storageErr) {
+          console.warn('[AuroMandala Bridge] localStorage write failed (quota or restricted storage):', storageErr?.message || storageErr);
+          return false;
+        }
         return true;
       } catch {
         return false;
