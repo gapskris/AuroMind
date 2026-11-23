@@ -1748,6 +1748,223 @@ describe('Part 1D — Focused Correction: Remote Save Integrity & Account-Switch
       sdk.dispose();
     }
   });
+
+  test('Corr-6: buildValidatedRemoteEnvelope enforces plain JSON object payloads (rejects null, arrays, Date, class instances, custom prototypes, Map/Set/RegExp/TypedArray; accepts Object.prototype & null-prototype objects)', async () => {
+    class CustomSaveClass {
+      constructor() {
+        this.highScore = 9999;
+        this.completedStages = [1, 2];
+      }
+    }
+
+    const customProtoObj = Object.create({ inheritedScore: 100 });
+    customProtoObj.highScore = 8888;
+    customProtoObj.completedStages = [1];
+
+    const invalidPayloads = [
+      { label: 'null', value: null },
+      { label: 'undefined', value: undefined },
+      { label: 'array', value: [1, 2, 3] },
+      { label: 'Date instance', value: new Date('2026-11-23T00:00:00.000Z') },
+      { label: 'class instance', value: new CustomSaveClass() },
+      { label: 'custom prototype object', value: customProtoObj },
+      { label: 'Map instance', value: new Map([['highScore', 5000]]) },
+      { label: 'Set instance', value: new Set([1, 2, 3]) },
+      { label: 'RegExp instance', value: /auroblocks/ },
+      { label: 'Uint8Array instance', value: new Uint8Array([1, 2, 3]) },
+      { label: 'primitive string', value: '{"highScore":9000}' },
+      { label: 'primitive number', value: 42 },
+      { label: 'primitive boolean', value: true }
+    ];
+
+    for (const tc of invalidPayloads) {
+      const { env } = createSdkEnv();
+      const auth = createMockAuthProvider();
+      let pushCalls = 0;
+      let applyCalls = 0;
+
+      // Compute a matching checksum whenever possible to prove rejection is strictly by payload type
+      let matchingChecksum = '0'.repeat(64);
+      try {
+        matchingChecksum = await computePayloadChecksum(tc.value);
+      } catch {}
+
+      const directProvider = {
+        providerName: 'direct-nonplain-sync',
+        isConfigured: () => true,
+        async pullLatest() {
+          return {
+            gameId: 'auroblocks',
+            revision: 2,
+            checksum: matchingChecksum,
+            payload: tc.value,
+            updatedAt: new Date().toISOString()
+          };
+        },
+        async pushWithOptimisticLock() {
+          pushCalls += 1;
+          return { status: 'success', newRevision: 3 };
+        }
+      };
+
+      const sdk = createAuroMindSDK({ env });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth, cloudSync: directProvider }
+      });
+
+      const harness = createInMemoryGameAdapter('auroblocks', { highScore: 100, completedStages: [1] });
+      const origApply = harness.adapter.applyEnvelope;
+      harness.adapter.applyEnvelope = async (envelope, ctx) => {
+        applyCalls += 1;
+        return origApply(envelope, ctx);
+      };
+      sdk.adapters.register(harness.adapter, { mergeStrategy: AuroBlocksMergeStrategy });
+      await sdk.adapters.init('auroblocks');
+
+      await sdk.sync.queueLocalChange('auroblocks');
+      await sdk.auth.signIn('email', { email: 'plaincheck@example.com' });
+      sdk.sync.setConsent(true);
+
+      const res = await sdk.sync.syncNow('auroblocks');
+      assert.equal(res.status, 'success');
+      assert.equal(res.results[0].action, 'invalid_remote_envelope', `Invalid payload "${tc.label}" must be rejected`);
+      assert.equal(res.results[0].reason, 'INVALID_REMOTE_PAYLOAD', `Invalid payload "${tc.label}" must report INVALID_REMOTE_PAYLOAD`);
+      assert.equal(applyCalls, 0, `Invalid payload "${tc.label}" must never be applied locally`);
+      assert.equal(pushCalls, 0, `Invalid payload "${tc.label}" must never trigger a remote push`);
+      assert.equal(harness.getState().highScore, 100, `Invalid payload "${tc.label}" must leave local state intact`);
+      assert.equal(sdk.sync.getPendingOutboxCount(), 1, `Invalid payload "${tc.label}" must preserve pending outbox`);
+      sdk.dispose();
+    }
+
+    // Also verify non-plain serverRecord.payload during optimistic-lock conflict recovery is rejected with zero retry push
+    {
+      const { env } = createSdkEnv();
+      const auth = createMockAuthProvider();
+      let pushCalls = 0;
+      let applyCalls = 0;
+      const validInitialPayload = { highScore: 500, completedStages: [1] };
+      const initialChecksum = await computePayloadChecksum(validInitialPayload);
+      const classConflictPayload = new CustomSaveClass();
+      const classConflictChecksum = await computePayloadChecksum(classConflictPayload);
+
+      const conflictProvider = {
+        providerName: 'direct-conflict-nonplain',
+        isConfigured: () => true,
+        async pullLatest() {
+          return {
+            gameId: 'auroblocks',
+            revision: 4,
+            checksum: initialChecksum,
+            payload: validInitialPayload,
+            updatedAt: new Date().toISOString()
+          };
+        },
+        async pushWithOptimisticLock() {
+          pushCalls += 1;
+          return {
+            status: 'conflict',
+            currentRevision: 5,
+            serverRecord: {
+              gameId: 'auroblocks',
+              revision: 5,
+              checksum: classConflictChecksum,
+              payload: classConflictPayload
+            }
+          };
+        }
+      };
+
+      const sdk = createAuroMindSDK({ env });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth, cloudSync: conflictProvider }
+      });
+      const harness = createInMemoryGameAdapter('auroblocks', { highScore: 1200, completedStages: [1, 2] });
+      const origApply = harness.adapter.applyEnvelope;
+      harness.adapter.applyEnvelope = async (envelope, ctx) => {
+        applyCalls += 1;
+        return origApply(envelope, ctx);
+      };
+      sdk.adapters.register(harness.adapter, {
+        mergeStrategy: {
+          gameId: 'auroblocks',
+          resolve(local) {
+            return { status: 'use_local', resolvedPayload: local.payload };
+          }
+        }
+      });
+      await sdk.adapters.init('auroblocks');
+
+      await sdk.auth.signIn('email', { email: 'plainconflict@example.com' });
+      sdk.sync.setConsent(true);
+
+      const res = await sdk.sync.syncNow('auroblocks');
+      assert.equal(res.results[0].action, 'conflict');
+      assert.equal(res.results[0].invalidServerRecordReason, 'INVALID_REMOTE_PAYLOAD');
+      assert.equal(applyCalls, 0);
+      assert.equal(pushCalls, 1, 'Conflict recovery must not retry push on non-plain serverRecord.payload');
+      assert.equal(sdk.sync.getPendingOutboxCount(), 1);
+      sdk.dispose();
+    }
+
+    // Positive controls: ordinary JSON object (Object.prototype) and null-prototype plain object with valid checksums ARE accepted
+    const nullProtoPayload = Object.create(null);
+    nullProtoPayload.highScore = 2400;
+    nullProtoPayload.completedStages = [1, 3];
+
+    const validPayloads = [
+      { label: 'ordinary Object.prototype payload', value: { highScore: 1800, completedStages: [1, 2] }, expectedScore: 1800 },
+      { label: 'null-prototype plain object payload', value: nullProtoPayload, expectedScore: 2400 }
+    ];
+
+    for (const tc of validPayloads) {
+      const { env } = createSdkEnv();
+      const auth = createMockAuthProvider();
+      let pushCalls = 0;
+      const validChecksum = await computePayloadChecksum(tc.value);
+
+      const directProvider = {
+        providerName: 'direct-valid-plain',
+        isConfigured: () => true,
+        async pullLatest() {
+          return {
+            gameId: 'auroblocks',
+            revision: 2,
+            checksum: validChecksum,
+            payload: tc.value,
+            updatedAt: new Date().toISOString()
+          };
+        },
+        async pushWithOptimisticLock() {
+          pushCalls += 1;
+          return { status: 'success', newRevision: 3 };
+        }
+      };
+
+      const sdk = createAuroMindSDK({ env });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth, cloudSync: directProvider }
+      });
+      const harness = createInMemoryGameAdapter('auroblocks', { highScore: 100, completedStages: [1] });
+      sdk.adapters.register(harness.adapter, { mergeStrategy: AuroBlocksMergeStrategy });
+      await sdk.adapters.init('auroblocks');
+
+      await sdk.auth.signIn('email', { email: 'plainvalid@example.com' });
+      sdk.sync.setConsent(true);
+
+      const res = await sdk.sync.syncNow('auroblocks');
+      assert.equal(res.status, 'success', `Valid "${tc.label}" must succeed`);
+      assert.equal(res.results[0].action, 'auto_merged_and_pushed', `Valid "${tc.label}" must merge and push`);
+      assert.equal(harness.getState().highScore, tc.expectedScore);
+      assert.equal(pushCalls, 1);
+      sdk.dispose();
+    }
+  });
 });
 
 // =============================================================================

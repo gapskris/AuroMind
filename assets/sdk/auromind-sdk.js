@@ -3298,6 +3298,13 @@ export function createAuroMindSDK(options = {}) {
             return false;
           };
 
+          const isPlainJsonObject = (val) => {
+            if (val === null || typeof val !== 'object' || Array.isArray(val)) return false;
+            const proto = Object.getPrototypeOf(val);
+            if (proto !== Object.prototype && proto !== null) return false;
+            return Object.prototype.toString.call(val) === '[object Object]';
+          };
+
           const buildValidatedRemoteEnvelope = async (gid, remoteRec) => {
             if (!remoteRec || typeof remoteRec !== 'object' || Array.isArray(remoteRec)) {
               return { valid: false, reason: 'INVALID_REMOTE_RECORD' };
@@ -3315,7 +3322,7 @@ export function createAuroMindSDK(options = {}) {
             ) {
               return { valid: false, reason: 'INVALID_REMOTE_REVISION' };
             }
-            if (!remoteRec.payload || typeof remoteRec.payload !== 'object' || Array.isArray(remoteRec.payload)) {
+            if (!isPlainJsonObject(remoteRec.payload)) {
               return { valid: false, reason: 'INVALID_REMOTE_PAYLOAD' };
             }
             if (typeof remoteRec.checksum !== 'string' || remoteRec.checksum.length === 0) {
