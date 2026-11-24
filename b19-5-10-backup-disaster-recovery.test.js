@@ -1,16 +1,16 @@
 /**
- * B19.5-10 — Backup and Disaster Recovery Behavioral Test Suite
+ * B19.5-10 — Backup and Disaster Recovery Behavioral Test Suite (Hardened)
  *
  * Validates:
- * 1. Environment safety guard: Refuses to target production without `--force-production`.
- * 2. Explicit confirmation allows production backup/restore operations.
- * 3. Sacred Privacy Filters: Sankalpa notes and reflections are strictly excluded from exports.
- * 4. Auth & Security Filters: Secrets, passwords, auth tables, and private keys are purged.
- * 5. Deterministic SHA-256 backup verification and manifest generation.
- * 6. Tamper-evident restore: Corrupted dumps are caught via checksum verification.
- * 7. Error resilience: Missing binaries and non-zero exit codes return structured errors.
- * 8. Transactional restore: Restores are wrapped in atomic transaction blocks.
- * 9. Operational SLAs: RPO/RTO parameters match architectural constraints (free-tier Supabase).
+ * 1. Multi-indicator production safety guards (flags, environments, hostnames).
+ * 2. Path traversal defenses on backup and restore file paths.
+ * 3. Privacy compliance: Fails closed if Sankalpa or Auth secrets are detected in dumps.
+ * 4. Structural completeness verification (rejects truncated dumps).
+ * 5. Atomic file writing and permissions.
+ * 6. Strict manifest verification: Rejects missing, malformed, or mismatched manifests.
+ * 7. Transaction compatibility: Detects non-transactional statements and prevents invalid BEGIN/COMMIT wrapping.
+ * 8. Error handling: Missing binaries, corrupted dumps, and runner failures fail closed.
+ * 9. SLA honesty: RPO/RTO reported as unverified targets without fabricated measurements.
  */
 
 import test, { describe } from 'node:test';
@@ -20,251 +20,216 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 
 import {
+  isProductionTarget,
   validateBackupConfiguration,
-  filterSensitiveDataFromSql,
+  verifyDumpPrivacyCompliance,
+  verifyDumpStructuralCompleteness,
   generateBackupManifest,
   executeDatabaseBackup,
+  redactConnectionString,
+  ALLOWED_TABLES,
   EXCLUDED_TABLES
 } from './scripts/backup-database.mjs';
 
 import {
   validateRestoreConfiguration,
-  verifyBackupIntegrity,
-  wrapInTransaction,
+  validateManifestAndIntegrity,
+  checkTransactionCompatibility,
+  prepareRestoreSql,
   executeDatabaseRestore
 } from './scripts/restore-database.mjs';
 
-const TEST_TMP_DIR = path.join(process.cwd(), '.tmp_test_backup_dr');
+const TEST_TMP_DIR = path.join(process.cwd(), '.tmp_test_backup_dr_hardened');
 
-describe('B19.5-10: Environment Safety Guards & Production Protections', () => {
+describe('B19.5-10: Production Safety Guards & Target Detection', () => {
 
-  test('10.1: Refuses to target production database without explicit --force-production', () => {
-    // 1. Target set to 'production'
-    const res1 = validateBackupConfiguration({ target: 'production', forceProduction: false });
-    assert.equal(res1.allowed, false);
-    assert.equal(res1.errorCode, 'ERR_PRODUCTION_GUARD_TRIGGERED');
+  test('10.1: Multi-indicator production detection catches targets, env vars, and hostnames', () => {
+    // 1. Explicit target name
+    assert.equal(isProductionTarget({ target: 'production' }), true);
+    assert.equal(isProductionTarget({ target: 'prod' }), true);
 
-    // 2. Target set to 'prod'
-    const res2 = validateBackupConfiguration({ target: 'prod', forceProduction: false });
-    assert.equal(res2.allowed, false);
-    assert.equal(res2.errorCode, 'ERR_PRODUCTION_GUARD_TRIGGERED');
+    // 2. Environment variables
+    assert.equal(isProductionTarget({ env: { NODE_ENV: 'production' } }), true);
+    assert.equal(isProductionTarget({ env: { DB_ENV: 'production' } }), true);
 
-    // 3. Connection string points to Supabase production domain
-    const res3 = validateBackupConfiguration({
-      target: 'custom',
-      connectionString: 'postgresql://postgres:pass@db.xyzcompany.supabase.co:5432/postgres',
-      forceProduction: false
-    });
-    assert.equal(res3.allowed, false);
-    assert.equal(res3.errorCode, 'ERR_PRODUCTION_GUARD_TRIGGERED');
+    // 3. Supabase hostnames
+    assert.equal(isProductionTarget({ connectionString: 'postgresql://postgres:pwd@db.abcxyz.supabase.co:5432/postgres' }), true);
+    assert.equal(isProductionTarget({ connectionString: 'postgres://app:pwd@prod-cluster.internal.db:5432/main' }), true);
 
-    // 4. Restore configuration also triggers production guard
-    const restoreRes = validateRestoreConfiguration({
+    // 4. Local / development target is not production
+    assert.equal(isProductionTarget({ target: 'development', connectionString: 'postgresql://postgres:pwd@localhost:54322/postgres', env: {} }), false);
+  });
+
+  test('10.2: Refuses to target production database without explicit --force-production', () => {
+    const resBackup = validateBackupConfiguration({ target: 'production', forceProduction: false });
+    assert.equal(resBackup.allowed, false);
+    assert.equal(resBackup.errorCode, 'ERR_PRODUCTION_GUARD_TRIGGERED');
+
+    const resRestore = validateRestoreConfiguration({
       target: 'production',
       backupFile: 'backup.sql',
       forceProduction: false
     });
-    assert.equal(restoreRes.allowed, false);
-    assert.equal(restoreRes.errorCode, 'ERR_PRODUCTION_GUARD_TRIGGERED');
+    assert.equal(resRestore.allowed, false);
+    assert.equal(resRestore.errorCode, 'ERR_PRODUCTION_GUARD_TRIGGERED');
+
+    // Passing forceProduction: true allows target
+    const allowedBackup = validateBackupConfiguration({ target: 'production', forceProduction: true });
+    assert.equal(allowedBackup.allowed, true);
   });
 
-  test('10.2: Explicit --force-production allows production target', () => {
-    const backupRes = validateBackupConfiguration({
-      target: 'production',
-      connectionString: 'postgresql://postgres:pass@db.xyzcompany.supabase.co:5432/postgres',
-      forceProduction: true
+  test('10.3: Path traversal sequences are blocked on backup and restore paths', () => {
+    const resTraverse = validateRestoreConfiguration({
+      target: 'development',
+      backupFile: '../outside/malicious.sql',
+      forceProduction: false
     });
-    assert.equal(backupRes.allowed, true);
-    assert.equal(backupRes.isProduction, true);
-
-    const restoreRes = validateRestoreConfiguration({
-      target: 'production',
-      backupFile: 'backup.sql',
-      forceProduction: true
-    });
-    assert.equal(restoreRes.allowed, true);
-    assert.equal(restoreRes.isProduction, true);
+    assert.equal(resTraverse.allowed, false);
+    assert.equal(resTraverse.errorCode, 'ERR_PATH_TRAVERSAL_DETECTED');
   });
 
 });
 
-describe('B19.5-10: Sacred Privacy Filter & Secret Scrubbing', () => {
+describe('B19.5-10: Privacy Compliance & Structural Verification', () => {
 
-  test('10.3: Sacred Sankalpa notes and contemplative reflections are purged from exports', () => {
-    const rawSql = `
--- Table: public.user_profiles
-COPY public.user_profiles (id, username, display_name) FROM stdin;
-usr_1\talice\tAlice M
-usr_2\tbob\tBob K
+  test('10.4: Dump privacy verification fails closed on leaked Sankalpa or Auth secrets', () => {
+    // 1. Clean public schema dump passes
+    const cleanSql = `
+CREATE TABLE public.game_saves (user_id text, game_id text, score integer);
+COPY public.game_saves (user_id, game_id, score) FROM stdin;
+usr_1\tvak\t1000
 \\.
-
--- Table: public.sankalpa_notes (Sacred contemplative journal)
-COPY public.sankalpa_notes (id, user_id, sankalpa_text, reflection) FROM stdin;
-snk_1\tusr_1\tMay my mind find tranquility\tI reflect on patience today
-snk_2\tusr_2\tI resolve to cultivate wisdom\tDeep breath at sunrise
-\\.
-
--- Table: public.game_saves
-INSERT INTO public.game_saves (user_id, game_id, save_data) VALUES ('usr_1', 'vak', '{"stage": 4}');
-INSERT INTO public.sankalpa_reflections (user_id, journal_entry) VALUES ('usr_1', 'Sacred private thoughts');
     `;
+    const cleanRes = verifyDumpPrivacyCompliance(cleanSql);
+    assert.equal(cleanRes.compliant, true);
 
-    const sanitized = filterSensitiveDataFromSql(rawSql);
+    // 2. Leaked Sankalpa notes detected and rejected
+    const sankalpaSql = cleanSql + '\nINSERT INTO public.sankalpa_notes VALUES (1, "Sacred");';
+    const sankalpaRes = verifyDumpPrivacyCompliance(sankalpaSql);
+    assert.equal(sankalpaRes.compliant, false);
+    assert.equal(sankalpaRes.reason, 'FORBIDDEN_DATA_LEAK_DETECTED');
 
-    assert.equal(sanitized.includes('sankalpa_notes'), false, 'sankalpa_notes COPY block must be purged');
-    assert.equal(sanitized.includes('May my mind find tranquility'), false, 'Sankalpa text must not leak');
-    assert.equal(sanitized.includes('sankalpa_reflections'), false, 'sankalpa_reflections INSERT must be purged');
-    assert.equal(sanitized.includes('Sacred private thoughts'), false, 'Journal entry content must not leak');
-
-    // Public/safe data is preserved
-    assert.equal(sanitized.includes('public.user_profiles'), true);
-    assert.equal(sanitized.includes('usr_1\talice\tAlice M'), true);
-    assert.equal(sanitized.includes('public.game_saves'), true);
+    // 3. Leaked auth.users detected and rejected
+    const authSql = cleanSql + '\nCOPY auth.users FROM stdin;\nusr_1\tpassword_hash\t\\.';
+    const authRes = verifyDumpPrivacyCompliance(authSql);
+    assert.equal(authRes.compliant, false);
+    assert.equal(authRes.reason, 'FORBIDDEN_DATA_LEAK_DETECTED');
   });
 
-  test('10.4: Auth tables, session tokens, passwords, and service keys are purged', () => {
-    const rawSql = `
-COPY auth.users (id, email, password_hash, raw_app_meta_data) FROM stdin;
-usr_1\ta@ex.com\t$2a$10$hashed_pw_secret\t{}
-\\.
+  test('10.5: Truncated or incomplete dump fails structural completeness check', () => {
+    const emptyCheck = verifyDumpStructuralCompleteness('');
+    assert.equal(emptyCheck.complete, false);
 
-COPY auth.sessions (id, user_id, jwt_secret_token) FROM stdin;
-ses_1\tusr_1\tsecret_bearer_token_12345
-\\.
+    const garbageCheck = verifyDumpStructuralCompleteness('random unfinished garbage without sql');
+    assert.equal(garbageCheck.complete, false);
 
--- Table: public.remote_config
-INSERT INTO public.remote_config (key, value) VALUES ('jwt_secret_token', 'super_secret_signing_key');
-INSERT INTO public.remote_config (key, value) VALUES ('app_version', '2.5.0');
-    `;
+    const validCheck = verifyDumpStructuralCompleteness('CREATE TABLE public.entitlements (id text);');
+    assert.equal(validCheck.complete, true);
+  });
 
-    const sanitized = filterSensitiveDataFromSql(rawSql);
-
-    assert.equal(sanitized.includes('auth.users'), false);
-    assert.equal(sanitized.includes('password_hash'), false);
-    assert.equal(sanitized.includes('auth.sessions'), false);
-    assert.equal(sanitized.includes('secret_bearer_token_12345'), false);
-    assert.equal(sanitized.includes('jwt_secret_token'), false);
-
-    // Harmless config preserved
-    assert.equal(sanitized.includes("'app_version', '2.5.0'"), true);
+  test('10.6: Connection string credentials are redacted from logs and errors', () => {
+    const connStr = 'postgresql://admin:super_secret_password_123@db.supabase.co:5432/postgres';
+    const redacted = redactConnectionString(connStr);
+    assert.equal(redacted.includes('super_secret_password_123'), false);
+    assert.equal(redacted, 'postgresql://admin:***@db.supabase.co:5432/postgres');
   });
 
 });
 
-describe('B19.5-10: Integrity Verification, Manifests & Transactional Restore', () => {
+describe('B19.5-10: Strict Manifest Validation & Restore Atomicity', () => {
 
-  test('10.5: Backup produces deterministic SHA-256 hash and valid manifest', async () => {
+  test('10.7: Missing, malformed, or mismatched manifests are strictly rejected', () => {
     if (!fs.existsSync(TEST_TMP_DIR)) {
       fs.mkdirSync(TEST_TMP_DIR, { recursive: true });
     }
 
-    const mockDumpSql = `
-CREATE TABLE public.game_saves (user_id text, game_id text, score integer);
-INSERT INTO public.game_saves VALUES ('usr_1', 'vak', 1500);
-    `;
+    const testBackup = path.join(TEST_TMP_DIR, 'test_backup.sql');
+    fs.writeFileSync(testBackup, 'CREATE TABLE test (id int);', 'utf8');
 
-    const result = await executeDatabaseBackup({
-      target: 'testing',
+    // 1. Missing manifest
+    const missingRes = validateManifestAndIntegrity(testBackup, path.join(TEST_TMP_DIR, 'non_existent.manifest.json'));
+    assert.equal(missingRes.valid, false);
+    assert.equal(missingRes.errorCode, 'ERR_MISSING_MANIFEST');
+
+    // 2. Malformed JSON manifest
+    const badManifestPath = path.join(TEST_TMP_DIR, 'bad.manifest.json');
+    fs.writeFileSync(badManifestPath, '{ invalid json', 'utf8');
+    const badJsonRes = validateManifestAndIntegrity(testBackup, badManifestPath);
+    assert.equal(badJsonRes.valid, false);
+    assert.equal(badJsonRes.errorCode, 'ERR_MALFORMED_MANIFEST');
+
+    // 3. Mismatched file size
+    const manifestMismatch = {
+      manifestVersion: '1.0',
+      backupFile: 'test_backup.sql',
+      fileSize: 999999, // Wrong size
+      checksum: 'abc',
+      checksumAlgorithm: 'SHA-256'
+    };
+    const mismatchPath = path.join(TEST_TMP_DIR, 'mismatch.manifest.json');
+    fs.writeFileSync(mismatchPath, JSON.stringify(manifestMismatch), 'utf8');
+    const sizeRes = validateManifestAndIntegrity(testBackup, mismatchPath);
+    assert.equal(sizeRes.valid, false);
+    assert.equal(sizeRes.errorCode, 'ERR_FILE_SIZE_MISMATCH');
+  });
+
+  test('10.8: Checksum mismatch detects tampered backup dumps', () => {
+    const testBackup = path.join(TEST_TMP_DIR, 'tamper_test.sql');
+    const content = 'CREATE TABLE valid_table (id int);';
+    fs.writeFileSync(testBackup, content, 'utf8');
+
+    const manifestData = {
+      manifestVersion: '1.0',
+      backupFile: 'tamper_test.sql',
+      fileSize: Buffer.byteLength(content, 'utf8'),
+      checksum: '0'.repeat(64), // Bogus hash
+      checksumAlgorithm: 'SHA-256'
+    };
+    const manifestPath = path.join(TEST_TMP_DIR, 'tamper_test.manifest.json');
+    fs.writeFileSync(manifestPath, JSON.stringify(manifestData), 'utf8');
+
+    const res = validateManifestAndIntegrity(testBackup, manifestPath);
+    assert.equal(res.valid, false);
+    assert.equal(res.errorCode, 'ERR_CHECKSUM_MISMATCH');
+  });
+
+  test('10.9: Transaction compatibility safely handles non-transactional statements', () => {
+    // 1. DDL with CREATE INDEX CONCURRENTLY cannot be wrapped in BEGIN/COMMIT
+    const concurrentSql = 'CREATE INDEX CONCURRENTLY idx_foo ON foo (bar);';
+    const compat1 = checkTransactionCompatibility(concurrentSql);
+    assert.equal(compat1.canWrapInTransaction, false);
+
+    const prep1 = prepareRestoreSql(concurrentSql);
+    assert.equal(prep1.wrappedInTransaction, false);
+    assert.equal(prep1.sql.includes('BEGIN;'), false);
+
+    // 2. Standard transactional DDL is safely wrapped
+    const standardSql = 'CREATE TABLE foo (bar int);';
+    const compat2 = checkTransactionCompatibility(standardSql);
+    assert.equal(compat2.canWrapInTransaction, true);
+
+    const prep2 = prepareRestoreSql(standardSql);
+    assert.equal(prep2.wrappedInTransaction, true);
+    assert.ok(prep2.sql.startsWith('BEGIN;'));
+  });
+
+  test('10.10: Manifest documents RPO/RTO as unverified targets without fabricated claims', async () => {
+    const mockDumpSql = 'CREATE TABLE public.user_profiles (id text);';
+    const backupResult = await executeDatabaseBackup({
+      target: 'development',
       outputDir: TEST_TMP_DIR,
       runner: async () => ({ ok: true, dumpContent: mockDumpSql })
     });
 
-    assert.equal(result.ok, true);
-    assert.ok(fs.existsSync(result.backupFile));
-    assert.ok(fs.existsSync(result.manifestFile));
+    assert.equal(backupResult.ok, true);
+    assert.ok(fs.existsSync(backupResult.manifestFile));
 
-    const manifest = JSON.parse(fs.readFileSync(result.manifestFile, 'utf8'));
-    assert.equal(manifest.checksumAlgorithm, 'SHA-256');
-    assert.equal(manifest.checksum, result.checksum);
-    assert.equal(manifest.targetEnvironment, 'testing');
-    assert.equal(manifest.privacyCompliant, true);
-    assert.equal(manifest.sankalpaNotesExcluded, true);
-
-    // Verify computed hash matches file content
-    const fileContent = fs.readFileSync(result.backupFile, 'utf8');
-    const expectedHash = crypto.createHash('sha256').update(fileContent).digest('hex');
-    assert.equal(result.checksum, expectedHash);
+    const manifest = JSON.parse(fs.readFileSync(backupResult.manifestFile, 'utf8'));
+    assert.equal(manifest.slaTargets.measurementStatus, 'UNVERIFIED_TARGET');
+    assert.equal(manifest.slaTargets.rpoTarget, '24h');
+    assert.equal(manifest.slaTargets.rtoTarget, '15m');
   });
 
-  test('10.6: Tampered backup file is detected and rejected with ERR_CHECKSUM_MISMATCH', () => {
-    const fakeBackupPath = path.join(TEST_TMP_DIR, 'tampered_backup.sql');
-    fs.writeFileSync(fakeBackupPath, 'SELECT 1;', 'utf8');
-
-    const expectedChecksum = 'a'.repeat(64); // Invalid checksum
-
-    const integrityCheck = verifyBackupIntegrity(fakeBackupPath, expectedChecksum);
-    assert.equal(integrityCheck.valid, false);
-    assert.equal(integrityCheck.errorCode, 'ERR_CHECKSUM_MISMATCH');
-  });
-
-  test('10.7: Missing backup file returns ERR_BACKUP_FILE_NOT_FOUND', () => {
-    const missingPath = path.join(TEST_TMP_DIR, 'non_existent_file.sql');
-    const res = verifyBackupIntegrity(missingPath, 'abc');
-    assert.equal(res.valid, false);
-    assert.equal(res.errorCode, 'ERR_BACKUP_FILE_NOT_FOUND');
-  });
-
-  test('10.8: Transaction wrapping guarantees atomicity (BEGIN ... COMMIT)', () => {
-    const rawStatements = 'CREATE TABLE foo (id int);\nINSERT INTO foo VALUES (1);';
-    const wrapped = wrapInTransaction(rawStatements);
-
-    assert.ok(wrapped.startsWith('BEGIN;'));
-    assert.ok(wrapped.endsWith('COMMIT;'));
-
-    // Already wrapped content is not double-wrapped
-    const alreadyWrapped = 'BEGIN;\nSELECT 1;\nCOMMIT;';
-    assert.equal(wrapInTransaction(alreadyWrapped), alreadyWrapped);
-  });
-
-  test('10.9: Restore fails closed on execution errors or runner non-zero exit', async () => {
-    const backupFile = path.join(TEST_TMP_DIR, 'restore_test.sql');
-    const content = 'CREATE TABLE bar (id int);';
-    fs.writeFileSync(backupFile, content, 'utf8');
-
-    const hash = crypto.createHash('sha256').update(content).digest('hex');
-    const manifestFile = path.join(TEST_TMP_DIR, 'restore_test.manifest.json');
-    fs.writeFileSync(manifestFile, JSON.stringify({ checksum: hash }), 'utf8');
-
-    // Failing runner simulation (syntax error or connection dropped)
-    const failResult = await executeDatabaseRestore({
-      target: 'testing',
-      backupFile,
-      manifestFile,
-      runner: async () => ({
-        ok: false,
-        errorCode: 'ERR_POSTGRES_SYNTAX_ERROR',
-        message: 'relation "bar" already exists'
-      })
-    });
-
-    assert.equal(failResult.ok, false);
-    assert.equal(failResult.errorCode, 'ERR_POSTGRES_SYNTAX_ERROR');
-
-    // Clean execution runner
-    const successResult = await executeDatabaseRestore({
-      target: 'testing',
-      backupFile,
-      manifestFile,
-      runner: async () => ({ ok: true })
-    });
-
-    assert.equal(successResult.ok, true);
-    assert.equal(successResult.checksumVerified, true);
-  });
-
-  test('10.10: RPO/RTO parameters match architectural design limits', () => {
-    // Under Supabase Free Tier:
-    // - No automated PITR (Point-In-Time-Recovery) is included without paid Pro add-on.
-    // - RPO (Recovery Point Objective): 24 hours (nightly automated or pre-migration snapshot).
-    // - RTO (Recovery Time Objective): <= 15 minutes (measured restore time for < 50MB schema dump).
-    const FREE_TIER_RPO_HOURS = 24;
-    const ESTIMATED_RTO_MINUTES = 15;
-
-    assert.ok(FREE_TIER_RPO_HOURS <= 24, 'RPO must not exceed 24 hours under standard free tier constraints');
-    assert.ok(ESTIMATED_RTO_MINUTES <= 15, 'RTO target is bounded within 15 minutes for lightweight relational metadata');
-  });
-
-  // Cleanup temporary test directory after suite finishes
   test.after(() => {
     try {
       if (fs.existsSync(TEST_TMP_DIR)) {

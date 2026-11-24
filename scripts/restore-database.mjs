@@ -2,16 +2,21 @@
  * AuroMasti Platform — Database Restore Automation & Integrity Verification
  *
  * Implements:
- * 1. Safe PostgreSQL database restoration procedures with transactional guarantees.
- * 2. Environment safety guard: Refuses to restore to production without explicit `--force-production`.
- * 3. Pre-restore SHA-256 integrity verification against the backup manifest.
- * 4. Fails closed on corrupted dumps, missing binaries, or non-zero execution exit codes.
+ * 1. Safe PostgreSQL database restoration with manifest validation.
+ * 2. Multi-indicator production safety guard requiring explicit `--force-production`.
+ * 3. Strict Pre-Restore Verification:
+ *    - Validates manifest presence, version, file size, algorithm, and filename binding.
+ *    - Computes and verifies SHA-256 checksum (fails closed on mismatch or corruption).
+ *    - Rejects path traversal and malformed inputs.
+ * 4. DDL transaction compatibility inspection (guards against wrapping non-transactional statements).
+ * 5. Fails closed on missing binaries or non-zero execution exit codes.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { isProductionTarget } from './backup-database.mjs';
 
 /**
  * Validates whether the restore operation is safe for the targeted environment.
@@ -30,12 +35,19 @@ export function validateRestoreConfiguration({
     };
   }
 
-  const isProduction =
-    target.toLowerCase() === 'production' ||
-    target.toLowerCase() === 'prod' ||
-    (typeof connectionString === 'string' && (connectionString.includes('.supabase.co') || connectionString.includes('production')));
+  // Prevent path traversal
+  const normalizedBackupFile = path.normalize(backupFile);
+  if (normalizedBackupFile.includes('..')) {
+    return {
+      allowed: false,
+      errorCode: 'ERR_PATH_TRAVERSAL_DETECTED',
+      message: 'backupFile path cannot contain path traversal sequences (..).'
+    };
+  }
 
-  if (isProduction && !forceProduction) {
+  const isProd = isProductionTarget({ target, connectionString });
+
+  if (isProd && !forceProduction) {
     return {
       allowed: false,
       errorCode: 'ERR_PRODUCTION_GUARD_TRIGGERED',
@@ -45,16 +57,16 @@ export function validateRestoreConfiguration({
 
   return {
     allowed: true,
-    isProduction,
+    isProduction: isProd,
     target,
-    backupFile
+    backupFile: path.resolve(backupFile)
   };
 }
 
 /**
- * Verifies SHA-256 integrity of the backup file against manifest or expected hash.
+ * Validates the backup manifest and verifies SHA-256 integrity against the backup file.
  */
-export function verifyBackupIntegrity(backupFile, expectedChecksum) {
+export function validateManifestAndIntegrity(backupFile, manifestFile = null) {
   if (!fs.existsSync(backupFile)) {
     return {
       valid: false,
@@ -72,42 +84,130 @@ export function verifyBackupIntegrity(backupFile, expectedChecksum) {
     };
   }
 
-  const actualChecksum = crypto.createHash('sha256').update(fileContent, 'utf8').digest('hex');
+  // Resolve manifest path
+  const resolvedManifestPath = manifestFile || `${backupFile.replace(/\.sql$/, '')}.manifest.json`;
+  if (!fs.existsSync(resolvedManifestPath)) {
+    return {
+      valid: false,
+      errorCode: 'ERR_MISSING_MANIFEST',
+      message: `Required manifest file not found at: ${resolvedManifestPath}`
+    };
+  }
 
-  if (expectedChecksum && actualChecksum.toLowerCase() !== expectedChecksum.toLowerCase()) {
+  let manifestData;
+  try {
+    const rawManifest = fs.readFileSync(resolvedManifestPath, 'utf8');
+    manifestData = JSON.parse(rawManifest);
+  } catch (parseErr) {
+    return {
+      valid: false,
+      errorCode: 'ERR_MALFORMED_MANIFEST',
+      message: `Manifest parsing failed: ${parseErr.message}`
+    };
+  }
+
+  // Validate manifest structure and fields
+  if (!manifestData || typeof manifestData !== 'object') {
+    return { valid: false, errorCode: 'ERR_MALFORMED_MANIFEST', message: 'Manifest is not an object.' };
+  }
+  if (manifestData.manifestVersion !== '1.0') {
+    return { valid: false, errorCode: 'ERR_UNSUPPORTED_MANIFEST_VERSION', message: `Unsupported manifest version: ${manifestData.manifestVersion}` };
+  }
+  if (manifestData.checksumAlgorithm !== 'SHA-256' || !manifestData.checksum) {
+    return { valid: false, errorCode: 'ERR_INVALID_CHECKSUM_ALGORITHM', message: 'Manifest must specify SHA-256 algorithm and checksum.' };
+  }
+
+  // Validate filename association
+  const backupBasename = path.basename(backupFile);
+  if (manifestData.backupFile && manifestData.backupFile !== backupBasename) {
+    return {
+      valid: false,
+      errorCode: 'ERR_MANIFEST_FILENAME_MISMATCH',
+      message: `Manifest specifies file '${manifestData.backupFile}', but target is '${backupBasename}'`
+    };
+  }
+
+  // Validate file size
+  const actualSize = Buffer.byteLength(fileContent, 'utf8');
+  if (manifestData.fileSize !== undefined && manifestData.fileSize !== actualSize) {
+    return {
+      valid: false,
+      errorCode: 'ERR_FILE_SIZE_MISMATCH',
+      message: `File size mismatch: expected ${manifestData.fileSize} bytes, but found ${actualSize} bytes.`
+    };
+  }
+
+  // Compute and verify actual SHA-256 checksum
+  const actualChecksum = crypto.createHash('sha256').update(fileContent, 'utf8').digest('hex');
+  if (actualChecksum.toLowerCase() !== manifestData.checksum.toLowerCase()) {
     return {
       valid: false,
       errorCode: 'ERR_CHECKSUM_MISMATCH',
-      message: `Integrity check failed: expected ${expectedChecksum}, but calculated ${actualChecksum}`,
+      message: `Integrity check failed: expected ${manifestData.checksum}, calculated ${actualChecksum}`,
       actualChecksum,
-      expectedChecksum
+      expectedChecksum: manifestData.checksum
     };
   }
 
   return {
     valid: true,
     actualChecksum,
-    fileSize: Buffer.byteLength(fileContent, 'utf8')
+    manifest: manifestData,
+    fileSize: actualSize
   };
 }
 
 /**
- * Prepares SQL content for transactional execution (wrapping in BEGIN/COMMIT if not already present).
+ * Checks SQL content for statements that cannot run inside a transaction block.
  */
-export function wrapInTransaction(sqlContent) {
-  const trimmed = sqlContent.trim();
-  const hasBegin = /^BEGIN\s*;/im.test(trimmed);
-  const hasCommit = /COMMIT\s*;/im.test(trimmed);
+export function checkTransactionCompatibility(sqlContent) {
+  const nonTransactionalPatterns = [
+    /CREATE\s+INDEX\s+CONCURRENTLY/i,
+    /DROP\s+INDEX\s+CONCURRENTLY/i,
+    /VACUUM/i,
+    /REINDEX\s+(?:DATABASE|SYSTEM)/i,
+    /ALTER\s+TYPE\s+.*\s+ADD\s+VALUE/i
+  ];
 
-  if (hasBegin && hasCommit) {
-    return trimmed;
+  for (const pat of nonTransactionalPatterns) {
+    if (pat.test(sqlContent)) {
+      return {
+        canWrapInTransaction: false,
+        reason: 'CONTAINS_NON_TRANSACTIONAL_STATEMENTS',
+        pattern: pat.toString()
+      };
+    }
   }
 
-  return `BEGIN;\n\n${trimmed}\n\nCOMMIT;`;
+  return { canWrapInTransaction: true };
 }
 
 /**
- * Executes database restore from verified backup file.
+ * Safely prepares SQL for restore without breaking non-transactional statements.
+ */
+export function prepareRestoreSql(rawSql) {
+  const trimmed = rawSql.trim();
+  const compat = checkTransactionCompatibility(trimmed);
+
+  if (!compat.canWrapInTransaction) {
+    // Cannot wrap in BEGIN/COMMIT; return raw statements for individual execution
+    return { sql: trimmed, wrappedInTransaction: false };
+  }
+
+  const hasBegin = /^BEGIN\s*;/im.test(trimmed);
+  const hasCommit = /COMMIT\s*;/im.test(trimmed);
+  if (hasBegin && hasCommit) {
+    return { sql: trimmed, wrappedInTransaction: true };
+  }
+
+  return {
+    sql: `BEGIN;\n\n${trimmed}\n\nCOMMIT;`,
+    wrappedInTransaction: true
+  };
+}
+
+/**
+ * Executes database restore with strict manifest and checksum verification.
  */
 export async function executeDatabaseRestore(options = {}) {
   const {
@@ -136,34 +236,30 @@ export async function executeDatabaseRestore(options = {}) {
     };
   }
 
-  // 2. Resolve expected checksum if manifest is provided
-  let expectedChecksum = null;
-  const manifestPath = manifestFile || `${backupFile.replace(/\.sql$/, '')}.manifest.json`;
-  if (fs.existsSync(manifestPath)) {
-    try {
-      const manifestData = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-      expectedChecksum = manifestData.checksum;
-    } catch {
-      // Manifest corrupted or unreadable
-    }
-  }
+  const resolvedBackupFile = configCheck.backupFile;
 
-  // 3. Verify backup file integrity
-  const integrityCheck = verifyBackupIntegrity(backupFile, expectedChecksum);
-  if (!integrityCheck.valid) {
+  // 2. Strict Manifest & Checksum Integrity Verification
+  const integrity = validateManifestAndIntegrity(resolvedBackupFile, manifestFile);
+  if (!integrity.valid) {
     return {
       ok: false,
-      errorCode: integrityCheck.errorCode,
-      message: integrityCheck.message
+      errorCode: integrity.errorCode,
+      message: integrity.message
     };
   }
 
-  const rawSql = fs.readFileSync(backupFile, 'utf8');
-  const transactionalSql = wrapInTransaction(rawSql);
+  const rawSql = fs.readFileSync(resolvedBackupFile, 'utf8');
+  const prep = prepareRestoreSql(rawSql);
 
-  // 4. Execute restore
+  // 3. Execute Restore
   if (runner) {
-    const runResult = await runner({ target, connectionString, sql: transactionalSql, options });
+    const runResult = await runner({
+      target,
+      connectionString,
+      sql: prep.sql,
+      wrappedInTransaction: prep.wrappedInTransaction,
+      options
+    });
     if (!runResult.ok) {
       return {
         ok: false,
@@ -177,8 +273,9 @@ export async function executeDatabaseRestore(options = {}) {
         ok: true,
         dryRun: true,
         targetEnvironment: target,
-        backupFile,
-        checksum: integrityCheck.actualChecksum
+        backupFile: resolvedBackupFile,
+        checksum: integrity.actualChecksum,
+        wrappedInTransaction: prep.wrappedInTransaction
       };
     }
 
@@ -208,11 +305,13 @@ export async function executeDatabaseRestore(options = {}) {
       };
     }
 
-    const restoreProcess = spawnSync('psql', [
-      '--dbname', connectionString,
-      '--set', 'ON_ERROR_STOP=on'
-    ], {
-      input: transactionalSql,
+    const psqlArgs = ['--dbname', connectionString, '--set', 'ON_ERROR_STOP=on'];
+    if (prep.wrappedInTransaction) {
+      psqlArgs.push('--single-transaction');
+    }
+
+    const restoreProcess = spawnSync('psql', psqlArgs, {
+      input: prep.sql,
       encoding: 'utf8',
       maxBuffer: 100 * 1024 * 1024
     });
@@ -231,9 +330,10 @@ export async function executeDatabaseRestore(options = {}) {
     ok: true,
     restoredAt: new Date().toISOString(),
     targetEnvironment: target,
-    backupFile,
+    backupFile: resolvedBackupFile,
     checksumVerified: true,
-    checksum: integrityCheck.actualChecksum
+    checksum: integrity.actualChecksum,
+    wrappedInTransaction: prep.wrappedInTransaction
   };
 }
 

@@ -1028,6 +1028,45 @@ describe('B19.5-07A: Offline Outbox Identity Isolation & Ownership Enforcement',
       sdk.dispose();
     });
 
+    test('07A1-8: authInFlight buffers external provider events and applies them on settlement without state loss', async () => {
+      const { env, storage, idb } = createSdkEnv();
+      let authCallback = null;
+      const auth = {
+        providerName: 'mock-auth',
+        isConfigured: () => true,
+        getAccount: async () => null,
+        onAuthStateChange: (cb) => {
+          authCallback = cb;
+          return () => { authCallback = null; };
+        },
+        signIn: async () => {
+          // While signIn is in-flight, simulate an external sign-out or session replacement event
+          if (authCallback) {
+            authCallback({ userId: 'user_external_refresh', email: 'external@example.com' });
+          }
+          return { ok: true, account: { userId: 'user_orig', email: 'orig@example.com' } };
+        }
+      };
+
+      const sdk = createAuroMindSDK({ env });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth }
+      });
+
+      // Trigger signIn which triggers internal callback during flight
+      const res = await sdk.auth.signIn('email', { email: 'orig@example.com' });
+      assert.equal(res.ok, true);
+
+      // Once settled, the queued external event must have been applied rather than silently lost
+      const currentAcc = sdk.auth.getAccount();
+      assert.ok(currentAcc);
+      assert.equal(currentAcc.userId, 'user_external_refresh');
+
+      sdk.dispose();
+    });
+
   });
 
 });

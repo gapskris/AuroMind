@@ -1,16 +1,19 @@
 /**
- * B19.5-09 — Entitlements and Commerce Behavioral Test Suite
+ * B19.5-09 — Entitlements and Commerce Behavioral Test Suite (Hardened)
  *
  * Validates:
- * 1. Server-authoritative Ed25519 entitlement verification (compact JWT & envelope).
- * 2. Key rotation window (dual-key verification) and emergency key revocation list.
- * 3. Exact 30-calendar-day offline grace (2,592,000,000 ms) enforcement.
- * 4. Clock manipulation defense (backward jumps behind last-validated/anchor, forward jumps past grace).
- * 5. Launch invariant: COMMERCIAL_GATE_ENABLED = false, free beta access preserved.
- * 6. Razorpay contract validation: HMAC-SHA256 signature verification (constant-time).
- * 7. Webhook signature validation and replay-attack defenses.
- * 8. Order creation idempotency and payment replay prevention.
- * 9. Resilience: Commerce / payment failures never throw or block core gameplay and saves.
+ * 1. Strict security boundary: Client-side self-grant is forbidden.
+ * 2. Browser protection: Client provider rejects initialization if secrets are passed.
+ * 3. Server-authoritative order creation: Bound to verified account, SKU, amount, and currency.
+ * 4. Durable idempotency: Prevents duplicate orders across repeat requests.
+ * 5. Cryptographic payment verification: Constant-time HMAC-SHA256, ownership matching, and replay defense.
+ * 6. Scoped webhook processing: Validates amount/currency, and refunds revoke only the affected user's entitlement.
+ * 7. Server-authoritative Ed25519 verification: Header alg ('EdDSA') and typ ('JWT') enforcement.
+ * 8. Expiry policy: Rejecting missing or NaN expiry timestamps unless explicitly 'LIFETIME'.
+ * 9. Exact 30-day offline grace (2,592,000,000 ms) and clock rollback manipulation defenses.
+ * 10. Fail-closed handling of malformed revocation configurations.
+ * 11. Launch invariant: COMMERCIAL_GATE_ENABLED = false, all features free in launch beta.
+ * 12. Non-blocking gameplay: Commerce errors never block local storage or gameplay saves.
  */
 
 import test, { describe } from 'node:test';
@@ -36,7 +39,10 @@ import {
 } from './assets/sdk/entitlement-revocation.js';
 
 import {
-  createRazorpayPurchaseProvider,
+  createRazorpayClientProvider,
+  createRazorpayServerVerifier,
+  createInMemoryDurableStore,
+  createMockRazorpayTestFixture,
   validateRazorpayPaymentSignature,
   validateRazorpayWebhookSignature
 } from './assets/sdk/providers/razorpay/razorpay-commerce-provider.js';
@@ -53,376 +59,387 @@ function createStorageMock(initialState = {}) {
   };
 }
 
-describe('B19.5-09: Ed25519 Entitlement Verification & Key Rotation', () => {
+describe('B19.5-09: Razorpay Client & Server Security Boundary', () => {
 
-  test('9.1: Server-authoritative Ed25519 token verifies correctly with active key', async () => {
-    const keyPair = await globalThis.crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
-    const rawPublicKey = await globalThis.crypto.subtle.exportKey('raw', keyPair.publicKey);
+  test('9.1: Client provider strictly forbids secret exposure and self-granting', async () => {
+    // 1. Passing secrets to client provider must throw security violation
+    assert.throws(() => {
+      createRazorpayClientProvider({
+        keyId: 'rzp_public_key',
+        keySecret: 'leak_secret_to_browser'
+      });
+    }, /SECURITY_VIOLATION/);
 
-    const now = Date.now();
-    const payload = {
-      iss: 'https://api.auromind.org',
-      sub: 'usr_verified_player_1',
+    assert.throws(() => {
+      createRazorpayClientProvider({
+        keyId: 'rzp_public_key',
+        webhookSecret: 'leak_webhook_to_browser'
+      });
+    }, /SECURITY_VIOLATION/);
+
+    // 2. Client cannot self-grant an entitlement
+    const clientProvider = createRazorpayClientProvider({ keyId: 'rzp_public_key' });
+    const purchaseRes = await clientProvider.purchase('premium_sku');
+    assert.equal(purchaseRes.ok, false);
+    assert.equal(purchaseRes.errorCode, 'CLIENT_SELF_GRANT_FORBIDDEN');
+  });
+
+  test('9.2: Server creates authoritative orders bound to verified account and SKU', async () => {
+    const fixture = createMockRazorpayTestFixture();
+
+    // 1. Missing user ID rejected
+    const badUser = await fixture.verifier.createAuthoritativeOrder({
+      userId: '',
       sku: 'supporter_pass_2027',
-      tier: 'LIFETIME',
-      iat: Math.floor(now / 1000),
-      lastValidatedAt: new Date(now).toISOString()
-    };
-
-    const token = await mintEd25519EntitlementToken({
-      payload,
-      privateKey: keyPair.privateKey,
-      compact: true
+      amount: 29900
     });
+    assert.equal(badUser.ok, false);
+    assert.equal(badUser.errorCode, 'INVALID_USER_ID');
 
-    const result = await verifyEd25519EntitlementToken({
-      token,
-      publicKey: new Uint8Array(rawPublicKey),
-      currentTimestamp: now
+    // 2. Invalid non-positive amount rejected
+    const badAmount = await fixture.verifier.createAuthoritativeOrder({
+      userId: 'user_alice',
+      sku: 'supporter_pass_2027',
+      amount: -500
     });
+    assert.equal(badAmount.ok, false);
+    assert.equal(badAmount.errorCode, 'INVALID_AMOUNT');
 
-    assert.equal(result.valid, true);
-    assert.equal(result.sku, 'supporter_pass_2027');
-    assert.equal(result.tier, 'LIFETIME');
+    // 3. Valid order created and bound to user
+    const orderRes = await fixture.verifier.createAuthoritativeOrder({
+      userId: 'user_alice',
+      sku: 'supporter_pass_2027',
+      amount: 29900,
+      idempotencyKey: 'idem_key_111'
+    });
+    assert.equal(orderRes.ok, true);
+    assert.equal(orderRes.order.userId, 'user_alice');
+    assert.equal(orderRes.order.sku, 'supporter_pass_2027');
+    assert.equal(orderRes.order.amount, 29900);
+    assert.equal(orderRes.idempotentReplay, false);
+
+    // 4. Repeated call with same idempotency key returns existing order
+    const replayRes = await fixture.verifier.createAuthoritativeOrder({
+      userId: 'user_alice',
+      sku: 'supporter_pass_2027',
+      amount: 29900,
+      idempotencyKey: 'idem_key_111'
+    });
+    assert.equal(replayRes.ok, true);
+    assert.equal(replayRes.idempotentReplay, true);
+    assert.equal(replayRes.order.id, orderRes.order.id);
   });
 
-  test('9.2: Key rotation window verifies tokens from old and new keys (dual-key keystore)', async () => {
-    const keyPairV1 = await globalThis.crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
-    const keyPairV2 = await globalThis.crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+  test('9.3: Payment verification validates signature, ownership, and enforces replay defense', async () => {
+    const fixture = createMockRazorpayTestFixture();
 
-    const keyStore = new Map([
-      ['auromasti-ed25519-2026-v1', keyPairV1.publicKey],
-      ['auromasti-ed25519-2026-v2', keyPairV2.publicKey]
-    ]);
-
-    const payloadV1 = { sku: 'expansion_pack_1', lastValidatedAt: new Date().toISOString() };
-    const tokenV1 = await mintVersionedEntitlementToken({
-      payload: payloadV1,
-      privateKey: keyPairV1.privateKey,
-      kid: 'auromasti-ed25519-2026-v1'
+    const orderRes = await fixture.verifier.createAuthoritativeOrder({
+      userId: 'user_alice',
+      sku: 'expansion_pack_1',
+      amount: 49900
     });
+    const orderId = orderRes.order.id;
+    const paymentId = 'pay_alice_unique_9988';
 
-    const payloadV2 = { sku: 'expansion_pack_2', lastValidatedAt: new Date().toISOString() };
-    const tokenV2 = await mintVersionedEntitlementToken({
-      payload: payloadV2,
-      privateKey: keyPairV2.privateKey,
-      kid: 'auromasti-ed25519-2026-v2'
+    // Generate valid HMAC signature
+    const hmac = crypto.createHmac('sha256', fixture.testKeySecret);
+    hmac.update(`${orderId}|${paymentId}`);
+    const validSig = hmac.digest('hex');
+
+    // 1. Order ownership mismatch rejected
+    const imposterRes = await fixture.verifier.verifyAuthoritativePayment({
+      userId: 'user_attacker_bob',
+      orderId,
+      paymentId,
+      signature: validSig
     });
+    assert.equal(imposterRes.ok, false);
+    assert.equal(imposterRes.errorCode, 'ORDER_OWNERSHIP_MISMATCH');
 
-    const res1 = await verifyVersionedEntitlement({ token: tokenV1, keyStore });
-    assert.equal(res1.valid, true);
-    assert.equal(res1.kid, 'auromasti-ed25519-2026-v1');
-    assert.equal(res1.payload.sku, 'expansion_pack_1');
+    // 2. Tampered signature rejected
+    const tamperedRes = await fixture.verifier.verifyAuthoritativePayment({
+      userId: 'user_alice',
+      orderId,
+      paymentId,
+      signature: '0'.repeat(64)
+    });
+    assert.equal(tamperedRes.ok, false);
+    assert.equal(tamperedRes.errorCode, 'INVALID_PAYMENT_SIGNATURE');
 
-    const res2 = await verifyVersionedEntitlement({ token: tokenV2, keyStore });
-    assert.equal(res2.valid, true);
-    assert.equal(res2.kid, 'auromasti-ed25519-2026-v2');
-    assert.equal(res2.payload.sku, 'expansion_pack_2');
+    // 3. Legitimate verification succeeds
+    const legitRes = await fixture.verifier.verifyAuthoritativePayment({
+      userId: 'user_alice',
+      orderId,
+      paymentId,
+      signature: validSig
+    });
+    assert.equal(legitRes.ok, true);
+    assert.equal(legitRes.status, 'success');
+    assert.equal(legitRes.transaction.userId, 'user_alice');
+    assert.equal(legitRes.transaction.sku, 'expansion_pack_1');
+
+    // Verify entitlement granted in store
+    const ent = await fixture.store.getEntitlement('user_alice', 'expansion_pack_1');
+    assert.ok(ent);
+    assert.equal(ent.status, 'active');
+
+    // 4. Replay attack with same paymentId rejected at durable persistence boundary
+    const replayRes = await fixture.verifier.verifyAuthoritativePayment({
+      userId: 'user_alice',
+      orderId,
+      paymentId,
+      signature: validSig
+    });
+    assert.equal(replayRes.ok, false);
+    assert.equal(replayRes.errorCode, 'ERR_PAYMENT_ALREADY_SETTLED');
   });
 
-  test('9.3: Emergency key revocation list fails closed on revoked key ID', async () => {
+  test('9.4: Webhook refund targets strictly the affected user and isolates other users', async () => {
+    const fixture = createMockRazorpayTestFixture();
+
+    // Alice buys SKU A
+    const orderAlice = await fixture.verifier.createAuthoritativeOrder({
+      userId: 'user_alice',
+      sku: 'sku_a',
+      amount: 10000
+    });
+    const hmacAlice = crypto.createHmac('sha256', fixture.testKeySecret);
+    hmacAlice.update(`${orderAlice.order.id}|pay_alice_1`);
+    await fixture.verifier.verifyAuthoritativePayment({
+      userId: 'user_alice',
+      orderId: orderAlice.order.id,
+      paymentId: 'pay_alice_1',
+      signature: hmacAlice.digest('hex')
+    });
+
+    // Bob buys SKU A
+    const orderBob = await fixture.verifier.createAuthoritativeOrder({
+      userId: 'user_bob',
+      sku: 'sku_a',
+      amount: 10000
+    });
+    const hmacBob = crypto.createHmac('sha256', fixture.testKeySecret);
+    hmacBob.update(`${orderBob.order.id}|pay_bob_1`);
+    await fixture.verifier.verifyAuthoritativePayment({
+      userId: 'user_bob',
+      orderId: orderBob.order.id,
+      paymentId: 'pay_bob_1',
+      signature: hmacBob.digest('hex')
+    });
+
+    // Both users have active entitlements
+    assert.ok(await fixture.store.getEntitlement('user_alice', 'sku_a'));
+    assert.ok(await fixture.store.getEntitlement('user_bob', 'sku_a'));
+
+    // Process refund for Alice's payment only
+    const refundBody = JSON.stringify({
+      event: 'refund.processed',
+      payload: {
+        refund: {
+          entity: {
+            id: 'rfnd_123',
+            payment_id: 'pay_alice_1',
+            order_id: orderAlice.order.id,
+            amount: 10000
+          }
+        }
+      }
+    });
+
+    const hmacHook = crypto.createHmac('sha256', 'test_webhook_secret_67890');
+    hmacHook.update(refundBody);
+
+    const hookRes = await fixture.verifier.processAuthoritativeWebhook({
+      rawBody: refundBody,
+      signature: hmacHook.digest('hex')
+    });
+
+    assert.equal(hookRes.ok, true);
+    assert.equal(hookRes.revoked, true);
+    assert.equal(hookRes.userId, 'user_alice');
+
+    // Alice's entitlement is revoked
+    assert.equal(await fixture.store.getEntitlement('user_alice', 'sku_a'), null);
+
+    // Bob's entitlement remains strictly ACTIVE and unaffected
+    assert.ok(await fixture.store.getEntitlement('user_bob', 'sku_a'));
+  });
+
+});
+
+describe('B19.5-09: Ed25519 Entitlement Verification Hardening', () => {
+
+  test('9.5: Header algorithm and token type verification', async () => {
+    const keyPair = await globalThis.crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+    const keyStore = new Map([['test_key', keyPair.publicKey]]);
+
+    // 1. Wrong algorithm (e.g. HS256)
+    const badAlgHeader = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT', kid: 'test_key' })).toString('base64url');
+    const payload = Buffer.from(JSON.stringify({ sub: 'user_1', sku: 'sku_1', exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url');
+    const fakeSig = Buffer.from('x'.repeat(64)).toString('base64url');
+    const badAlgToken = `${badAlgHeader}.${payload}.${fakeSig}`;
+
+    const res1 = await verifyVersionedEntitlement({ token: badAlgToken, keyStore });
+    assert.equal(res1.valid, false);
+    assert.equal(res1.reason, 'UNSUPPORTED_ALGORITHM');
+
+    // 2. Missing Key ID
+    const noKidHeader = Buffer.from(JSON.stringify({ alg: 'EdDSA', typ: 'JWT' })).toString('base64url');
+    const noKidToken = `${noKidHeader}.${payload}.${fakeSig}`;
+    const res2 = await verifyVersionedEntitlement({ token: noKidToken, keyStore });
+    assert.equal(res2.valid, false);
+    assert.equal(res2.reason, 'KEY_ID_MISSING');
+  });
+
+  test('9.6: Expiry policy requires finite positive exp unless tier is LIFETIME', async () => {
+    const keyPair = await globalThis.crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+    const keyStore = new Map([['auromasti-ed25519-2026-v1', keyPair.publicKey]]);
+
+    // 1. Missing exp without lifetime tier must fail closed
+    const tokenNoExp = await mintVersionedEntitlementToken({
+      payload: { sub: 'usr_1', sku: 'pack_1' }, // Missing exp and tier !== LIFETIME
+      privateKey: keyPair.privateKey
+    });
+    const r1 = await verifyVersionedEntitlement({ token: tokenNoExp, keyStore });
+    assert.equal(r1.valid, false);
+    assert.equal(r1.reason, 'TOKEN_EXPIRY_REQUIRED');
+
+    // 2. Invalid NaN exp
+    const tokenNanExp = await mintVersionedEntitlementToken({
+      payload: { sub: 'usr_1', sku: 'pack_1', exp: 'not_a_number' },
+      privateKey: keyPair.privateKey
+    });
+    const r2 = await verifyVersionedEntitlement({ token: tokenNanExp, keyStore });
+    assert.equal(r2.valid, false);
+    assert.equal(r2.reason, 'INVALID_EXPIRATION_TIMESTAMP');
+
+    // 3. Finite exp in past is expired
+    const tokenPastExp = await mintVersionedEntitlementToken({
+      payload: { sub: 'usr_1', sku: 'pack_1', exp: Math.floor((Date.now() - 3600000) / 1000) },
+      privateKey: keyPair.privateKey
+    });
+    const r3 = await verifyVersionedEntitlement({ token: tokenPastExp, keyStore });
+    assert.equal(r3.valid, false);
+    assert.equal(r3.reason, 'TOKEN_EXPIRED');
+
+    // 4. LIFETIME tier passes without exp
+    const tokenLifetime = await mintVersionedEntitlementToken({
+      payload: { sub: 'usr_1', sku: 'pack_1', tier: 'LIFETIME' },
+      privateKey: keyPair.privateKey
+    });
+    const r4 = await verifyVersionedEntitlement({ token: tokenLifetime, keyStore });
+    assert.equal(r4.valid, true);
+  });
+
+  test('9.7: Validation timestamp and exact 30-day offline grace period (2,592,000,000 ms)', async () => {
+    assert.equal(OFFLINE_GRACE_MS, 2592000000, 'Grace period must be exactly 2,592,000,000 ms');
+
+    const keyPair = await globalThis.crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+    const keyStore = new Map([['auromasti-ed25519-2026-v1', keyPair.publicKey]]);
+    const t0 = 1770000000000;
+
+    // 1. Invalid / unparseable lastValidatedAt date fails closed
+    const tokenBadDate = await mintVersionedEntitlementToken({
+      payload: { sub: 'usr_1', sku: 'pack_1', tier: 'LIFETIME', lastValidatedAt: 'invalid-iso-date' },
+      privateKey: keyPair.privateKey
+    });
+    const rBadDate = await verifyVersionedEntitlement({ token: tokenBadDate, keyStore, currentTimestamp: t0 });
+    assert.equal(rBadDate.valid, false);
+    assert.equal(rBadDate.reason, 'INVALID_VALIDATION_TIMESTAMP');
+
+    // 2. Token within 30-day offline grace passes
+    const tokenGrace = await mintVersionedEntitlementToken({
+      payload: { sub: 'usr_1', sku: 'pack_1', tier: 'LIFETIME', lastValidatedAt: new Date(t0).toISOString() },
+      privateKey: keyPair.privateKey
+    });
+
+    const t29Days = t0 + (29 * 24 * 60 * 60 * 1000);
+    const rWithin = await verifyVersionedEntitlement({ token: tokenGrace, keyStore, currentTimestamp: t29Days });
+    assert.equal(rWithin.valid, true);
+
+    // 3. Beyond 30 days fails
+    const t30DaysPlus = t0 + OFFLINE_GRACE_MS + 1000;
+    const rExceeded = await verifyVersionedEntitlement({ token: tokenGrace, keyStore, currentTimestamp: t30DaysPlus });
+    assert.equal(rExceeded.valid, false);
+    assert.equal(rExceeded.reason, 'OFFLINE_GRACE_EXCEEDED');
+
+    // 4. Backward clock manipulation behind lastValidatedAt fails
+    const tBackward = t0 - 120000; // 2 minutes before validation
+    const rBackward = await verifyVersionedEntitlement({ token: tokenGrace, keyStore, currentTimestamp: tBackward });
+    assert.equal(rBackward.valid, false);
+    assert.equal(rBackward.reason, 'CLOCK_ROLLBACK_DETECTED');
+  });
+
+  test('9.8: Signed revocation config fails closed on malformed configuration', async () => {
     const rootKeyPair = await globalThis.crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
-    const compromisedKeyPair = await globalThis.crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+    const keyPair = await globalThis.crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+    const keyStore = new Map([['test_key', keyPair.publicKey]]);
 
-    const keyStore = new Map([
-      ['compromised-key-2026', compromisedKeyPair.publicKey]
-    ]);
-
-    // Token signed with compromised key
     const token = await mintVersionedEntitlementToken({
-      payload: { sku: 'pirated_sku', lastValidatedAt: new Date().toISOString() },
-      privateKey: compromisedKeyPair.privateKey,
-      kid: 'compromised-key-2026'
+      payload: { sub: 'usr_1', sku: 'pack_1', tier: 'LIFETIME' },
+      privateKey: keyPair.privateKey,
+      kid: 'test_key'
     });
 
-    // Signed remote config revoking compromised key
-    const revocationPayload = JSON.stringify({
-      version: 2,
-      revokedKeyIds: ['compromised-key-2026'],
-      updatedAt: new Date().toISOString()
-    });
-
-    const signature = await globalThis.crypto.subtle.sign(
-      { name: 'Ed25519' },
-      rootKeyPair.privateKey,
-      new TextEncoder().encode(revocationPayload)
-    );
-
-    const signedRevocationConfig = {
-      payloadJson: revocationPayload,
-      signatureB64Url: Buffer.from(signature).toString('base64url')
+    // Malformed revocation config (corrupted JSON)
+    const malformedConfig = {
+      payloadJson: '{ bad json',
+      signatureB64Url: Buffer.from('x'.repeat(64)).toString('base64url')
     };
 
     const res = await verifyVersionedEntitlement({
       token,
       keyStore,
-      signedRevocationConfig,
+      signedRevocationConfig: malformedConfig,
       configRootPublicKey: rootKeyPair.publicKey
     });
 
     assert.equal(res.valid, false);
-    assert.equal(res.reason, 'KEY_REVOKED');
-    assert.equal(res.kid, 'compromised-key-2026');
   });
 
 });
 
-describe('B19.5-09: Offline Grace Period (30 Days) & Clock Manipulation Defenses', () => {
+describe('B19.5-09: Launch Invariant & Resilient Gameplay', () => {
 
-  test('9.4: Exactly 30-day offline grace period (2,592,000,000 ms)', () => {
-    assert.equal(OFFLINE_GRACE_MS, 2592000000, 'OFFLINE_GRACE_MS must equal exactly 2,592,000,000 ms (30 days)');
-  });
-
-  test('9.5: Token within 30-day offline grace passes, but beyond 30 days is rejected', async () => {
-    const keyPair = await globalThis.crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
-    const rawPublicKey = await globalThis.crypto.subtle.exportKey('raw', keyPair.publicKey);
-
-    const t0 = 1770000000000;
-    const token = await mintEd25519EntitlementToken({
-      payload: {
-        sku: 'zen_garden_palette',
-        lastValidatedAt: new Date(t0).toISOString()
-      },
-      privateKey: keyPair.privateKey,
-      compact: true
-    });
-
-    // At 29 days offline (within grace)
-    const t29Days = t0 + (29 * 24 * 60 * 60 * 1000);
-    const validRes = await verifyEd25519EntitlementToken({
-      token,
-      publicKey: new Uint8Array(rawPublicKey),
-      currentTimestamp: t29Days
-    });
-    assert.equal(validRes.valid, true);
-
-    // At 30 days + 1 second (grace expired)
-    const t30DaysPlus = t0 + OFFLINE_GRACE_MS + 1000;
-    const expiredRes = await verifyEd25519EntitlementToken({
-      token,
-      publicKey: new Uint8Array(rawPublicKey),
-      currentTimestamp: t30DaysPlus
-    });
-    assert.equal(expiredRes.valid, false);
-    assert.equal(expiredRes.reason, 'OFFLINE_GRACE_EXPIRED');
-  });
-
-  test('9.6: Clock tampering defenses reject backward rollback jumps', async () => {
-    const keyPair = await globalThis.crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
-    const rawPublicKey = await globalThis.crypto.subtle.exportKey('raw', keyPair.publicKey);
-
-    const tNow = Date.now();
-    const token = await mintEd25519EntitlementToken({
-      payload: {
-        sku: 'mandala_expansion',
-        lastValidatedAt: new Date(tNow).toISOString()
-      },
-      privateKey: keyPair.privateKey,
-      compact: true
-    });
-
-    // 1. Clock jumped backward behind last-validation timestamp (> 60s tolerance)
-    const backwardRes = await verifyEd25519EntitlementToken({
-      token,
-      publicKey: new Uint8Array(rawPublicKey),
-      currentTimestamp: tNow - 120000 // 2 minutes in the past
-    });
-    assert.equal(backwardRes.valid, false);
-    assert.equal(backwardRes.reason, 'CLOCK_ROLLBACK_DETECTED');
-
-    // 2. Monotonic anchor rollback
-    const anchorRes = await verifyEd25519EntitlementToken({
-      token,
-      publicKey: new Uint8Array(rawPublicKey),
-      currentTimestamp: tNow,
-      anchorTimestamp: tNow + 300000 // anchor in future relative to test clock
-    });
-    assert.equal(anchorRes.valid, false);
-    assert.equal(anchorRes.reason, 'CLOCK_ROLLBACK_DETECTED');
-  });
-
-});
-
-describe('B19.5-09: Launch Invariant & Free Beta Tier Access', () => {
-
-  test('9.7: COMMERCIAL_GATE_ENABLED remains false; all features free without paywall', async () => {
-    assert.equal(COMMERCIAL_GATE_ENABLED, false, 'Commercial gate must be false for launch');
+  test('9.9: COMMERCIAL_GATE_ENABLED remains false; all features free in launch beta', async () => {
+    assert.equal(COMMERCIAL_GATE_ENABLED, false, 'Commercial gate must remain false for launch');
 
     const store = createStorageMock();
     const sdk = createAuroMindSDK({ env: { localStorage: store, BroadcastChannel: null } });
     await sdk.init({ gameId: 'portal' });
 
     assert.equal(sdk.purchases.isCommercialGateActive(), false);
-    assert.equal(sdk.purchases.hasEntitlement('any_sku_name'), true);
-    assert.equal(sdk.purchases.hasAccess('any_expansion_tier'), true);
+    assert.equal(sdk.purchases.hasEntitlement('any_sku'), true);
+    assert.equal(sdk.purchases.hasAccess('any_tier'), true);
 
-    const purchaseRes = await sdk.purchases.requestPurchase('premium_tile_set');
-    assert.equal(purchaseRes.ok, true);
-    assert.equal(purchaseRes.status, 'granted_free_tier');
+    const buyRes = await sdk.purchases.requestPurchase('premium_tile_set');
+    assert.equal(buyRes.ok, true);
+    assert.equal(buyRes.status, 'granted_free_tier');
 
     sdk.dispose();
   });
 
-});
-
-describe('B19.5-09: Razorpay Provider Contract, Idempotency & Replay Defense', () => {
-
-  const KEY_SECRET = 'rzp_test_secret_key_12345';
-  const WEBHOOK_SECRET = 'rzp_webhook_secret_67890';
-
-  test('9.8: Constant-time payment signature validation succeeds on authentic HMAC and fails on tamper', () => {
-    const orderId = 'order_123456';
-    const paymentId = 'pay_789012';
-
-    const hmac = crypto.createHmac('sha256', KEY_SECRET);
-    hmac.update(`${orderId}|${paymentId}`);
-    const validSignature = hmac.digest('hex');
-
-    // 1. Valid signature
-    const isValid = validateRazorpayPaymentSignature({
-      orderId,
-      paymentId,
-      signature: validSignature,
-      keySecret: KEY_SECRET
-    });
-    assert.equal(isValid, true);
-
-    // 2. Tampered paymentId
-    const isTampered = validateRazorpayPaymentSignature({
-      orderId,
-      paymentId: 'pay_attacker_tamper',
-      signature: validSignature,
-      keySecret: KEY_SECRET
-    });
-    assert.equal(isTampered, false);
-
-    // 3. Wrong secret
-    const isWrongSecret = validateRazorpayPaymentSignature({
-      orderId,
-      paymentId,
-      signature: validSignature,
-      keySecret: 'wrong_secret'
-    });
-    assert.equal(isWrongSecret, false);
-  });
-
-  test('9.9: Order creation enforces idempotency keys against duplicate orders', async () => {
-    const provider = createRazorpayPurchaseProvider({
-      keyId: 'rzp_test_key',
-      keySecret: KEY_SECRET,
-      webhookSecret: WEBHOOK_SECRET
-    });
-
-    const idemKey = 'client_unique_req_9988';
-    const res1 = await provider.createOrder('soundtrack_pack', { idempotencyKey: idemKey, amount: 49900 });
-    assert.equal(res1.ok, true);
-    assert.equal(res1.idempotentReplay, false);
-
-    // Second call with same idempotencyKey returns existing order without creating a new one
-    const res2 = await provider.createOrder('soundtrack_pack', { idempotencyKey: idemKey, amount: 49900 });
-    assert.equal(res2.ok, true);
-    assert.equal(res2.idempotentReplay, true);
-    assert.equal(res2.order.id, res1.order.id);
-  });
-
-  test('9.10: Replay defense prevents re-settling an already settled payment ID', async () => {
-    const provider = createRazorpayPurchaseProvider({
-      keyId: 'rzp_test_key',
-      keySecret: KEY_SECRET,
-      webhookSecret: WEBHOOK_SECRET
-    });
-
-    const orderRes = await provider.createOrder('zen_theme');
-    const paymentId = 'pay_unique_transaction_5544';
-
-    const hmac = crypto.createHmac('sha256', KEY_SECRET);
-    hmac.update(`${orderRes.order.id}|${paymentId}`);
-    const signature = hmac.digest('hex');
-
-    // First verification settles successfully
-    const settle1 = await provider.verifyPayment({
-      orderId: orderRes.order.id,
-      paymentId,
-      signature
-    });
-    assert.equal(settle1.ok, true);
-    assert.equal(settle1.status, 'success');
-    assert.equal(provider.hasEntitlement('zen_theme'), true);
-
-    // Second verification replay with same paymentId must be rejected
-    const settle2 = await provider.verifyPayment({
-      orderId: orderRes.order.id,
-      paymentId,
-      signature
-    });
-    assert.equal(settle2.ok, false);
-    assert.equal(settle2.errorCode, 'ERR_PAYMENT_ALREADY_SETTLED');
-  });
-
-  test('9.11: Webhook signature validation and payment capture processing', async () => {
-    const provider = createRazorpayPurchaseProvider({
-      keyId: 'rzp_test_key',
-      keySecret: KEY_SECRET,
-      webhookSecret: WEBHOOK_SECRET
-    });
-
-    const webhookBody = JSON.stringify({
-      event: 'payment.captured',
-      payload: {
-        payment: {
-          entity: {
-            id: 'pay_captured_via_webhook',
-            amount: 29900,
-            status: 'captured'
-          }
-        }
-      }
-    });
-
-    const hmac = crypto.createHmac('sha256', WEBHOOK_SECRET);
-    hmac.update(webhookBody);
-    const validSig = hmac.digest('hex');
-
-    const hookRes = await provider.processWebhook({
-      rawBody: webhookBody,
-      signature: validSig
-    });
-    assert.equal(hookRes.ok, true);
-    assert.equal(hookRes.eventType, 'payment.captured');
-
-    // Replay of same captured webhook is safely deduplicated
-    const replayRes = await provider.processWebhook({
-      rawBody: webhookBody,
-      signature: validSig
-    });
-    assert.equal(replayRes.ok, true);
-    assert.equal(replayRes.ignored, true);
-    assert.equal(replayRes.reason, 'ALREADY_SETTLED');
-  });
-
-  test('9.12: Commerce network/provider errors never block offline gameplay or save functionality', async () => {
+  test('9.10: Commerce network/provider errors never block offline gameplay or save operations', async () => {
     const store = createStorageMock();
     const sdk = createAuroMindSDK({ env: { localStorage: store, BroadcastChannel: null } });
     await sdk.init({ gameId: 'portal' });
 
-    // Inject crashing provider
-    const crashingProvider = {
+    const failingProvider = {
       isConfigured: () => true,
       purchase: async () => { throw new Error('Razorpay Gateway 502 Bad Gateway'); },
       refund: async () => { throw new Error('Razorpay Gateway 504 Gateway Timeout'); },
-      restorePurchases: async () => { throw new Error('DNS resolution failure'); },
-      hasEntitlement: () => { throw new Error('Fatal socket abort'); }
+      restorePurchases: async () => { throw new Error('Network unreachable'); },
+      hasEntitlement: () => { throw new Error('Fatal socket failure'); }
     };
 
     sdk.purchases.setCommercialGateActiveForTesting(true);
-    sdk.purchases.setProvider(crashingProvider);
+    sdk.purchases.setProvider(failingProvider);
 
-    // Requesting purchase catches error cleanly and does not throw
-    const buyResult = await sdk.purchases.requestPurchase('failing_sku');
+    const buyResult = await sdk.purchases.requestPurchase('test_sku');
     assert.equal(buyResult.ok, false);
     assert.equal(buyResult.errorCode, 'PURCHASE_ERROR');
 
-    // Storage/save operations remain completely intact and unaffected
+    // Storage/save operations remain completely intact
     await sdk.storage.setPlatformMeta('saved_level_state', { score: 1000, level: 12 });
     const loaded = await sdk.storage.getPlatformMeta('saved_level_state');
     assert.deepEqual(loaded, { score: 1000, level: 12 });

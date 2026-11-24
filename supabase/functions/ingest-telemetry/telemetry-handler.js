@@ -48,16 +48,13 @@ const EVENT_NAME_REGEX = /^[a-z][a-z0-9_]{1,63}$/i;
 /**
  * Derives a privacy-preserving client bucket hash using SHA-256 (AUDIT-SEC-06).
  * Raw IP addresses and personal identifiers are never stored or logged.
- * Untrusted client-supplied identity headers (e.g. X-User-Id, X-Forwarded-For) are strictly defended.
+ * Untrusted client-supplied identity headers (e.g. X-User-Id, X-Forwarded-For, X-Real-IP) are strictly defended.
  *
  * Proxy Precedence Hierarchy:
  * 1. cf-connecting-ip: Authoritative Cloudflare edge header (cannot be spoofed from Internet).
  * 2. options.trustedHeader: Explicitly configured trusted ingress header (if specified).
- * 3. x-real-ip: Verified reverse proxy header. To prevent spoofing, x-real-ip is ONLY trusted if:
- *    - Explicitly enabled via options.trustRealIp === true (e.g. trusted internal gateway), OR
- *    - In non-production testing harnesses where options.trustRealIp !== false and !options.enforceTrustedProxyOnly.
- *    If options.trustRealIp === false or options.enforceTrustedProxyOnly === true, x-real-ip is strictly rejected.
- * 4. options.trustForwardedFor === true: Only if explicitly enabled by host environment.
+ * 3. options.trustRealIp === true: ONLY if explicitly trusted by deployment configuration.
+ * 4. options.trustForwardedFor === true: ONLY if explicitly trusted by deployment configuration.
  * 5. Fallback: Group untrusted/direct requests under a shared bucket ('unverified-proxy-network')
  *    so rotating X-Forwarded-For or X-Real-IP headers cannot evade rate limiting.
  *
@@ -67,26 +64,21 @@ const EVENT_NAME_REGEX = /^[a-z][a-z0-9_]{1,63}$/i;
  * @param {string} [options.trustedHeader]
  * @param {boolean} [options.trustForwardedFor]
  * @param {boolean} [options.trustRealIp]
- * @param {boolean} [options.enforceTrustedProxyOnly]
  * @returns {Promise<string>} 64-character hex SHA-256 string
  */
 export async function deriveClientIdentifier(req, salt = 'auromind-telemetry-salt-v1', options = {}) {
   const cfIp = req.headers.get('cf-connecting-ip');
-  const realIp = req.headers.get('x-real-ip');
 
   let rawIdentifier = null;
   if (cfIp) {
     rawIdentifier = cfIp.trim();
   } else if (options.trustedHeader && req.headers.get(options.trustedHeader)) {
     rawIdentifier = req.headers.get(options.trustedHeader).trim();
-  } else if (options.trustForwardedFor === true) {
+  } else if (options.trustRealIp === true && req.headers.get('x-real-ip')) {
+    rawIdentifier = req.headers.get('x-real-ip').trim();
+  } else if (options.trustForwardedFor === true && req.headers.get('x-forwarded-for')) {
     const fwd = req.headers.get('x-forwarded-for');
     rawIdentifier = fwd ? fwd.split(',')[0].trim() : null;
-  } else if (realIp) {
-    const allowRealIp = options.trustRealIp === true || (options.trustRealIp !== false && !options.enforceTrustedProxyOnly);
-    if (allowRealIp) {
-      rawIdentifier = realIp.trim();
-    }
   }
 
   // If no trusted proxy header is present, DO NOT trust arbitrary client-supplied headers.
@@ -101,6 +93,75 @@ export async function deriveClientIdentifier(req, salt = 'auromind-telemetry-sal
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Recursively sanitizes nested payload objects and arrays.
+ * Detects forbidden keys at every depth, enforces depth and node-count limits,
+ * rejects cycles, drops unsupported types, and strips non-finite numbers.
+ *
+ * @param {unknown} data
+ * @param {number} [maxDepth=6]
+ * @param {number} [maxNodes=100]
+ * @returns {object}
+ */
+export function deepSanitizeTelemetryPayload(data, maxDepth = 6, maxNodes = 100) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return {};
+  }
+
+  let nodeCount = 0;
+  const seen = new Set();
+
+  function sanitize(val, depth) {
+    if (depth > maxDepth) return undefined;
+    if (nodeCount++ > maxNodes) return undefined;
+    if (val === null || val === undefined) return val;
+
+    const t = typeof val;
+    if (t === 'number') {
+      return Number.isFinite(val) ? val : undefined;
+    }
+    if (t === 'string') {
+      return val.length > 1024 ? val.slice(0, 1024) : val;
+    }
+    if (t === 'boolean') {
+      return val;
+    }
+    if (t !== 'object') {
+      return undefined;
+    }
+
+    if (seen.has(val)) {
+      return undefined; // Cycle detected
+    }
+    seen.add(val);
+
+    if (Array.isArray(val)) {
+      const outArr = [];
+      for (const item of val) {
+        const sItem = sanitize(item, depth + 1);
+        if (sItem !== undefined) {
+          outArr.push(sItem);
+        }
+      }
+      return outArr;
+    }
+
+    const outObj = {};
+    for (const [k, v] of Object.entries(val)) {
+      if (FORBIDDEN_KEY_PATTERN.test(k)) {
+        continue; // Purge forbidden keys at every depth
+      }
+      const sVal = sanitize(v, depth + 1);
+      if (sVal !== undefined) {
+        outObj[k] = sVal;
+      }
+    }
+    return outObj;
+  }
+
+  return sanitize(data, 0) || {};
 }
 
 /**
@@ -332,9 +393,28 @@ export async function handleTelemetryIngestRequest(req, options = {}) {
             remaining: data.remaining ?? 0,
             retryAfter: data.retry_after ?? windowSeconds
           };
+        } else if (error && options.failClosedOnRpcError) {
+          return new Response(JSON.stringify({
+            ok: false,
+            error: 'RATE_LIMIT_UNAVAILABLE',
+            message: 'Rate limiting validation service unavailable'
+          }), {
+            status: 503,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
         }
-      } catch {
-        // Fallback to store if RPC not yet deployed
+      } catch (rpcErr) {
+        if (options.failClosedOnRpcError) {
+          return new Response(JSON.stringify({
+            ok: false,
+            error: 'RATE_LIMIT_UNAVAILABLE',
+            message: 'Rate limiting validation service unavailable'
+          }), {
+            status: 503,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+        // Otherwise isolate-level fallback (test or degraded single-instance)
       }
     }
 
@@ -436,33 +516,21 @@ export async function handleTelemetryIngestRequest(req, options = {}) {
         continue;
       }
 
-      if (options.enforceAllowlist === true && !ALLOWLISTED_EVENT_NAMES.has(evt.eventName)) {
+      // 1. Enforce allowlisted event names by default
+      if (!ALLOWLISTED_EVENT_NAMES.has(evt.eventName)) {
         skipped++;
         continue;
       }
 
-      // Privacy Invariant: Purge forbidden sensitive keys completely (ADR-09)
-      const rawPayload = evt.payload && typeof evt.payload === 'object' && !Array.isArray(evt.payload)
-        ? { ...evt.payload }
-        : {};
-      for (const k of Object.keys(rawPayload)) {
-        if (FORBIDDEN_KEY_PATTERN.test(k)) {
-          delete rawPayload[k];
-          continue;
-        }
-        const val = rawPayload[k];
-        if (typeof val === 'number' && !Number.isFinite(val)) {
-          delete rawPayload[k];
-        }
-      }
+      // 2. Deep recursive payload sanitization (forbidden keys at any depth, cycles, non-finite numbers, node & depth caps)
+      const sanitizedPayload = deepSanitizeTelemetryPayload(evt.payload);
 
-      // Identity context protection (AUDIT-SEC-06): prevent unauthenticated clients from spoofing user_id
-      let safeUserId = null;
-      if (options.authenticatedUserId && typeof options.authenticatedUserId === 'string') {
-        safeUserId = options.authenticatedUserId;
-      } else if (options.allowClientUserId !== false && evt.userId && typeof evt.userId === 'string') {
-        safeUserId = evt.userId;
-      }
+      // 3. Identity context protection (AUDIT-SEC-06):
+      // Client-supplied evt.userId is strictly NEVER trusted as authenticated user_id.
+      // Identity MUST derive from verified server-side authentication context ONLY.
+      const safeUserId = (options.authenticatedUserId && typeof options.authenticatedUserId === 'string')
+        ? options.authenticatedUserId
+        : null;
 
       toInsert.push({
         event_id: evt.eventId,
@@ -473,7 +541,7 @@ export async function handleTelemetryIngestRequest(req, options = {}) {
         event_name: evt.eventName,
         category: evt.category,
         schema_version: evt.schemaVersion || 1,
-        payload: rawPayload,
+        payload: sanitizedPayload,
         app_version: evt.appVersion || null,
         occurred_at: evt.timestamp || new Date().toISOString()
       });
@@ -498,7 +566,12 @@ export async function handleTelemetryIngestRequest(req, options = {}) {
         .upsert(toInsert, { onConflict: 'event_id', ignoreDuplicates: true });
 
       if (insertError) {
-        return new Response(JSON.stringify({ ok: false, error: insertError.message }), {
+        // Redact internal database error messages and stack traces from clients
+        return new Response(JSON.stringify({
+          ok: false,
+          error: 'DATABASE_INGESTION_ERROR',
+          message: 'Unable to record telemetry batch'
+        }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
@@ -515,7 +588,12 @@ export async function handleTelemetryIngestRequest(req, options = {}) {
       }
     });
   } catch (err) {
-    return new Response(JSON.stringify({ ok: false, error: err.message || 'INTERNAL_ERROR' }), {
+    // Redact internal exception messages and stack traces from clients
+    return new Response(JSON.stringify({
+      ok: false,
+      error: 'INTERNAL_ERROR',
+      message: 'An error occurred during telemetry ingestion'
+    }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });

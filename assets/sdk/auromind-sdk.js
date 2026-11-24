@@ -1146,6 +1146,8 @@ export function createAuroMindSDK(options = {}) {
   let currentAccount = null;
   let authEpoch = 0;
   let authInFlight = false;
+  let queuedProviderAccount = undefined;
+  let hasQueuedProviderEvent = false;
   let pendingAuthFlow = null;
   const consumedAuthCallbacks = new Set();
   const memoryProfiles = new Map();
@@ -2729,6 +2731,16 @@ export function createAuroMindSDK(options = {}) {
       return await opFn(opEpoch);
     } finally {
       authInFlight = false;
+      if (hasQueuedProviderEvent) {
+        const queued = queuedProviderAccount;
+        queuedProviderAccount = undefined;
+        hasQueuedProviderEvent = false;
+        const queuedUserId = queued ? (queued.id || queued.userId || null) : null;
+        const currentUserId = currentAccount ? (currentAccount.id || currentAccount.userId || null) : null;
+        if (queuedUserId !== currentUserId) {
+          applyAccountTransition(queued, { broadcast: true, reason: 'provider_event' });
+        }
+      }
     }
   }
 
@@ -5737,6 +5749,8 @@ export function createAuroMindSDK(options = {}) {
             if (authUnsubscribe) authUnsubscribe();
             authUnsubscribe = providers.auth.onAuthStateChange((account) => {
               if (authInFlight) {
+                queuedProviderAccount = account || null;
+                hasQueuedProviderEvent = true;
                 return;
               }
               applyAccountTransition(account || null, { broadcast: true, reason: 'provider_event' });
@@ -5864,6 +5878,8 @@ export function createAuroMindSDK(options = {}) {
     cachedPlayerProfile = null;
     pendingAuthFlow = null;
     authInFlight = false;
+    queuedProviderAccount = undefined;
+    hasQueuedProviderEvent = false;
     consumedAuthCallbacks.clear();
     memoryProfiles.clear();
     syncMetadata = {};
