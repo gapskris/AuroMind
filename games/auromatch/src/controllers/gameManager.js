@@ -290,6 +290,87 @@ export class GameManager {
     this.notifyState();
   }
 
+  _computeChecksum(p) {
+    const raw = `${p.name || ''}_lvl${p.currentLevel || 1}_sc${p.score || 0}_sp${p.sparks || 100}_iq${p.focusIQ || 80}_auromatch_2026`;
+    let hash = 0;
+    for (let i = 0; i < raw.length; i++) {
+      hash = ((hash << 5) - hash) + raw.charCodeAt(i);
+      hash |= 0;
+    }
+    return Math.abs(hash).toString(36);
+  }
+
+  saveActiveBoardSession() {
+    if (typeof localStorage === 'undefined' || !this.tiles || this.tiles.length === 0 || this.isStageCompleted) return;
+    try {
+      const activeTileIds = this.tiles.filter(t => !t.isMatched).map(t => t.id);
+      const trayTileIds = (this.tray || []).map(t => t.id);
+      if (activeTileIds.length === this.tiles.length && trayTileIds.length === 0) return;
+
+      const payload = {
+        level: this.player.currentLevel,
+        gameplayMode: this.gameplayMode,
+        activeTileIds,
+        trayTileIds,
+        elapsedSec: this.getStageElapsedSec(),
+        hintsUsed: this.hintsUsedInStage || 0,
+        shufflesUsed: this.shufflesUsedInStage || 0,
+        timestamp: Date.now()
+      };
+      localStorage.setItem('auromatch_active_session', JSON.stringify(payload));
+    } catch(e) {}
+  }
+
+  clearActiveBoardSession() {
+    if (typeof localStorage !== 'undefined') {
+      try { localStorage.removeItem('auromatch_active_session'); } catch(e) {}
+    }
+  }
+
+  tryRestoreActiveBoardSession() {
+    if (typeof localStorage === 'undefined') return false;
+    try {
+      const raw = localStorage.getItem('auromatch_active_session');
+      if (!raw) return false;
+      const session = JSON.parse(raw);
+      if (!session || session.level !== this.player.currentLevel || session.gameplayMode !== this.gameplayMode) return false;
+
+      // Ensure session is fresh (< 24 hours old)
+      if (Date.now() - session.timestamp > 86400000) {
+        this.clearActiveBoardSession();
+        return false;
+      }
+
+      const activeSet = new Set(session.activeTileIds || []);
+      const traySet = new Set(session.trayTileIds || []);
+
+      this.tiles.forEach(t => {
+        if (!activeSet.has(t.id) && !traySet.has(t.id)) {
+          t.isMatched = true;
+          t.isSelected = false;
+        } else {
+          t.isMatched = traySet.has(t.id);
+          t.isSelected = false;
+        }
+      });
+
+      if (Array.isArray(session.trayTileIds) && session.trayTileIds.length > 0) {
+        const tileMap = new Map(this.tiles.map(t => [t.id, t]));
+        this.tray = session.trayTileIds.map(id => tileMap.get(id)).filter(Boolean);
+      } else {
+        this.tray = [];
+      }
+
+      this.stageElapsedBeforePause = (session.elapsedSec || 0) * 1000;
+      this.hintsUsedInStage = session.hintsUsed || 0;
+      this.shufflesUsedInStage = session.shufflesUsed || 0;
+      return true;
+    } catch(e) {
+      console.warn('Failed to restore active board session:', e);
+      return false;
+    }
+  }
+
   loadPlayerState() {
     try {
       if (typeof localStorage !== 'undefined') {
@@ -311,13 +392,26 @@ export class GameManager {
           }
           modeLevels[this.gameplayMode] = Math.max(modeLevels[this.gameplayMode] || 1, rawLevel);
 
+          let sparks = typeof parsed.sparks === 'number' ? parsed.sparks : 100;
+          let score = typeof parsed.score === 'number' ? parsed.score : 0;
+          let focusIQ = typeof parsed.focusIQ === 'number' ? parsed.focusIQ : (80 + Math.min(120, (rawLevel - 1) * 2));
+
+          // DEF-12: Integrity validation against arbitrary console tampering
+          if (parsed.chk && parsed.chk !== this._computeChecksum(parsed)) {
+            console.warn('[Security] Checksum mismatch in saved player state. Clamping to verified gameplay bounds.');
+            const maxRealisticScore = rawLevel * 10000;
+            const maxRealisticSparks = 100 + rawLevel * 200;
+            score = Math.min(score, maxRealisticScore);
+            sparks = Math.min(sparks, maxRealisticSparks);
+          }
+
           const state = {
             name: typeof parsed.name === 'string' ? parsed.name.trim() : '',
             currentLevel: Math.max(1, Math.min(TOTAL_LEVELS, modeLevels[this.gameplayMode] || rawLevel)),
             modeLevels,
-            sparks: typeof parsed.sparks === 'number' ? parsed.sparks : 100,
-            score: typeof parsed.score === 'number' ? parsed.score : 0,
-            focusIQ: typeof parsed.focusIQ === 'number' ? parsed.focusIQ : (80 + Math.min(120, (rawLevel - 1) * 2)),
+            sparks,
+            score,
+            focusIQ,
             records: (parsed.records && typeof parsed.records === 'object') ? parsed.records : {},
             goldenAuraLevelsRemaining: typeof parsed.goldenAuraLevelsRemaining === 'number' ? parsed.goldenAuraLevelsRemaining : 0,
             isNewUser: rawLevel === 1 && !parsed.hasProgress
@@ -402,6 +496,7 @@ export class GameManager {
           epiphaniesUnlocked: this.epiphaniesUnlocked || [],
           hasProgress: this.player.currentLevel > 1 || this.player.sparks !== 100 || (this.player.score || 0) > 0
         };
+        payload.chk = this._computeChecksum(payload);
 
         localStorage.setItem('auromatch_player_state', JSON.stringify(payload));
         localStorage.setItem('auromatch_level_index', String(this.player.currentLevel || 1));
@@ -750,6 +845,21 @@ export class GameManager {
       }
     }
 
+    // Reset stage transient stats
+    this.hintsUsedInStage = 0;
+    this.shufflesUsedInStage = 0;
+
+    // DEF-06: Attempt to restore in-progress mid-game session if player refreshed or reopened browser
+    if (!forceLevel) {
+      const restored = this.tryRestoreActiveBoardSession();
+      if (restored && this.boardRenderer) {
+        this.boardRenderer.setTiles(this.tiles);
+        this.boardRenderer.render();
+      }
+    } else {
+      this.clearActiveBoardSession();
+    }
+
     this.startStageTimer();
     this.notifyState();
   }
@@ -975,6 +1085,8 @@ export class GameManager {
     });
 
     this.selectedTile = null;
+    this.shufflesUsedInStage = (this.shufflesUsedInStage || 0) + 1;
+    this.saveActiveBoardSession();
     playTileSmashWhoosh();
     if (this.boardRenderer) this.boardRenderer.render();
     this.notifyState();
@@ -1136,6 +1248,9 @@ export class GameManager {
 
       if (this.boardRenderer) this.boardRenderer.render();
       this.checkStageCompletion();
+      if (!this.isStageCompleted) {
+        this.saveActiveBoardSession();
+      }
       this.notifyState();
     } else {
       // Mismatch: switch selection to second tile
@@ -1269,6 +1384,9 @@ export class GameManager {
       this.decaySerenity(2); // Danger zone penalty
     }
 
+    if (!this.isStageCompleted) {
+      this.saveActiveBoardSession();
+    }
     this.notifyState();
   }
 
@@ -1324,6 +1442,7 @@ export class GameManager {
     if (this.boardRenderer) {
       if (this.boardRenderer) this.boardRenderer.render();
     }
+    this.saveActiveBoardSession();
     this.notifyState();
   }
 
@@ -1340,6 +1459,7 @@ export class GameManager {
 
     if (this.boardRenderer) this.boardRenderer.render();
     this.savePlayerState();
+    this.saveActiveBoardSession();
     this.notifyState();
   }
 
@@ -1428,12 +1548,14 @@ export class GameManager {
     this.moveHistory = [];
     this.isStageCompleted = false;
 
-    // Reset stage timer & performance metrics (Fix for DEF-03)
+    // Reset stage timer & performance metrics (Fix for DEF-03, DEF-06, DEF-11)
     this.stopStageTimer();
     this.stageStartTime = null;
     this.stageElapsedBeforePause = 0;
     this.hintsUsedInStage = 0;
+    this.shufflesUsedInStage = 0;
     this.comboCount = 1;
+    this.clearActiveBoardSession();
     this.startStageTimer();
 
     if (this.boardRenderer) {
@@ -1526,6 +1648,7 @@ export class GameManager {
     const remaining = this.tiles.filter(t => !t.isMatched);
     if (remaining.length === 0 && this.tray.length === 0) {
       this.isStageCompleted = true;
+      this.clearActiveBoardSession();
       this.stopStageTimer();
       const elapsedSec = this.getStageElapsedSec();
       const elapsedFormatted = formatTimeMMSS(elapsedSec);
@@ -1561,8 +1684,8 @@ export class GameManager {
       // Sparks economy
       let earnedSparks = 10;
       let cleanSolve = false;
-      if (this.hintsUsedInStage === 0) {
-        earnedSparks += 5; // Clean solve bonus
+      if (this.hintsUsedInStage === 0 && (this.shufflesUsedInStage || 0) === 0) {
+        earnedSparks += 5; // Clean solve bonus (0 hints and 0 shuffles - DEF-11)
         cleanSolve = true;
       }
 
@@ -1590,8 +1713,9 @@ export class GameManager {
 
       const oldRank = this.getRank();
 
-      // Advance level up to the mode's campaign ceiling (400 for Pairs)
+      // Advance level up to the mode's campaign ceiling (400 for Pairs, 1000 for Realms)
       const maxLevels = this.getTotalLevels();
+      const isCampaignComplete = (completedLevel >= maxLevels);
       this.player.currentLevel = Math.min(maxLevels, this.player.currentLevel + 1);
       if (!this.player.modeLevels) {
         this.player.modeLevels = { vita: 1, tile_club: 1, botanical: 1, realms: 1 };
@@ -1644,6 +1768,7 @@ export class GameManager {
           completedLevel,
           nextLevel: this.player.currentLevel,
           totalLevels: maxLevels,
+          isCampaignComplete,
           earnedSparks,
           cleanSolve,
           isMilestone,
@@ -1691,6 +1816,7 @@ export class GameManager {
         rank: this.getRank(),
         isNewUser: !!this.player.isNewUser,
         hintsUsedInStage: this.hintsUsedInStage,
+        shufflesUsedInStage: this.shufflesUsedInStage || 0,
         standardTheme: this.standardTheme,
         isEpiphanyActive: !!this.isEpiphanyActive,
         isEpiphanyLevelActive: !!this.isEpiphanyLevelActive,
