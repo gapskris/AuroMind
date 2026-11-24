@@ -142,7 +142,7 @@ export class BoardRenderer {
 
 
 
-  computeStageMetrics(containerW, containerH) {
+  computeStageMetrics(containerW, containerH, sizingH = null) {
 
     const isRealmsMode = (this.options.gameplayMode === 'realms');
     const isArtThemeMode = (this.options.gameplayMode === 'realms' || this.options.gameplayMode === 'botanical');
@@ -195,84 +195,83 @@ export class BoardRenderer {
 
     const aspect = 1.125; // 320x360 8:9 ratio unified across all themes
 
-    const spacingFactor = isArtThemeMode ? 0.86 : 0.85;
+    const spacingFactor = 0.85; // Unified across all themes and modes
 
 
 
     // Available board area inside container (leaving slight margin for aesthetic floating)
-
     const availW = Math.max(260, containerW - 16);
 
-    // Sizing Parity: AvailH is unified across all gameplay modes (Pairs, Triads, Classic, Realms)
-    // so that switching between categories never causes the tile formation to jump or shrink.
+    // Sizing Parity: Use unified stage height budget across all gameplay modes (Pairs, Triads, Botanical, Realms)
+    // while strictly guaranteeing that effective height NEVER exceeds physical containerH to prevent tray collisions.
     const promptDeduction = isMobile ? 24 : (isTablet ? 28 : 24);
-
-    const availH = Math.max(160, containerH - promptDeduction - (isMobile ? 0 : 8));
-
-
+    const baseSizingH = (typeof sizingH === 'number' && sizingH > 160) ? sizingH : containerH;
+    const effectiveSizingH = Math.min(containerH, baseSizingH);
+    const availH = Math.max(120, effectiveSizingH - promptDeduction - (isMobile ? 12 : 20));
 
     const colDenominator = 1 + (colSpan - 1) * spacingFactor;
-
     const rowDenominator = 1 + (rowSpan - 1) * spacingFactor;
 
-
+    const CANONICAL_COLS = 12;
+    const CANONICAL_ROWS = 8;
+    const canonicalColDenom = 1 + (CANONICAL_COLS - 1) * spacingFactor;
+    const canonicalRowDenom = 1 + (CANONICAL_ROWS - 1) * spacingFactor;
 
     // Target coverage: 96% of width on mobile, 94% on tablet/desktop
-
     const widthCoverage = isMobile ? 0.96 : 0.94;
-
     const heightCoverage = isMobile ? 0.92 : 0.91;
 
-
-
     const maxWFromWidth = (availW * widthCoverage) / colDenominator;
-
     const maxHFromHeight = (availH * heightCoverage) / rowDenominator;
-
     const maxWFromHeight = maxHFromHeight / aspect;
 
+    const canonicalWFromWidth = (availW * widthCoverage) / canonicalColDenom;
+    const canonicalWFromHeight = ((availH * heightCoverage) / canonicalRowDenom) / aspect;
+    const canonicalFitW = Math.floor(Math.min(canonicalWFromWidth, canonicalWFromHeight));
 
+    let rawFitW = Math.floor(Math.min(canonicalFitW, maxWFromWidth, maxWFromHeight));
 
-    // Raw geometric fit to fill container space
-
-    let rawFitW = Math.floor(Math.min(maxWFromWidth, maxWFromHeight));
-
-
-
-    // Dynamic width bounds across viewports (Unified parity across Pairs, Triads, Classic, Realms)
+    // Dynamic width bounds across viewports (Unified parity across Pairs, Triads, Botanical, Realms)
     let minAllowed, maxAllowed;
     if (isMobile) {
-      // Mobile Viewport (< 480px): Unified 72px ceiling ensures identical tile scale between Pairs & Triads
-      minAllowed = isSenior ? 48 : 42;
-      maxAllowed = isSenior ? 84 : (isRealmsMode || this.options.gameplayMode === 'botanical' ? 82 : 72);
+      minAllowed = isSenior ? 48 : 32;
+      maxAllowed = isSenior ? 84 : 72;
     } else if (isTablet) {
-      // Tablet Viewport (480px - 1023px): Unified across all modes (~86px-116px)
-      minAllowed = isSenior ? 66 : 58;
+      minAllowed = isSenior ? 66 : 48;
       maxAllowed = isSenior ? 130 : 116;
     } else {
-      // Desktop Viewport (>= 1024px): Prominent, grand mahjong solitaire tile scale filling the stage
-      minAllowed = isSenior ? 70 : 60;
+      minAllowed = isSenior ? 70 : 52;
       maxAllowed = isSenior ? 144 : 126;
     }
 
-    const targetW = Math.max(minAllowed, Math.min(maxAllowed, rawFitW));
-    const width = targetW;
-    const height = Math.round(width * aspect);
+    let targetW = Math.max(minAllowed, Math.min(maxAllowed, rawFitW));
+    let width = targetW;
+    let height = Math.round(width * aspect);
+    let colSpacing = Math.round(width * spacingFactor);
+    let rowSpacing = Math.round(height * spacingFactor);
+
+    const isoScaleX = 5.0;
+    const isoScaleY = 8.0;
+
+    // Strict boundary & overflow guard: verify vertical footprint against physical container
+    const maxSafeBoardH = Math.max(100, containerH - (isMobile ? 24 : 32));
+    let estBoardH = (maxY - minY) * rowSpacing + height + Math.ceil(maxZ * isoScaleY);
+    if (estBoardH > maxSafeBoardH && estBoardH > 0) {
+      const scaleDown = maxSafeBoardH / estBoardH;
+      targetW = Math.max(isMobile ? 22 : 30, Math.floor(targetW * scaleDown));
+      width = targetW;
+      height = Math.round(width * aspect);
+      colSpacing = Math.round(width * spacingFactor);
+      rowSpacing = Math.round(height * spacingFactor);
+    }
 
     // Hero Game Icons and Typography: Scale proportionally with tile width
     const iconRatio = isSenior ? 0.58 : 0.56;
     const fontRatio = isSenior ? 0.17 : 0.155;
-    const iconSize = Math.max(24, Math.round(width * iconRatio));
-    const fontSize = Math.max(9, Math.round(width * fontRatio));
-    const colSpacing = Math.round(width * spacingFactor);
-    const rowSpacing = Math.round(height * spacingFactor);
+    const iconSize = Math.max(18, Math.round(width * iconRatio));
+    const fontSize = Math.max(8, Math.round(width * fontRatio));
     const boardTotalW = (maxX - minX) * colSpacing + width;
     const boardTotalH = (maxY - minY) * rowSpacing + height;
-
-    // Authentic 2.5D Isometric depth compensation & exact bounding box centering:
-    // Stepped layers have prominent visual elevation: isoDx = -(tile.z * 5.0) and isoDy = -(tile.z * 8.0).
-    const isoScaleX = 5.0;
-    const isoScaleY = 8.0;
 
     let minRelX = 0, maxRelX = (maxX - minX) * colSpacing + width;
     let minRelY = 0, maxRelY = (maxY - minY) * rowSpacing + height;
@@ -294,7 +293,7 @@ export class BoardRenderer {
     const actualBoardH = maxRelY - minRelY;
 
     const minSafeOffsetX = Math.ceil(maxZ * isoScaleX) + (isMobile ? 8 : 16);
-    const minSafeOffsetY = Math.ceil(maxZ * isoScaleY) + (isMobile ? 16 : 24);
+    const minSafeOffsetY = Math.ceil(maxZ * isoScaleY) + (isMobile ? 8 : 14);
 
     let offsetX = minSafeOffsetX;
     if (containerW && containerW > actualBoardW) {
@@ -304,6 +303,13 @@ export class BoardRenderer {
     let offsetY = minSafeOffsetY;
     if (containerH && containerH > actualBoardH) {
       offsetY = Math.max(minSafeOffsetY, Math.floor((containerH - actualBoardH) / 2) - minRelY);
+    }
+
+    // Strict boundary enforcement: Ensure bottom-most tile never exceeds containerH - safeBottomMargin
+    const safeBottomMargin = isMobile ? 8 : 16;
+    const bottomEdge = maxRelY + offsetY;
+    if (containerH && bottomEdge > containerH - safeBottomMargin) {
+      offsetY = Math.max(minSafeOffsetY, offsetY - (bottomEdge - (containerH - safeBottomMargin)));
     }
 
     return {
@@ -321,6 +327,7 @@ export class BoardRenderer {
       offsetX, offsetY,
 
       boardTotalW, boardTotalH,
+      actualBoardW, actualBoardH,
 
       containerW, containerH,
 
@@ -373,17 +380,20 @@ export class BoardRenderer {
         ? _boardParent.clientHeight
         : 0);
 
+    const _stageCol = (typeof document !== 'undefined') ? document.getElementById('center-stage-col') : null;
+    const _stageH = (_stageCol && _stageCol.clientHeight > 200) ? _stageCol.clientHeight : 0;
+    const trayReserve = isTileClub ? (isMobile ? 85 : 110) : 0;
+    const unifiedUiReserve = (isMobile ? 142 : 144) + trayReserve;
+    const unifiedSizingH = (_stageH > 200) ? Math.max(160, _stageH - unifiedUiReserve) : null;
+
     let containerH;
     if (_rawH > _minHThresh) {
       containerH = _rawH;
     } else {
-      const _stageCol = (typeof document !== 'undefined') ? document.getElementById('center-stage-col') : null;
-      const _stageH = (_stageCol && _stageCol.clientHeight > 200) ? _stageCol.clientHeight : 0;
       if (_stageH > 200) {
-        const uiReserve = isMobile ? (isTileClub ? 142 : 78) : (isTileClub ? 144 : 72);
-        containerH = Math.max(180, _stageH - uiReserve);
+        containerH = unifiedSizingH;
       } else {
-        containerH = typeof window !== 'undefined' ? Math.floor(window.innerHeight * (isMobile ? 0.58 : 0.70)) : 600;
+        containerH = typeof window !== 'undefined' ? Math.floor(window.innerHeight * (isMobile ? 0.52 : (isTileClub ? 0.58 : 0.70))) : 600;
       }
     }
 
@@ -401,7 +411,7 @@ export class BoardRenderer {
 
           this.stageLayoutMetrics.gameplayMode !== this.options.gameplayMode) {
 
-        this.stageLayoutMetrics = this.computeStageMetrics(containerW, containerH);
+        this.stageLayoutMetrics = this.computeStageMetrics(containerW, containerH, unifiedSizingH || containerH);
 
       }
 
@@ -441,12 +451,13 @@ export class BoardRenderer {
 
     const activeTiles = this.tiles.filter(t => !t.isMatched);
 
-    // Precise DOM layer & hit-test sorting: Render lower layers first, and within same layer render blocked before free
+    // Prioritize higher z-layer and free playable tiles first in DOM so visible top-layer <img> tags download first,
+    // while explicit CSS z-index preserves exact 2.5D painter's stacking order.
     const sortedActiveTiles = [...activeTiles].sort((a, b) => {
-      if (a.z !== b.z) return a.z - b.z;
+      if (a.z !== b.z) return b.z - a.z;
       const aFree = VitaBoardGenerator.isTileFree(a, activeTiles);
       const bFree = VitaBoardGenerator.isTileFree(b, activeTiles);
-      if (aFree !== bFree) return aFree ? 1 : -1;
+      if (aFree !== bFree) return aFree ? -1 : 1;
       return 0;
     });
 
@@ -507,8 +518,8 @@ export class BoardRenderer {
       el.style.left = `${posX}px`;
       el.style.top = `${posY}px`;
 
-      const baseZ = tile.z * 40 + 10;
-      el.style.zIndex = `${baseZ + (isSelected ? 10 : (isFree ? 4 : 0))}`;
+      const baseZ = Math.round(tile.z * 200 + (tile.y - minY) * 10 + (tile.x - minX) + 10);
+      el.style.zIndex = `${baseZ + (isSelected ? 80 : (isFree ? 20 : 0))}`;
 
 
 
@@ -573,11 +584,15 @@ export class BoardRenderer {
 
         const tileSym = tile.thematicSymbol || (flora && flora.customSymbol) || (flora && flora.symbol) || '✨';
 
+        const isInsetPlaque = /\/(biblios_wisdom|blooming_mandala|celestial_starlight|floral_harmony|golden_harvest|golden_nebula|granite_monolith|lotus_pond|master_sanctuary|obsidian_vault|ocean_horizon|sacred_sanctuary|sacred_spiral|sandalwood_amber|spirit_altar|temple_of_lines|terracotta_earth|whispering_pines)\//.test(customImg);
+        const isCloisonne = /\/(standard_lapis|standard_gold|botanical_art)\//.test(customImg);
+        const imgScale = isInsetPlaque ? 1.52 : (isCloisonne ? 1.24 : 1.14);
+
         el.innerHTML = `
 
           <div class="tile-face tile-art-face">
 
-            <img class="tile-art-img" src="${customImg}" alt="${tileName}" draggable="false" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
+            <img class="tile-art-img" src="${customImg}" alt="${tileName}" fetchpriority="${tile.z >= 2 ? 'high' : 'auto'}" style="--tile-img-scale: ${imgScale};" draggable="false" onload="if(this.naturalWidth<=1&&this.naturalHeight<=1){this.classList.add('tile-img-hidden');this.style.setProperty('display','none','important');if(this.nextElementSibling)this.nextElementSibling.style.display='flex';}" onerror="this.classList.add('tile-img-hidden');this.style.setProperty('display','none','important'); if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
 
             <div class="tile-art-fallback" style="display: none; width: 100%; height: 100%; flex-direction: column; align-items: center; justify-content: center; background: #1e293b; border: 2px solid #fbbf24; border-radius: 12px; color: #fff; text-align: center; padding: 4px;">
 

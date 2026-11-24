@@ -3228,11 +3228,18 @@ body {
 }
 
 .tile-element.tile-authentic-art .tile-art-img {
-    width: calc(100% - 4px) !important;
-    height: calc(100% - 4px) !important;
-    object-fit: contain !important;
-    border-radius: 7px !important;
-    display: block !important;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    border-radius: 8px !important;
+    display: block;
+    transform: scale(var(--tile-img-scale, 1.24));
+    transform-origin: center center;
+}
+
+.tile-element.tile-authentic-art .tile-art-img.tile-img-hidden,
+.tile-element.tile-authentic-art .tile-art-img[style*="display: none"] {
+    display: none !important;
 }
 
 
@@ -3263,7 +3270,7 @@ body {
 
     height: 100%;
 
-    object-fit: fill;
+    object-fit: cover;
 
     display: block;
 
@@ -3293,7 +3300,7 @@ body {
 
     filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.55)) brightness(1.10);
 
-    transform: translateY(-2px);
+    transform: translateY(-2px) scale(calc(var(--tile-img-scale, 1.24) * 1.03));
 
 }
 
@@ -3303,7 +3310,7 @@ body {
 
     filter: drop-shadow(0 0 16px rgba(251, 191, 36, 0.95)) brightness(1.25);
 
-    transform: translateY(-6px) scale(1.06);
+    transform: translateY(-4px) scale(calc(var(--tile-img-scale, 1.24) * 1.05));
 
 }
 
@@ -5915,7 +5922,7 @@ body {
 }
 
 #center-stage-col.theme-botanical-stage {
-    background: url('../Assets/themes/botanical_art/background.png') center/cover no-repeat !important;
+    background: url('./Assets/themes/botanical_art/background.png') center/cover no-repeat !important;
     box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.7);
 }
 
@@ -5941,7 +5948,7 @@ body {
 }
 
 [data-theme="imperial_gold"] #center-stage-col.theme-standard-stage {
-    background: url('../Assets/themes/standard_gold/background.png') center/cover no-repeat !important;
+    background: url('./Assets/themes/standard_gold/background.png') center/cover no-repeat !important;
     box-shadow: inset 0 0 90px rgba(0, 0, 0, 0.75);
 }
 
@@ -5978,7 +5985,7 @@ body {
 }
 
 [data-theme="royal_lapis"] #center-stage-col.theme-standard-stage {
-    background: url('../Assets/themes/standard_lapis/background.png') center/cover no-repeat !important;
+    background: url('./Assets/themes/standard_lapis/background.png') center/cover no-repeat !important;
     box-shadow: inset 0 0 90px rgba(0, 0, 0, 0.75);
 }
 
@@ -6092,6 +6099,10 @@ body[data-theme="botanical"] .app-container {
     --text-current: #fdf2f8 !important;
     --accent-current: #f472b6 !important;
     --overlay-current: rgba(4, 9, 16, 0.90) !important;
+    --tile-base-dark: #07101f !important;
+    --tile-base-rim: #be185d !important;
+    --tile-surface-bg: linear-gradient(145deg, #132442 0%, #0a1426 100%) !important;
+    --tile-border: 1.5px solid rgba(244, 114, 182, 0.65) !important;
 }
 
 /* 2. Outer Viewport Surrounding Canvas */
@@ -6462,6 +6473,7 @@ body[data-theme="royal_lapis"] .settings-modal {
     border: 1.5px solid rgba(251, 191, 36, 0.65) !important;
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5), 0 0 10px rgba(251, 191, 36, 0.25) !important;
     padding: 0 !important;
+    overflow: hidden !important;
 }
 
 [data-theme="royal_lapis"] .tray-tile-art {
@@ -6476,6 +6488,35 @@ body[data-theme="royal_lapis"] .settings-modal {
     display: block;
     border-radius: 6px;
     pointer-events: none;
+    transform: scale(var(--tile-img-scale, 1.24));
+    transform-origin: center center;
+}
+
+.golden-match-ring {
+    position: absolute;
+    pointer-events: none;
+    z-index: 2500;
+    border-radius: 50%;
+    border: 3px solid #fde047;
+    background: radial-gradient(circle, rgba(253, 224, 71, 0.55) 0%, rgba(245, 158, 11, 0.22) 50%, transparent 75%);
+    box-shadow: 0 0 22px #ffd700, 0 0 44px #f59e0b, inset 0 0 18px #fef08a;
+    transform: translate(-50%, -50%) scale(0.2);
+    animation: goldenMatchRingExpand 0.68s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes goldenMatchRingExpand {
+    0% {
+        transform: translate(-50%, -50%) scale(0.25);
+        opacity: 1;
+    }
+    55% {
+        transform: translate(-50%, -50%) scale(1.45);
+        opacity: 0.92;
+    }
+    100% {
+        transform: translate(-50%, -50%) scale(2.15);
+        opacity: 0;
+    }
 }
 
 .tray-tile-fallback {
@@ -8805,28 +8846,7 @@ body:has(.stage-clear-overlay.active) .toast-banner,
                         </div>
                     </div>
 
-                    <!-- Card 3: Botanical Art Campaign -->
-                    <div class="realm-hub-card" id="hub-card-botanical" onclick="window.selectHubMode('botanical')">
-                        <div class="rh-card-icon-wrap" style="background: linear-gradient(135deg, #dcfce7, #bbf7d0); border-color: #10b981;">
-                            <span class="rh-card-icon">🌸</span>
-                        </div>
-                        <div class="rh-card-body">
-                            <div class="rh-card-header">
-                                <h3 class="rh-card-title">BOTANICAL ART</h3>
-                                <span class="rh-card-badge" id="hub-badge-botanical">1 / 200 Levels</span>
-                            </div>
-                            <p class="rh-card-desc">200 Progressive Levels across 4 Sacred Chapters with 24 Master 3D Flora Artworks</p>
-                            <div class="rh-card-footer">
-                                <div class="rh-progress-wrap">
-                                    <div class="rh-progress-bar"><div class="rh-progress-fill" id="hub-prog-botanical" style="width: 1%; background: linear-gradient(90deg, #10b981, #059669);"></div></div>
-                                    <span class="rh-progress-label" id="hub-prog-label-botanical">Chapter 1</span>
-                                </div>
-                                <button class="rh-card-enter-btn" style="background: linear-gradient(135deg, #10b981, #047857);">ENTER REALM ➔</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Card 4: 20 Sacred Realms -->
+                    <!-- Card 3: 20 Sacred Realms -->
                     <div class="realm-hub-card" id="hub-card-realms" onclick="window.selectHubMode('realms')">
                         <div class="rh-card-icon-wrap" style="background: linear-gradient(135deg, #e0f2fe, #bae6fd); border-color: #0284c7;">
                             <span class="rh-card-icon">🗺️</span>
@@ -8836,7 +8856,7 @@ body:has(.stage-clear-overlay.active) .toast-banner,
                                 <h3 class="rh-card-title">20 SACRED REALMS</h3>
                                 <span class="rh-card-badge">1,000 Levels · 20 Themes</span>
                             </div>
-                            <p class="rh-card-desc">Grand Odyssey through 20 Thematic Environments with 320 Dedicated 3D Motifs</p>
+                            <p class="rh-card-desc">Grand Odyssey through 20 Thematic Environments with 1,440 Dedicated 3D Motifs</p>
                             <div class="rh-card-footer">
                                 <div class="rh-progress-wrap">
                                     <div class="rh-progress-bar"><div class="rh-progress-fill" id="hub-prog-realms" style="width: 5%; background: linear-gradient(90deg, #0284c7, #0369a1);"></div></div>
@@ -9080,7 +9100,6 @@ body:has(.stage-clear-overlay.active) .toast-banner,
             <div class="mode-toggle-bar">
                 <button class="mode-btn active" id="btn-mode-vita" onclick="window.switchGameplayMode('vita')" title="Pairs Campaign (400 Levels)">🪷 Pairs</button>
                 <button class="mode-btn" id="btn-mode-tileclub" onclick="window.switchGameplayMode('tile_club')" title="Triad Match-3 Flow (7-Slot Tray)">📥 Triads</button>
-                <button class="mode-btn mode-btn-botanical" id="btn-mode-botanical" onclick="window.switchGameplayMode('botanical')" title="🌸 Botanical Art Campaign (200 Levels)">🌸 Botanical<span class="mode-word-art"> Art</span></button>
                 <button class="mode-btn mode-btn-realms" id="btn-mode-realms" onclick="window.switchGameplayMode('realms')" title="20 Thematic Realms (1,000 Levels)">🗺️ Realms</button>
                 <button class="senior-toggle-btn" id="btn-toggle-senior" onclick="window.toggleSeniorViewMode()" title="Toggle Senior View (aA)" aria-label="Toggle Senior View aA">aA</button>
             </div>
@@ -9693,13 +9712,19 @@ body:has(.stage-clear-overlay.active) .toast-banner,
     <!-- Offline-First PWA Service Worker (AuroProject Policy AP-PWA-014) -->
     <script>
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', function() {
-          navigator.serviceWorker.register('./sw.js').then(function(reg) {
-            console.log('[PWA] AuroMatch ServiceWorker registered with scope:', reg.scope);
-          }).catch(function(err) {
-            console.warn('[PWA] ServiceWorker registration failed:', err);
+        if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+          navigator.serviceWorker.getRegistrations().then(function(regs) {
+            regs.forEach(function(r) { r.unregister(); });
+          }).catch(function() {});
+        } else {
+          window.addEventListener('load', function() {
+            navigator.serviceWorker.register('./sw.js').then(function(reg) {
+              console.log('[PWA] AuroMatch ServiceWorker registered with scope:', reg.scope);
+            }).catch(function(err) {
+              console.warn('[PWA] ServiceWorker registration failed:', err);
+            });
           });
-        });
+        }
       }
     </script>
     <!-- Commercial Entitlement Engine (ENT-001) -->
@@ -57801,11 +57826,21 @@ class VitaBoardGenerator {
         if (c >= minC - 1 && c <= maxC) coords.push({ x: c * 1.0, y: r * 1.0, z: 0 });
       }
     }
-    for (let c = 0; c < W; c++) {
-      coords.push({ x: c * 1.0, y: 0, z: 1 });
-      coords.push({ x: c * 1.0, y: H - 1, z: 1 });
+    // Stepped upper and lower rims
+    for (let c = 1; c <= 4; c++) {
+      coords.push({ x: c * 1.0, y: 0.0, z: 1 });
+      coords.push({ x: c * 1.0, y: (H - 1) * 1.0, z: 1 });
     }
-    coords.push({ x: 2.5, y: 3.0, z: 1 });
+    // Stepped inner funnels & central waist
+    for (let c = 1; c <= 4; c++) {
+      coords.push({ x: c * 1.0, y: 1.0, z: 1 });
+      coords.push({ x: c * 1.0, y: 5.0, z: 1 });
+    }
+    coords.push({ x: 2.0, y: 2.0, z: 1 }, { x: 3.0, y: 2.0, z: 1 });
+    coords.push({ x: 2.0, y: 3.0, z: 1 }, { x: 3.0, y: 3.0, z: 1 });
+    coords.push({ x: 2.0, y: 4.0, z: 1 }, { x: 3.0, y: 4.0, z: 1 });
+
+    // Waist jewel
     coords.push({ x: 2.5, y: 3.0, z: 2 });
     return VitaBoardGenerator._padToTarget(coords, targetCount);
   }
@@ -58003,8 +58038,8 @@ class VitaBoardGenerator {
     const coords = [];
     // Rim
     for (let c = 2; c <= 4; c++) coords.push({ x: c * 1.0, y: 0.0, z: 0 });
-    // Neck
-    coords.push({ x: 3.0, y: 1.0, z: 0 });
+    // Neck (solid 3-wide foundation for stepped tiers)
+    for (let c = 2; c <= 4; c++) coords.push({ x: c * 1.0, y: 1.0, z: 0 });
     // Belly (wide)
     for (let r = 2; r <= 4; r++) {
       for (let c = 1; c <= 5; c++) coords.push({ x: c * 1.0, y: r * 1.0, z: 0 });
@@ -58016,11 +58051,30 @@ class VitaBoardGenerator {
     coords.push({ x: 6.0, y: 3.0, z: 0 });
     // Base
     for (let c = 2; c <= 4; c++) coords.push({ x: c * 1.0, y: 5.0, z: 0 });
-    // Raised belly tiers
+
+    // Layer 1: Expanded One Layer Top (Rim & Neck)
+    coords.push({ x: 2.5, y: 0.0, z: 1 }, { x: 3.5, y: 0.0, z: 1 });
+    coords.push({ x: 2.5, y: 1.0, z: 1 }, { x: 3.5, y: 1.0, z: 1 });
+    coords.push({ x: 3.0, y: 1.0, z: 1 });
+
+    // Layer 1: Raised Belly Tiers
     for (let r = 2; r <= 4; r++) {
       for (let c = 2; c <= 4; c++) coords.push({ x: c * 1.0, y: r * 1.0, z: 1 });
     }
+
+    // Layer 1: Expanded One Layer Below (Pedestal Base)
+    coords.push({ x: 2.5, y: 4.5, z: 1 }, { x: 3.5, y: 4.5, z: 1 });
+    coords.push({ x: 2.5, y: 5.0, z: 1 }, { x: 3.5, y: 5.0, z: 1 });
+    coords.push({ x: 3.0, y: 5.0, z: 1 });
+
+    // Layer 2: Stepped Spine connecting neck, belly, and pedestal base
+    coords.push({ x: 3.0, y: 1.0, z: 2 });
+    coords.push({ x: 3.0, y: 2.0, z: 2 });
     coords.push({ x: 3.0, y: 3.0, z: 2 });
+    coords.push({ x: 3.0, y: 4.0, z: 2 });
+    coords.push({ x: 3.0, y: 5.0, z: 2 });
+
+    // Layer 3: Central Apex Bindu
     coords.push({ x: 3.0, y: 3.0, z: 3 });
     return VitaBoardGenerator._padToTarget(coords, targetCount);
   }
@@ -58992,7 +59046,7 @@ class BoardRenderer {
 
 
 
-  computeStageMetrics(containerW, containerH) {
+  computeStageMetrics(containerW, containerH, sizingH = null) {
 
     const isRealmsMode = (this.options.gameplayMode === 'realms');
     const isArtThemeMode = (this.options.gameplayMode === 'realms' || this.options.gameplayMode === 'botanical');
@@ -59045,84 +59099,83 @@ class BoardRenderer {
 
     const aspect = 1.125; // 320x360 8:9 ratio unified across all themes
 
-    const spacingFactor = isArtThemeMode ? 0.86 : 0.85;
+    const spacingFactor = 0.85; // Unified across all themes and modes
 
 
 
     // Available board area inside container (leaving slight margin for aesthetic floating)
-
     const availW = Math.max(260, containerW - 16);
 
-    // Sizing Parity: AvailH is unified across all gameplay modes (Pairs, Triads, Classic, Realms)
-    // so that switching between categories never causes the tile formation to jump or shrink.
+    // Sizing Parity: Use unified stage height budget across all gameplay modes (Pairs, Triads, Botanical, Realms)
+    // while strictly guaranteeing that effective height NEVER exceeds physical containerH to prevent tray collisions.
     const promptDeduction = isMobile ? 24 : (isTablet ? 28 : 24);
-
-    const availH = Math.max(160, containerH - promptDeduction - (isMobile ? 0 : 8));
-
-
+    const baseSizingH = (typeof sizingH === 'number' && sizingH > 160) ? sizingH : containerH;
+    const effectiveSizingH = Math.min(containerH, baseSizingH);
+    const availH = Math.max(120, effectiveSizingH - promptDeduction - (isMobile ? 12 : 20));
 
     const colDenominator = 1 + (colSpan - 1) * spacingFactor;
-
     const rowDenominator = 1 + (rowSpan - 1) * spacingFactor;
 
-
+    const CANONICAL_COLS = 12;
+    const CANONICAL_ROWS = 8;
+    const canonicalColDenom = 1 + (CANONICAL_COLS - 1) * spacingFactor;
+    const canonicalRowDenom = 1 + (CANONICAL_ROWS - 1) * spacingFactor;
 
     // Target coverage: 96% of width on mobile, 94% on tablet/desktop
-
     const widthCoverage = isMobile ? 0.96 : 0.94;
-
     const heightCoverage = isMobile ? 0.92 : 0.91;
 
-
-
     const maxWFromWidth = (availW * widthCoverage) / colDenominator;
-
     const maxHFromHeight = (availH * heightCoverage) / rowDenominator;
-
     const maxWFromHeight = maxHFromHeight / aspect;
 
+    const canonicalWFromWidth = (availW * widthCoverage) / canonicalColDenom;
+    const canonicalWFromHeight = ((availH * heightCoverage) / canonicalRowDenom) / aspect;
+    const canonicalFitW = Math.floor(Math.min(canonicalWFromWidth, canonicalWFromHeight));
 
+    let rawFitW = Math.floor(Math.min(canonicalFitW, maxWFromWidth, maxWFromHeight));
 
-    // Raw geometric fit to fill container space
-
-    let rawFitW = Math.floor(Math.min(maxWFromWidth, maxWFromHeight));
-
-
-
-    // Dynamic width bounds across viewports (Unified parity across Pairs, Triads, Classic, Realms)
+    // Dynamic width bounds across viewports (Unified parity across Pairs, Triads, Botanical, Realms)
     let minAllowed, maxAllowed;
     if (isMobile) {
-      // Mobile Viewport (< 480px): Unified 72px ceiling ensures identical tile scale between Pairs & Triads
-      minAllowed = isSenior ? 48 : 42;
-      maxAllowed = isSenior ? 84 : (isRealmsMode || this.options.gameplayMode === 'botanical' ? 82 : 72);
+      minAllowed = isSenior ? 48 : 32;
+      maxAllowed = isSenior ? 84 : 72;
     } else if (isTablet) {
-      // Tablet Viewport (480px - 1023px): Unified across all modes (~86px-116px)
-      minAllowed = isSenior ? 66 : 58;
+      minAllowed = isSenior ? 66 : 48;
       maxAllowed = isSenior ? 130 : 116;
     } else {
-      // Desktop Viewport (>= 1024px): Prominent, grand mahjong solitaire tile scale filling the stage
-      minAllowed = isSenior ? 70 : 60;
+      minAllowed = isSenior ? 70 : 52;
       maxAllowed = isSenior ? 144 : 126;
     }
 
-    const targetW = Math.max(minAllowed, Math.min(maxAllowed, rawFitW));
-    const width = targetW;
-    const height = Math.round(width * aspect);
+    let targetW = Math.max(minAllowed, Math.min(maxAllowed, rawFitW));
+    let width = targetW;
+    let height = Math.round(width * aspect);
+    let colSpacing = Math.round(width * spacingFactor);
+    let rowSpacing = Math.round(height * spacingFactor);
+
+    const isoScaleX = 5.0;
+    const isoScaleY = 8.0;
+
+    // Strict boundary & overflow guard: verify vertical footprint against physical container
+    const maxSafeBoardH = Math.max(100, containerH - (isMobile ? 24 : 32));
+    let estBoardH = (maxY - minY) * rowSpacing + height + Math.ceil(maxZ * isoScaleY);
+    if (estBoardH > maxSafeBoardH && estBoardH > 0) {
+      const scaleDown = maxSafeBoardH / estBoardH;
+      targetW = Math.max(isMobile ? 22 : 30, Math.floor(targetW * scaleDown));
+      width = targetW;
+      height = Math.round(width * aspect);
+      colSpacing = Math.round(width * spacingFactor);
+      rowSpacing = Math.round(height * spacingFactor);
+    }
 
     // Hero Game Icons and Typography: Scale proportionally with tile width
     const iconRatio = isSenior ? 0.58 : 0.56;
     const fontRatio = isSenior ? 0.17 : 0.155;
-    const iconSize = Math.max(24, Math.round(width * iconRatio));
-    const fontSize = Math.max(9, Math.round(width * fontRatio));
-    const colSpacing = Math.round(width * spacingFactor);
-    const rowSpacing = Math.round(height * spacingFactor);
+    const iconSize = Math.max(18, Math.round(width * iconRatio));
+    const fontSize = Math.max(8, Math.round(width * fontRatio));
     const boardTotalW = (maxX - minX) * colSpacing + width;
     const boardTotalH = (maxY - minY) * rowSpacing + height;
-
-    // Authentic 2.5D Isometric depth compensation & exact bounding box centering:
-    // Stepped layers have prominent visual elevation: isoDx = -(tile.z * 5.0) and isoDy = -(tile.z * 8.0).
-    const isoScaleX = 5.0;
-    const isoScaleY = 8.0;
 
     let minRelX = 0, maxRelX = (maxX - minX) * colSpacing + width;
     let minRelY = 0, maxRelY = (maxY - minY) * rowSpacing + height;
@@ -59144,7 +59197,7 @@ class BoardRenderer {
     const actualBoardH = maxRelY - minRelY;
 
     const minSafeOffsetX = Math.ceil(maxZ * isoScaleX) + (isMobile ? 8 : 16);
-    const minSafeOffsetY = Math.ceil(maxZ * isoScaleY) + (isMobile ? 16 : 24);
+    const minSafeOffsetY = Math.ceil(maxZ * isoScaleY) + (isMobile ? 8 : 14);
 
     let offsetX = minSafeOffsetX;
     if (containerW && containerW > actualBoardW) {
@@ -59154,6 +59207,13 @@ class BoardRenderer {
     let offsetY = minSafeOffsetY;
     if (containerH && containerH > actualBoardH) {
       offsetY = Math.max(minSafeOffsetY, Math.floor((containerH - actualBoardH) / 2) - minRelY);
+    }
+
+    // Strict boundary enforcement: Ensure bottom-most tile never exceeds containerH - safeBottomMargin
+    const safeBottomMargin = isMobile ? 8 : 16;
+    const bottomEdge = maxRelY + offsetY;
+    if (containerH && bottomEdge > containerH - safeBottomMargin) {
+      offsetY = Math.max(minSafeOffsetY, offsetY - (bottomEdge - (containerH - safeBottomMargin)));
     }
 
     return {
@@ -59171,6 +59231,7 @@ class BoardRenderer {
       offsetX, offsetY,
 
       boardTotalW, boardTotalH,
+      actualBoardW, actualBoardH,
 
       containerW, containerH,
 
@@ -59223,17 +59284,20 @@ class BoardRenderer {
         ? _boardParent.clientHeight
         : 0);
 
+    const _stageCol = (typeof document !== 'undefined') ? document.getElementById('center-stage-col') : null;
+    const _stageH = (_stageCol && _stageCol.clientHeight > 200) ? _stageCol.clientHeight : 0;
+    const trayReserve = isTileClub ? (isMobile ? 85 : 110) : 0;
+    const unifiedUiReserve = (isMobile ? 142 : 144) + trayReserve;
+    const unifiedSizingH = (_stageH > 200) ? Math.max(160, _stageH - unifiedUiReserve) : null;
+
     let containerH;
     if (_rawH > _minHThresh) {
       containerH = _rawH;
     } else {
-      const _stageCol = (typeof document !== 'undefined') ? document.getElementById('center-stage-col') : null;
-      const _stageH = (_stageCol && _stageCol.clientHeight > 200) ? _stageCol.clientHeight : 0;
       if (_stageH > 200) {
-        const uiReserve = isMobile ? (isTileClub ? 142 : 78) : (isTileClub ? 144 : 72);
-        containerH = Math.max(180, _stageH - uiReserve);
+        containerH = unifiedSizingH;
       } else {
-        containerH = typeof window !== 'undefined' ? Math.floor(window.innerHeight * (isMobile ? 0.58 : 0.70)) : 600;
+        containerH = typeof window !== 'undefined' ? Math.floor(window.innerHeight * (isMobile ? 0.52 : (isTileClub ? 0.58 : 0.70))) : 600;
       }
     }
 
@@ -59251,7 +59315,7 @@ class BoardRenderer {
 
           this.stageLayoutMetrics.gameplayMode !== this.options.gameplayMode) {
 
-        this.stageLayoutMetrics = this.computeStageMetrics(containerW, containerH);
+        this.stageLayoutMetrics = this.computeStageMetrics(containerW, containerH, unifiedSizingH || containerH);
 
       }
 
@@ -59291,12 +59355,13 @@ class BoardRenderer {
 
     const activeTiles = this.tiles.filter(t => !t.isMatched);
 
-    // Precise DOM layer & hit-test sorting: Render lower layers first, and within same layer render blocked before free
+    // Prioritize higher z-layer and free playable tiles first in DOM so visible top-layer <img> tags download first,
+    // while explicit CSS z-index preserves exact 2.5D painter's stacking order.
     const sortedActiveTiles = [...activeTiles].sort((a, b) => {
-      if (a.z !== b.z) return a.z - b.z;
+      if (a.z !== b.z) return b.z - a.z;
       const aFree = VitaBoardGenerator.isTileFree(a, activeTiles);
       const bFree = VitaBoardGenerator.isTileFree(b, activeTiles);
-      if (aFree !== bFree) return aFree ? 1 : -1;
+      if (aFree !== bFree) return aFree ? -1 : 1;
       return 0;
     });
 
@@ -59357,8 +59422,8 @@ class BoardRenderer {
       el.style.left = `${posX}px`;
       el.style.top = `${posY}px`;
 
-      const baseZ = tile.z * 40 + 10;
-      el.style.zIndex = `${baseZ + (isSelected ? 10 : (isFree ? 4 : 0))}`;
+      const baseZ = Math.round(tile.z * 200 + (tile.y - minY) * 10 + (tile.x - minX) + 10);
+      el.style.zIndex = `${baseZ + (isSelected ? 80 : (isFree ? 20 : 0))}`;
 
 
 
@@ -59423,11 +59488,15 @@ class BoardRenderer {
 
         const tileSym = tile.thematicSymbol || (flora && flora.customSymbol) || (flora && flora.symbol) || '✨';
 
+        const isInsetPlaque = /\/(biblios_wisdom|blooming_mandala|celestial_starlight|floral_harmony|golden_harvest|golden_nebula|granite_monolith|lotus_pond|master_sanctuary|obsidian_vault|ocean_horizon|sacred_sanctuary|sacred_spiral|sandalwood_amber|spirit_altar|temple_of_lines|terracotta_earth|whispering_pines)\//.test(customImg);
+        const isCloisonne = /\/(standard_lapis|standard_gold|botanical_art)\//.test(customImg);
+        const imgScale = isInsetPlaque ? 1.52 : (isCloisonne ? 1.24 : 1.14);
+
         el.innerHTML = `
 
           <div class="tile-face tile-art-face">
 
-            <img class="tile-art-img" src="${customImg}" alt="${tileName}" draggable="false" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
+            <img class="tile-art-img" src="${customImg}" alt="${tileName}" fetchpriority="${tile.z >= 2 ? 'high' : 'auto'}" style="--tile-img-scale: ${imgScale};" draggable="false" onload="if(this.naturalWidth<=1&&this.naturalHeight<=1){this.classList.add('tile-img-hidden');this.style.setProperty('display','none','important');if(this.nextElementSibling)this.nextElementSibling.style.display='flex';}" onerror="this.classList.add('tile-img-hidden');this.style.setProperty('display','none','important'); if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
 
             <div class="tile-art-fallback" style="display: none; width: 100%; height: 100%; flex-direction: column; align-items: center; justify-content: center; background: #1e293b; border: 2px solid #fbbf24; border-radius: 12px; color: #fff; text-align: center; padding: 4px;">
 
@@ -59736,45 +59805,55 @@ function triggerTileSparkleDissolve(el) {
     if (!el || typeof document === 'undefined') return;
     const parent = el.parentElement;
     if (!parent) return;
+    const overlayHost = parent.parentElement || parent;
 
     try {
+        const x = el.offsetLeft;
+        const y = el.offsetTop;
+        const w = el.offsetWidth || parseInt(el.style.width, 10) || 68;
+        const h = el.offsetHeight || parseInt(el.style.height, 10) || 77;
+
         const ghost = el.cloneNode(true);
         ghost.id = '';
         ghost.className = (el.className || '') + ' tile-dissolving-sparkle';
         ghost.style.position = 'absolute';
-        ghost.style.left = `${el.offsetLeft}px`;
-        ghost.style.top = `${el.offsetTop}px`;
-        ghost.style.width = el.style.width || `${el.offsetWidth}px`;
-        ghost.style.height = el.style.height || `${el.offsetHeight}px`;
-        ghost.style.zIndex = '999';
+        ghost.style.left = `${x}px`;
+        ghost.style.top = `${y}px`;
+        ghost.style.width = `${w}px`;
+        ghost.style.height = `${h}px`;
+        ghost.style.zIndex = '2400';
         ghost.style.pointerEvents = 'none';
 
-        parent.appendChild(ghost);
-        spawnSparkBurst(ghost, parent);
+        overlayHost.appendChild(ghost);
+        spawnGoldenRingAt(x + w / 2, y + h / 2, Math.max(w, h), overlayHost);
+        spawnSparkBurstAtCoords(x + w / 2, y + h / 2, overlayHost, 18);
 
         setTimeout(() => {
             if (ghost.parentElement) {
                 ghost.parentElement.removeChild(ghost);
             }
-        }, 420);
+        }, 520);
     } catch (e) {
         // Safe fallback in minimal environments
     }
 }
 
 /**
- * Kinetic Starlight Convergence: 2 matching tiles fly to midpoint, collide with ceramic smash, and dissolve into stardust
+ * Kinetic Starlight Convergence: 2 matching tiles fly to midpoint, collide with ceramic smash, and dissolve into golden stardust
  */
 function triggerTileConvergenceSmash(el1, el2) {
     if (!el1 || !el2 || typeof document === 'undefined') return;
     const parent = el1.parentElement;
     if (!parent) return;
+    const overlayHost = parent.parentElement || parent;
 
     try {
         const x1 = el1.offsetLeft;
         const y1 = el1.offsetTop;
         const x2 = el2.offsetLeft;
         const y2 = el2.offsetTop;
+        const w = el1.offsetWidth || parseInt(el1.style.width, 10) || 68;
+        const h = el1.offsetHeight || parseInt(el1.style.height, 10) || 77;
 
         const mx = (x1 + x2) / 2;
         const my = (y1 + y2) / 2;
@@ -59784,6 +59863,12 @@ function triggerTileConvergenceSmash(el1, el2) {
         const dx2 = mx - x2;
         const dy2 = my - y2;
 
+        // Immediate golden origin bursts at both matched tile positions
+        spawnGoldenRingAt(x1 + w / 2, y1 + h / 2, Math.max(w, h) * 0.85, overlayHost);
+        spawnGoldenRingAt(x2 + w / 2, y2 + h / 2, Math.max(w, h) * 0.85, overlayHost);
+        spawnSparkBurstAtCoords(x1 + w / 2, y1 + h / 2, overlayHost, 12);
+        spawnSparkBurstAtCoords(x2 + w / 2, y2 + h / 2, overlayHost, 12);
+
         // Ghost 1
         const ghost1 = el1.cloneNode(true);
         ghost1.id = '';
@@ -59791,11 +59876,11 @@ function triggerTileConvergenceSmash(el1, el2) {
         ghost1.style.position = 'absolute';
         ghost1.style.left = `${x1}px`;
         ghost1.style.top = `${y1}px`;
-        ghost1.style.width = el1.style.width || `${el1.offsetWidth}px`;
-        ghost1.style.height = el1.style.height || `${el1.offsetHeight}px`;
+        ghost1.style.width = `${w}px`;
+        ghost1.style.height = `${h}px`;
         ghost1.style.setProperty('--target-x', `${Math.round(dx1)}px`);
         ghost1.style.setProperty('--target-y', `${Math.round(dy1)}px`);
-        ghost1.style.zIndex = '1001';
+        ghost1.style.zIndex = '2401';
         ghost1.style.pointerEvents = 'none';
 
         // Ghost 2
@@ -59805,47 +59890,35 @@ function triggerTileConvergenceSmash(el1, el2) {
         ghost2.style.position = 'absolute';
         ghost2.style.left = `${x2}px`;
         ghost2.style.top = `${y2}px`;
-        ghost2.style.width = el2.style.width || `${el2.offsetWidth}px`;
-        ghost2.style.height = el2.style.height || `${el2.offsetHeight}px`;
+        ghost2.style.width = `${w}px`;
+        ghost2.style.height = `${h}px`;
         ghost2.style.setProperty('--target-x', `${Math.round(dx2)}px`);
         ghost2.style.setProperty('--target-y', `${Math.round(dy2)}px`);
-        ghost2.style.zIndex = '1002';
+        ghost2.style.zIndex = '2402';
         ghost2.style.pointerEvents = 'none';
 
-        parent.appendChild(ghost1);
-        parent.appendChild(ghost2);
+        overlayHost.appendChild(ghost1);
+        overlayHost.appendChild(ghost2);
 
-        // At midpoint impact (~170ms)
+        // At midpoint impact (~150ms): grand golden aura ring & 28-particle golden stardust burst
         setTimeout(() => {
-            const midDummy = {
-                getBoundingClientRect: () => {
-                    const pRect = parent.getBoundingClientRect();
-                    const w = el1.offsetWidth || 68;
-                    const h = el1.offsetHeight || 88;
-                    return {
-                        left: pRect.left + mx,
-                        top: pRect.top + my,
-                        width: w,
-                        height: h
-                    };
-                }
-            };
-            spawnSparkBurst(midDummy, parent, 12);
+            spawnGoldenRingAt(mx + w / 2, my + h / 2, Math.max(w, h) * 1.35, overlayHost);
+            spawnSparkBurstAtCoords(mx + w / 2, my + h / 2, overlayHost, 28);
 
             // Micro board nudge on collision
-            if (parent.classList) {
-                parent.classList.add('board-micro-impact');
+            if (overlayHost.classList) {
+                overlayHost.classList.add('board-micro-impact');
                 setTimeout(() => {
-                    if (parent.classList) parent.classList.remove('board-micro-impact');
+                    if (overlayHost.classList) overlayHost.classList.remove('board-micro-impact');
                 }, 180);
             }
-        }, 170);
+        }, 150);
 
         // Cleanup ghosts
         setTimeout(() => {
             if (ghost1.parentElement) ghost1.parentElement.removeChild(ghost1);
             if (ghost2.parentElement) ghost2.parentElement.removeChild(ghost2);
-        }, 420);
+        }, 480);
     } catch(e) {
         // Safe fallback
     }
@@ -59860,52 +59933,77 @@ function triggerTrayTriadSparkle(matchedFloraId) {
     if (!trayEl) return;
 
     try {
+        trayEl.style.position = trayEl.style.position || 'relative';
         const slots = trayEl.querySelectorAll('.tray-slot');
-        slots.forEach(slot => {
+        let matchedCount = 0;
+        slots.forEach((slot, idx) => {
             const tile = slot.querySelector('.tray-tile');
-            if (tile) {
+            if (tile || idx < 3) {
+                matchedCount++;
                 slot.classList.add('tray-slot-triad-sparkle');
-                spawnSparkBurst(slot, trayEl);
+                const sRect = slot.getBoundingClientRect();
+                const tRect = trayEl.getBoundingClientRect();
+                const cx = (sRect.left - tRect.left) + (sRect.width || 52) / 2;
+                const cy = (sRect.top - tRect.top) + (sRect.height || 60) / 2;
+                spawnGoldenRingAt(cx, cy, 68, trayEl);
+                spawnSparkBurstAtCoords(cx, cy, trayEl, 16);
                 setTimeout(() => {
                     slot.classList.remove('tray-slot-triad-sparkle');
-                }, 420);
+                }, 520);
             }
         });
+        if (matchedCount === 0) {
+            spawnGoldenRingAt(trayEl.clientWidth / 2 || 200, trayEl.clientHeight / 2 || 40, 84, trayEl);
+            spawnSparkBurstAtCoords(trayEl.clientWidth / 2 || 200, trayEl.clientHeight / 2 || 40, trayEl, 24);
+        }
     } catch (e) {
         // Safe fallback
     }
 }
 
-function spawnSparkBurst(targetEl, container, count = 8) {
-    if (!targetEl || !container || typeof document === 'undefined') return;
+function spawnGoldenRingAt(cx, cy, size, container) {
+    if (!container || typeof document === 'undefined') return;
     try {
-        const targetRect = targetEl.getBoundingClientRect();
-        const containerRect = container.getBoundingClientRect();
-        const cx = (targetRect.left - containerRect.left) + targetRect.width / 2;
-        const cy = (targetRect.top - containerRect.top) + targetRect.height / 2;
+        const ring = document.createElement('div');
+        ring.className = 'golden-match-ring';
+        const d = Math.max(48, Math.round(size || 72));
+        ring.style.width = `${d}px`;
+        ring.style.height = `${d}px`;
+        ring.style.left = `${Math.round(cx)}px`;
+        ring.style.top = `${Math.round(cy)}px`;
+        container.appendChild(ring);
+        setTimeout(() => {
+            if (ring.parentElement) ring.parentElement.removeChild(ring);
+        }, 700);
+    } catch (e) {}
+}
 
-        const sparkCount = count || 8;
+function spawnSparkBurstAtCoords(cx, cy, container, count = 16) {
+    if (!container || typeof document === 'undefined') return;
+    try {
+        const sparkCount = count || 16;
+        const symbols = ['✨', '🌟', '⭐', '✨'];
         for (let i = 0; i < sparkCount; i++) {
-            const angle = (i / sparkCount) * Math.PI * 2 + (Math.random() * 0.4 - 0.2);
-            const distance = 20 + Math.random() * 28;
+            const angle = (i / sparkCount) * Math.PI * 2 + (Math.random() * 0.45 - 0.22);
+            const distance = 28 + Math.random() * 58;
             const dx = Math.cos(angle) * distance;
-            const dy = Math.sin(angle) * distance - 6;
-            const rot = Math.round((Math.random() - 0.5) * 60);
+            const dy = Math.sin(angle) * distance - 10;
+            const rot = Math.round((Math.random() - 0.5) * 90);
 
             const spark = document.createElement('span');
             if (i % 2 === 0) {
                 spark.className = 'celestial-spark-particle';
-                spark.innerText = '✨';
-                spark.style.fontSize = `${10 + Math.random() * 6}px`;
+                spark.innerText = symbols[i % symbols.length];
+                spark.style.fontSize = `${13 + Math.random() * 8}px`;
             } else {
                 spark.className = 'celestial-spark-dot';
-                const dotSize = 4 + Math.random() * 4;
+                const dotSize = 5 + Math.random() * 6;
                 spark.style.width = `${dotSize}px`;
                 spark.style.height = `${dotSize}px`;
             }
 
-            spark.style.left = `${cx}px`;
-            spark.style.top = `${cy}px`;
+            spark.style.left = `${Math.round(cx)}px`;
+            spark.style.top = `${Math.round(cy)}px`;
             spark.style.setProperty('--dx', `${Math.round(dx)}px`);
             spark.style.setProperty('--dy', `${Math.round(dy)}px`);
             spark.style.setProperty('--rot', `${rot}deg`);
@@ -59916,11 +60014,20 @@ function spawnSparkBurst(targetEl, container, count = 8) {
                 if (spark.parentElement) {
                     spark.parentElement.removeChild(spark);
                 }
-            }, 460);
+            }, 620);
         }
-    } catch (e) {
-        // Safe fallback
-    }
+    } catch (e) {}
+}
+
+function spawnSparkBurst(targetEl, container, count = 16) {
+    if (!targetEl || !container || typeof document === 'undefined') return;
+    try {
+        const targetRect = targetEl.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        const cx = (targetRect.left - containerRect.left) + targetRect.width / 2;
+        const cy = (targetRect.top - containerRect.top) + targetRect.height / 2;
+        spawnSparkBurstAtCoords(cx, cy, container, count);
+    } catch (e) {}
 }
 
 
@@ -60671,13 +60778,91 @@ const BOTANICAL_CAMPAIGN = {
   customTiles: null
 };
 
+const SUPPLEMENTAL_VAULT_META = {
+  lapis_lazuli:      { label: 'Lapis Sanctuary',      symbols: ['🔷','💠','🔹','🧿','🌌','💎','✨','⭐','🔮','🌙','☄️','🪐','🌊','❄️','🛡️','⚜️'] },
+  golden_honeycomb:  { label: 'Amber Reliquary',      symbols: ['🍯','☀️','🌻','👑','🏆','🌟','✨','🔔','🪙','🕯️','🏵️','🌼','🧡','🔥','⚡','⚜️'] },
+  celadon_jade:      { label: 'Celadon Jade',         symbols: ['🟢','🍃','🌿','🎋','🪷','🌱','☘️','🐢','🐉','🌲','🍏','💚','🧪','⛰️','🌊','✨'] },
+  amethyst_geode:    { label: 'Amethyst Geode',       symbols: ['🔮','🟣','🍇','🪻','🌌','✨','💎','🔯','🌙','⭐','🪐','🎆','🪷','🦋','👑','⚜️'] },
+  aegean_seaglass:   { label: 'Aegean Seaglass',      symbols: ['🌊','🐚','🐬','⚓','🫧','💧','🩵','🏝️','⛵','🪸','🐟','🔱','🌙','✨','💎','🧭'] },
+  celestial_opal:    { label: 'Celestial Opal',       symbols: ['⚪','🌈','✨','💫','🌟','💎','🔮','🌙','☁️','🕊️','🪷','❄️','🫧','⭐','🪐','☀️'] },
+  desert_sandstone:  { label: 'Desert Sandstone',     symbols: ['🏜️','☀️','🐪','🏺','⏳','🪨','🌾','🌅','🔥','🧭','🏛️','🪙','🌵','🦅','✨','🛡️'] },
+  kyoto_bamboo:      { label: 'Kyoto Bamboo',         symbols: ['🎋','🍃','🌿','🍵','🏯','🪨','🌊','🪷','🌱','🦢','🎐','⛩️','🌲','☘️','✨','🌕'] },
+  kyoto_porcelain:   { label: 'Kyoto Porcelain',      symbols: ['🏺','🍵','🪷','🌸','🦢','🌊','☁️','⚪','🎐','🏯','✨','💠','🕊️','🌙','🎋','🏵️'] },
+  midnight_obsidian: { label: 'Midnight Obsidian',    symbols: ['🌑','🖤','✨','⚡','🌌','💎','🛡️','🗡️','🔮','🌙','⭐','🪐','🔥','👑','⚜️','🦅'] },
+  moroccan_zellige:  { label: 'Zellige Mosaic',       symbols: ['💠','🔷','🔶','🏵️','✨','⭐','🕌','🏺','🧭','☀️','🌙','💎','⚜️','🛡️','🔔','🕯️'] },
+  murano_crystal:    { label: 'Murano Crystal',       symbols: ['💎','🔮','🌈','✨','🫧','💧','🔷','🩷','🩵','🌟','🕯️','🍷','🪷','🦋','👑','⭐'] },
+  nacre_pearl:       { label: 'Nacre Mother-of-Pearl',symbols: ['🦪','⚪','🐚','✨','🌙','🕊️','🪷','💧','🫧','🌊','💎','🦢','☁️','⭐','🌸','👑'] },
+  nordic_pine:       { label: 'Nordic Pine',          symbols: ['🌲','🪵','🍃','🦌','❄️','⛰️','🍂','🌰','🍄','🌿','🔥','🏕️','🦅','🌊','✨','🌱'] },
+  river_basalt:      { label: 'River Basalt',         symbols: ['🪨','🌊','💧','⛰️','🍃','🎋','🐢','🐟','🌑','⚖️','🧘','🌱','🫧','🏛️','✨','🌙'] },
+  rose_alabaster:    { label: 'Rose Alabaster',       symbols: ['🌹','🌸','🪷','🌺','🩷','🌷','🦋','🕊️','✨','💎','🕯️','🦢','💌','🏵️','🌙','👑'] },
+  sandalwood_teak:   { label: 'Sandalwood Teak',      symbols: ['🪵','🌳','🍂','🌰','🕯️','📿','🪷','🔥','🏺','📜','🌿','🕰️','🛎️','☀️','✨','🏛️'] },
+  silver_granite:    { label: 'Silver Granite',       symbols: ['🪨','⛰️','🛡️','⚔️','🏛️','⚪','❄️','💎','🧭','⚖️','🦅','🌙','✨','🔔','🗿','👑'] },
+  smoked_topaz:      { label: 'Smoked Topaz',         symbols: ['🟠','💎','🔥','☀️','🍯','🏺','🪙','🕯️','🌅','🍂','🦁','👑','✨','⚡','🛡️','⚜️'] },
+  tuscan_terracotta: { label: 'Tuscan Terracotta',    symbols: ['🏺','🧱','☀️','🌻','🍇','🫒','🌾','🏛️','🔥','🍂','🌅','🕯️','🪙','🌿','✨','🏵️'] }
+};
+
+const THEME_EXPANSION_VAULTS = {
+  standard_gold:             ['golden_honeycomb', 'smoked_topaz', 'nacre_pearl', 'desert_sandstone'],
+  standard_lapis:            ['lapis_lazuli', 'midnight_obsidian', 'moroccan_zellige', 'murano_crystal'],
+  botanical_art:             ['rose_alabaster', 'kyoto_bamboo', 'celadon_jade', 'kyoto_porcelain'],
+  whispering_pines:          ['nordic_pine', 'sandalwood_teak', 'kyoto_bamboo', 'celadon_jade'],
+  temple_of_lines:           ['river_basalt', 'silver_granite', 'kyoto_porcelain', 'moroccan_zellige'],
+  biblios_wisdom:            ['sandalwood_teak', 'golden_honeycomb', 'desert_sandstone', 'smoked_topaz'],
+  celestial_starlight:       ['lapis_lazuli', 'midnight_obsidian', 'celestial_opal', 'amethyst_geode'],
+  golden_nebula:             ['golden_honeycomb', 'smoked_topaz', 'celestial_opal', 'murano_crystal'],
+  spirit_altar:              ['nacre_pearl', 'rose_alabaster', 'kyoto_porcelain', 'celestial_opal'],
+  sacred_sanctuary:          ['rose_alabaster', 'celadon_jade', 'nacre_pearl', 'golden_honeycomb'],
+  ocean_horizon:             ['aegean_seaglass', 'lapis_lazuli', 'nacre_pearl', 'river_basalt'],
+  terracotta_earth:          ['tuscan_terracotta', 'desert_sandstone', 'sandalwood_teak', 'smoked_topaz'],
+  floral_harmony:            ['rose_alabaster', 'murano_crystal', 'kyoto_porcelain', 'celadon_jade'],
+  blooming_mandala:          ['moroccan_zellige', 'amethyst_geode', 'golden_honeycomb', 'rose_alabaster'],
+  sacred_spiral:             ['celadon_jade', 'aegean_seaglass', 'celestial_opal', 'lapis_lazuli'],
+  master_sanctuary:          ['celestial_opal', 'nacre_pearl', 'golden_honeycomb', 'kyoto_porcelain'],
+  lotus_pond:                ['kyoto_porcelain', 'aegean_seaglass', 'rose_alabaster', 'celadon_jade'],
+  granite_monolith:          ['silver_granite', 'river_basalt', 'midnight_obsidian', 'desert_sandstone'],
+  sandalwood_amber:          ['sandalwood_teak', 'smoked_topaz', 'golden_honeycomb', 'tuscan_terracotta'],
+  obsidian_vault:            ['midnight_obsidian', 'river_basalt', 'amethyst_geode', 'silver_granite'],
+  golden_harvest:            ['golden_honeycomb', 'desert_sandstone', 'tuscan_terracotta', 'smoked_topaz'],
+  opal_aurora:               ['celestial_opal', 'murano_crystal', 'amethyst_geode', 'aegean_seaglass'],
+  bodhi_grove:               ['kyoto_bamboo', 'nordic_pine', 'celadon_jade', 'sandalwood_teak'],
+  child_sensory_prism:       ['murano_crystal', 'celestial_opal', 'rose_alabaster', 'aegean_seaglass', 'golden_honeycomb'],
+  child_nature_wonder:       ['nordic_pine', 'kyoto_bamboo', 'celadon_jade', 'sandalwood_teak', 'tuscan_terracotta'],
+  child_spatial_logic:       ['moroccan_zellige', 'silver_granite', 'river_basalt', 'kyoto_porcelain', 'lapis_lazuli'],
+  child_kindred_empathy:     ['rose_alabaster', 'nacre_pearl', 'golden_honeycomb', 'smoked_topaz', 'celestial_opal'],
+  child_celestial_curiosity: ['lapis_lazuli', 'amethyst_geode', 'midnight_obsidian', 'celestial_opal', 'murano_crystal']
+};
+
+const CHILD_PRIMARY_FOLDER = {
+  child_sensory_prism: 'murano_crystal',
+  child_nature_wonder: 'nordic_pine',
+  child_spatial_logic: 'moroccan_zellige',
+  child_kindred_empathy: 'rose_alabaster',
+  child_celestial_curiosity: 'lapis_lazuli'
+};
+
+const TIER_SUFFIXES = ['Emerald Inlay', 'Ruby Inlay', 'Sapphire Inlay', 'Imperial Inlay'];
+
+const TARGET_THEME_TILE_COUNT = 72;
+
 function buildCustomTilesForTheme(themeId) {
-  const defs = THEME_TILE_DEFS[themeId] || THEME_TILE_DEFS.whispering_pines;
-  return defs.map((d, idx) => ({
-    name: d.name,
-    image: `./Assets/themes/${themeId}/tile_${String(idx + 1).padStart(2, '0')}.png`,
-    symbol: d.symbol
-  }));
+  const baseDefs = THEME_TILE_DEFS[themeId] || THEME_TILE_DEFS.whispering_pines;
+  const primaryFolder = CHILD_PRIMARY_FOLDER[themeId] || themeId;
+  const result = [];
+  for (let i = 0; i < TARGET_THEME_TILE_COUNT; i++) {
+    const baseDef = baseDefs[i % baseDefs.length];
+    const tier = Math.floor(i / baseDefs.length);
+    const tileNum = String(i + 1).padStart(2, '0');
+    const name = (tier === 0)
+      ? baseDef.name
+      : `${baseDef.name} · ${TIER_SUFFIXES[(tier - 1) % TIER_SUFFIXES.length]}`;
+    result.push({
+      name,
+      image: `./Assets/themes/${primaryFolder}/tile_${tileNum}.png`,
+      symbol: baseDef.symbol,
+      sourceFolder: primaryFolder
+    });
+  }
+  return result;
 }
 
 BOTANICAL_CAMPAIGN.customTiles = buildCustomTilesForTheme('botanical_art');
@@ -62198,7 +62383,7 @@ class ThemeManager {
 
 
 
-const TOTAL_LEVELS = 520;
+const TOTAL_LEVELS = 1000;
 
 
 const RANKS = [
@@ -62208,7 +62393,7 @@ const RANKS = [
   { name: 'Discerner', symbol: '⭐', minLevel: 111, maxLevel: 175 },
   { name: 'Sage', symbol: '🌟', minLevel: 176, maxLevel: 240 },
   { name: 'Explorer', symbol: '💫', minLevel: 241, maxLevel: 300 },
-  { name: 'Luminous', symbol: '✨', minLevel: 301, maxLevel: 520 }
+  { name: 'Luminous', symbol: '✨', minLevel: 301, maxLevel: 1000 }
 ];
 
 function getRankForLevel(level) {
@@ -62305,7 +62490,7 @@ function formatTimeMMSS(sec) {
 
 class GameManager {
   constructor(options = {}) {
-    this.gameplayMode = (options.gameplayMode === 'classic') ? 'vita' : (options.gameplayMode || 'vita'); // 'vita' | 'tile_club'
+    this.gameplayMode = (options.gameplayMode === 'classic' || options.gameplayMode === 'botanical') ? 'vita' : (options.gameplayMode || 'vita'); // 'vita' | 'tile_club' | 'realms'
     this.standardTheme = this.loadStandardTheme(); // 'imperial_gold' | 'royal_lapis'
     this.seniorView = (options.seniorView !== undefined) 
       ? !!options.seniorView 
@@ -62739,12 +62924,19 @@ class GameManager {
     let tileCount = null;
 
     if (typeof stageParam === 'number') {
-      if (!forceLevel && [12, 24, 36, 48, 60, 72, 84, 96, 108].includes(stageParam)) {
-        tileCount = stageParam;
-      } else {
-        levelNum = Math.max(1, Math.min(TOTAL_LEVELS, stageParam));
+      const maxModeLevel = (this.gameplayMode === 'realms') ? TOTAL_REALM_LEVELS : TOTAL_LEVELS;
+      levelNum = Math.max(1, Math.min(maxModeLevel, stageParam));
+      this.player.currentLevel = levelNum;
+      this.savePlayerState();
+    } else if (stageParam && typeof stageParam === 'object') {
+      if (typeof stageParam.level === 'number') {
+        const maxModeLevel = (this.gameplayMode === 'realms') ? TOTAL_REALM_LEVELS : TOTAL_LEVELS;
+        levelNum = Math.max(1, Math.min(maxModeLevel, stageParam.level));
         this.player.currentLevel = levelNum;
         this.savePlayerState();
+      }
+      if (typeof stageParam.tileCount === 'number') {
+        tileCount = stageParam.tileCount;
       }
     }
 
@@ -62767,20 +62959,6 @@ class GameManager {
     }
     const isTileClub = (this.gameplayMode === 'tile_club');
     const K = isTileClub ? 3 : 2;
-    let distinctFloraCount = Math.max(3, Math.floor(tileCount / K));
-    if (isBotanicalMode) {
-      if (levelNum <= 25) distinctFloraCount = Math.min(distinctFloraCount, 8);
-      else if (levelNum <= 75) distinctFloraCount = Math.min(distinctFloraCount, 16);
-      else if (levelNum <= 140) distinctFloraCount = Math.min(distinctFloraCount, 20);
-      else distinctFloraCount = Math.min(distinctFloraCount, 24);
-    }
-    const levelFlora = getTilesForLevel(levelNum, distinctFloraCount);
-
-    // Unpredictable random shape selection: pick a fresh silhouette from the 25-formation gallery
-    const formationIdx = Math.floor(Math.random() * VitaBoardGenerator.FORMATIONS.length);
-    const layout = VitaBoardGenerator.createLevelLayout(levelNum, tileCount, formationIdx);
-    this.currentFormationName = VitaBoardGenerator.getFormationName(levelNum, formationIdx);
-    this.tiles = VitaBoardGenerator.generateSolvableBoard(layout, levelFlora, isTileClub ? 'tile_club' : 'vita');
 
     // Realm & Botanical Campaign Metadata & Archetype assignment
     this.activeRealm = isRealmsMode ? ThemeManager.getRealmForLevel(levelNum) :
@@ -62788,10 +62966,37 @@ class GameManager {
     const activeArch = (isRealmsMode && this.activeRealm) ? this.activeRealm.archetype :
                        (isBotanicalMode ? 'botanical' : null);
 
+    // Future-proof visual uniqueness guard:
+    // Every active theme now supplies 72 unique tiles (covering 100% of 60..144-tile boards with 1-to-1 unique art).
+    // If future levels ever exceed 144 tiles (e.g. 180+ tiles), capping distinctFloraCount at available theme artwork
+    // guarantees two identical-looking tiles on the board ALWAYS share the same floraId and can ALWAYS match.
+    const activeArtCatalog = ((isRealmsMode || isBotanicalMode) && this.activeRealm && this.activeRealm.customTiles)
+      ? this.activeRealm.customTiles
+      : (ThemeManager.getStandardTheme(this.standardTheme)?.customTiles || []);
+    const maxUniqueArt = (activeArtCatalog && activeArtCatalog.length > 0) ? activeArtCatalog.length : 72;
+    let distinctFloraCount = Math.min(maxUniqueArt, Math.max(3, Math.floor(tileCount / K)));
+    const levelFlora = getTilesForLevel(levelNum, distinctFloraCount);
+
+    // Deterministic level-seeded shape selection from the 21-formation gallery so Level N has uniform geometry across modes
+    const formationIdx = (Math.max(1, levelNum) - 1) % VitaBoardGenerator.FORMATIONS.length;
+    const layout = VitaBoardGenerator.createLevelLayout(levelNum, tileCount, formationIdx);
+    this.currentFormationName = VitaBoardGenerator.getFormationName(levelNum, formationIdx);
+    this.tiles = VitaBoardGenerator.generateSolvableBoard(layout, levelFlora, isTileClub ? 'tile_club' : 'vita');
+
+    // Order distinctFlora by highest z-layer descending so top visible tiles always display the theme's primary signature art
+    const maxZByFlora = {};
+    this.tiles.forEach(t => {
+      if (maxZByFlora[t.floraId] === undefined || t.z > maxZByFlora[t.floraId]) {
+        maxZByFlora[t.floraId] = t.z;
+      }
+    });
+    const sortedDistinctFlora = Array.from(new Set(this.tiles.map(t => t.floraId)))
+      .sort((a, b) => (maxZByFlora[b] || 0) - (maxZByFlora[a] || 0));
+
     // Apply dedicated custom artistic skins for Realms or Botanical Art
     if ((isRealmsMode || isBotanicalMode) && this.activeRealm && this.activeRealm.customTiles && this.activeRealm.customTiles.length > 0) {
       const artTiles = this.activeRealm.customTiles;
-      const distinctFlora = Array.from(new Set(this.tiles.map(t => t.floraId)));
+      const distinctFlora = sortedDistinctFlora;
       const floraToArtMap = {};
       distinctFlora.forEach((fId, idx) => {
         floraToArtMap[fId] = artTiles[idx % artTiles.length];
@@ -62817,7 +63022,7 @@ class GameManager {
       // In standard modes (Pairs, Triads): Apply the active elevated shining 3D theme (Imperial Gold or Royal Lapis)
       const stdTheme = ThemeManager.getStandardTheme(this.standardTheme);
       const artTiles = stdTheme.customTiles;
-      const distinctFlora = Array.from(new Set(this.tiles.map(t => t.floraId)));
+      const distinctFlora = sortedDistinctFlora;
       const floraToArtMap = {};
       const floraToMaterialMap = {};
       distinctFlora.forEach((fId, idx) => {
@@ -62849,6 +63054,14 @@ class GameManager {
         }
         t.archetype = floraToMaterialMap[t.floraId] || 'ivory';
       });
+    }
+
+    // Synchronize tray visibility in DOM BEFORE boardRenderer.setTiles() measures container dimensions
+    if (typeof document !== 'undefined') {
+      const trayContainer = document.getElementById('tray-container');
+      if (trayContainer) {
+        trayContainer.style.display = (this.gameplayMode === 'tile_club' || this.isEpiphanyLevelActive) ? 'flex' : 'none';
+      }
     }
 
     if (this.boardRenderer) {
@@ -62904,7 +63117,9 @@ class GameManager {
   }
 
   setGameplayMode(mode) {
-    if (mode === 'classic') mode = 'vita'; // Backward compatibility alias
+    if (mode === 'botanical') mode = 'vita'; // Botanical Art retired; safely redirect to Pairs
+    if (mode === 'classic' || mode === 'pairs') mode = 'vita'; // Backward compatibility alias
+    if (mode === 'triads' || mode === 'triad') mode = 'tile_club'; // Backward compatibility alias
     if (this.gameplayMode === mode && this.tiles && this.tiles.length > 0) return;
 
     if (!this.player.modeLevels) {
@@ -64060,10 +64275,14 @@ try {
 
 
 
-window.addEventListener('load', async () => {
-    // 0. Auto-heal: restore all state from AuroMatchDB if localStorage was wiped (e.g. Safari 7-day ITP)
+const bootAuroMatchApp = () => {
+    if (window.__auroMatchBooted) return;
+    window.__auroMatchBooted = true;
+    // 0. Non-blocking auto-heal: restore state from AuroMatchDB in background only if localStorage is completely empty
     try {
-        await autoHealFromIndexedDB();
+        if (typeof localStorage !== 'undefined' && !localStorage.getItem('auromatch_player_state')) {
+            autoHealFromIndexedDB().catch(() => {});
+        }
     } catch (e) {}
 
     // Load local state
@@ -64084,12 +64303,9 @@ window.addEventListener('load', async () => {
         const btnVita = document.getElementById('btn-mode-vita');
         const btnTileClub = document.getElementById('btn-mode-tileclub');
         const btnRealms = document.getElementById('btn-mode-realms');
-        const btnBotanical = document.getElementById('btn-mode-botanical');
-        [btnVita, btnTileClub, btnRealms, btnBotanical].forEach(b => { if (b) b.classList.remove('active'); });
+        [btnVita, btnTileClub, btnRealms].forEach(b => { if (b) b.classList.remove('active'); });
 
-        if (state.gameplayMode === 'botanical' && btnBotanical) {
-            btnBotanical.classList.add('active');
-        } else if ((state.gameplayMode === 'vita' || state.gameplayMode === 'classic') && btnVita) {
+        if ((state.gameplayMode === 'vita' || state.gameplayMode === 'classic') && btnVita) {
             btnVita.classList.add('active');
         } else if (state.gameplayMode === 'tile_club' && btnTileClub) {
             btnTileClub.classList.add('active');
@@ -64120,9 +64336,7 @@ window.addEventListener('load', async () => {
         const promptEl = document.getElementById('gameplay-prompt');
         if (promptEl) {
             const formBadge = state.formationName ? ` · ${state.formationName}` : '';
-            if (state.gameplayMode === 'botanical') {
-                promptEl.innerHTML = `<span>🌸 Botanical Art · Level ${state.currentLevel || 1}${formBadge}</span>`;
-            } else if (state.gameplayMode === 'realms') {
+            if (state.gameplayMode === 'realms') {
                 const realmName = state.activeRealm ? state.activeRealm.name : 'Thematic Realm';
                 promptEl.innerHTML = `<span>🗺️ ${realmName}${formBadge}</span>`;
             } else if (state.gameplayMode === 'vita' || state.gameplayMode === 'classic') {
@@ -64178,14 +64392,18 @@ window.addEventListener('load', async () => {
                     }
 
                     if (customImg) {
+                        const isInsetPlaque = /\/(biblios_wisdom|blooming_mandala|celestial_starlight|floral_harmony|golden_harvest|golden_nebula|granite_monolith|lotus_pond|master_sanctuary|obsidian_vault|ocean_horizon|sacred_sanctuary|sacred_spiral|sandalwood_amber|spirit_altar|temple_of_lines|terracotta_earth|whispering_pines)\//.test(customImg);
+                        const isCloisonne = /\/(standard_lapis|standard_gold|botanical_art)\//.test(customImg);
+                        const imgScale = isInsetPlaque ? 1.52 : (isCloisonne ? 1.24 : 1.14);
                         slot.innerHTML = `
                             <div class="tray-tile tray-tile-art ${isPairInTray ? 'tray-pair-glow' : ''}"
                                  onclick="window.handleReturnTrayTile && window.handleReturnTrayTile('${t.id}')"
                                  title="Tap to return ${tileName} to board"
                                  role="button"
                                  aria-label="${tileName}, tap to return to board">
-                                <img class="tray-tile-img" src="${customImg}" alt="${tileName}" draggable="false"
-                                     onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
+                                <img class="tray-tile-img" src="${customImg}" alt="${tileName}" style="--tile-img-scale: ${imgScale};" draggable="false"
+                                     onload="if(this.naturalWidth<=1&&this.naturalHeight<=1){this.classList.add('tile-img-hidden');this.style.setProperty('display','none','important');if(this.nextElementSibling)this.nextElementSibling.style.display='flex';}"
+                                     onerror="this.classList.add('tile-img-hidden');this.style.setProperty('display','none','important'); if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
                                 <div class="tray-tile-fallback" style="display: none;">
                                     <span class="tray-tile-symbol">${tileSym}</span>
                                     <span class="tray-tile-label">${tileName}</span>
@@ -64770,20 +64988,15 @@ window.addEventListener('load', async () => {
     };
 
     window.switchGameplayMode = (mode) => {
-        if (mode === 'botanical') {
-            activeGameManager.setGameplayMode('botanical');
-            window.showToastMessage("🌸 Botanical Art: 200 progressive levels of authentic Indian folk art & cloisonné 3D tiles!");
+        if (mode === 'botanical' || mode === 'classic' || mode === 'vita') {
+            activeGameManager.setGameplayMode('vita');
+            window.showToastMessage("🪷 Pairs Campaign: 400 progressive architectural puzzles with vibrant hero game icons!");
             return;
         }
         if (mode === 'realms') {
             activeGameManager.setGameplayMode('realms');
             window.showToastMessage("🗺️ 20 Grand Realms: 1,000 Levels (50 per Chapter) with Dedicated 3D Tile Sets & Environmental Sanctuaries!");
             window.openRealmsBrowser();
-            return;
-        }
-        if (mode === 'classic' || mode === 'vita') {
-            activeGameManager.setGameplayMode('vita');
-            window.showToastMessage("🪷 Pairs Campaign: 400 progressive architectural puzzles with vibrant hero game icons!");
             return;
         }
         activeGameManager.setGameplayMode(mode);
@@ -65439,8 +65652,10 @@ window.addEventListener('load', async () => {
     // Dynamic Screen Adjustment & Viewport Metrics Engine (Vak-style)
     function initDynamicScreenAdjuster() {
         let resizeThrottle = null;
+        let lastVw = window.visualViewport ? window.visualViewport.width : window.innerWidth;
+        let lastVh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
 
-        function updateViewportMetrics() {
+        function updateViewportMetrics(forceRender = false) {
             const vp = window.visualViewport;
             const currentVh = vp ? vp.height : window.innerHeight;
             const currentVw = vp ? vp.width : window.innerWidth;
@@ -65459,9 +65674,14 @@ window.addEventListener('load', async () => {
                 }
             }
 
-            // Re-render board with updated responsive bounds if active
-            if (activeGameManager && activeGameManager.boardRenderer) {
-                activeGameManager.boardRenderer.render();
+            const sizeChanged = Math.abs(currentVw - lastVw) > 2 || Math.abs(currentVh - lastVh) > 2;
+            if (sizeChanged || forceRender === true) {
+                lastVw = currentVw;
+                lastVh = currentVh;
+                // Re-render board with updated responsive bounds only when viewport dimensions actually change
+                if (activeGameManager && activeGameManager.boardRenderer) {
+                    activeGameManager.boardRenderer.render();
+                }
             }
         }
 
@@ -65777,11 +65997,15 @@ window.addEventListener('load', async () => {
     };
 
     window.setHubStandardTheme = (themeKey) => {
-        window.setStandardTheme(themeKey);
+        if (activeGameManager && activeGameManager.setStandardTheme) {
+            activeGameManager.setStandardTheme(themeKey);
+        }
         const bGold = document.getElementById('hub-btn-gold');
         const bLapis = document.getElementById('hub-btn-lapis');
         if (bGold) bGold.classList.toggle('active', themeKey === 'imperial_gold');
         if (bLapis) bLapis.classList.toggle('active', themeKey === 'royal_lapis');
+        const label = (themeKey === 'imperial_gold') ? 'Imperial Gold & Jewel Reliquary' : 'Royal Lapis & Golden Cloisonné';
+        window.showToastMessage(`✨ Standard Theme: ${label}`);
     };
 
     window.updateHeaderRealmDropdown = () => {
@@ -65799,9 +66023,6 @@ window.addEventListener('load', async () => {
         if (mode === 'tile_club') {
             if (iconEl) iconEl.textContent = '📥';
             textEl.textContent = 'Triads (Match-3)';
-        } else if (mode === 'botanical') {
-            if (iconEl) iconEl.textContent = '🌸';
-            textEl.textContent = 'Botanical Art';
         } else if (mode === 'realms') {
             if (iconEl) iconEl.textContent = '🗺️';
             const realm = activeGameManager.currentRealm;
@@ -65837,17 +66058,7 @@ window.addEventListener('load', async () => {
         if (progPairs) progPairs.style.width = `${Math.max(1, pctPairs)}%`;
         if (progLblPairs) progLblPairs.innerText = `${pctPairs}% Completed`;
 
-        // 2. Botanical
-        const badgeBot = document.getElementById('hub-badge-botanical');
-        const progBot = document.getElementById('hub-prog-botanical');
-        const progLblBot = document.getElementById('hub-prog-label-botanical');
-        const ch = Math.ceil(lvl / 50) || 1;
-        if (badgeBot) badgeBot.innerText = `${lvl} / 200 Levels`;
-        const pctBot = Math.min(100, Math.round((lvl / 200) * 100));
-        if (progBot) progBot.style.width = `${Math.max(1, pctBot)}%`;
-        if (progLblBot) progLblBot.innerText = `Chapter ${ch}`;
-
-        // 3. Realms
+        // 2. Realms
         const progRealms = document.getElementById('hub-prog-realms');
         const progLblRealms = document.getElementById('hub-prog-label-realms');
         const unlockedRealms = Math.min(20, Math.ceil(lvl / 50));
@@ -65947,7 +66158,41 @@ window.addEventListener('load', async () => {
     };
 
         initDynamicScreenAdjuster();
+        // Sequentially pre-warm Botanical Art tile sets during idle time without saturating HTTP sockets
+        setTimeout(() => {
+            try {
+                const preloadUrls = [];
+                if (BOTANICAL_CAMPAIGN) {
+                    if (BOTANICAL_CAMPAIGN.bgImage) preloadUrls.push(BOTANICAL_CAMPAIGN.bgImage);
+                    (BOTANICAL_CAMPAIGN.customTiles || []).forEach(t => { if (t && t.image) preloadUrls.push(t.image); });
+                }
+                let idx = 0;
+                const loadNext = () => {
+                    if (idx >= preloadUrls.length) return;
+                    const img = new Image();
+                    img.onload = img.onerror = () => setTimeout(loadNext, 60);
+                    img.src = preloadUrls[idx++];
+                };
+                loadNext();
+            } catch (e) {}
+        }, 2500);
+
         if (typeof window !== 'undefined' && window.location && window.location.search && window.location.search.includes('screen=game')) {
+            const params = new URLSearchParams(window.location.search);
+            const reqMode = params.get('mode');
+            const reqTheme = params.get('theme');
+            const reqLevel = parseInt(params.get('level') || '', 10);
+            if (reqTheme && activeGameManager) {
+                activeGameManager.standardTheme = reqTheme;
+            }
+            if (reqMode && activeGameManager) {
+                activeGameManager.gameplayMode = reqMode;
+            }
+            if (!isNaN(reqLevel) && reqLevel >= 1 && activeGameManager) {
+                activeGameManager.player.currentLevel = reqLevel;
+            }
+            const darshanModal = document.getElementById('darshan-modal');
+            if (darshanModal) darshanModal.style.display = 'none';
             document.querySelectorAll('.screen-view').forEach(s => s.classList.remove('active-screen'));
             const gameScreen = document.getElementById('game-screen');
             if (gameScreen) gameScreen.classList.add('active-screen');
@@ -65960,11 +66205,16 @@ window.addEventListener('load', async () => {
                 if (!activeGameManager.boardRenderer) {
                     activeGameManager.init('board', 'center-stage-col');
                 } else {
-                    activeGameManager.startNewStage(activeGameManager.player.currentLevel);
+                    activeGameManager.startNewStage(activeGameManager.player.currentLevel, true);
                 }
             }
         }
-});
+};
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootAuroMatchApp);
+} else {
+    bootAuroMatchApp();
+}
 
 </script>
 </body>

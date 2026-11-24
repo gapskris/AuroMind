@@ -625,11 +625,21 @@ export class VitaBoardGenerator {
         if (c >= minC - 1 && c <= maxC) coords.push({ x: c * 1.0, y: r * 1.0, z: 0 });
       }
     }
-    for (let c = 0; c < W; c++) {
-      coords.push({ x: c * 1.0, y: 0, z: 1 });
-      coords.push({ x: c * 1.0, y: H - 1, z: 1 });
+    // Stepped upper and lower rims
+    for (let c = 1; c <= 4; c++) {
+      coords.push({ x: c * 1.0, y: 0.0, z: 1 });
+      coords.push({ x: c * 1.0, y: (H - 1) * 1.0, z: 1 });
     }
-    coords.push({ x: 2.5, y: 3.0, z: 1 });
+    // Stepped inner funnels & central waist
+    for (let c = 1; c <= 4; c++) {
+      coords.push({ x: c * 1.0, y: 1.0, z: 1 });
+      coords.push({ x: c * 1.0, y: 5.0, z: 1 });
+    }
+    coords.push({ x: 2.0, y: 2.0, z: 1 }, { x: 3.0, y: 2.0, z: 1 });
+    coords.push({ x: 2.0, y: 3.0, z: 1 }, { x: 3.0, y: 3.0, z: 1 });
+    coords.push({ x: 2.0, y: 4.0, z: 1 }, { x: 3.0, y: 4.0, z: 1 });
+
+    // Waist jewel
     coords.push({ x: 2.5, y: 3.0, z: 2 });
     return VitaBoardGenerator._padToTarget(coords, targetCount);
   }
@@ -827,8 +837,8 @@ export class VitaBoardGenerator {
     const coords = [];
     // Rim
     for (let c = 2; c <= 4; c++) coords.push({ x: c * 1.0, y: 0.0, z: 0 });
-    // Neck
-    coords.push({ x: 3.0, y: 1.0, z: 0 });
+    // Neck (solid 3-wide foundation for stepped tiers)
+    for (let c = 2; c <= 4; c++) coords.push({ x: c * 1.0, y: 1.0, z: 0 });
     // Belly (wide)
     for (let r = 2; r <= 4; r++) {
       for (let c = 1; c <= 5; c++) coords.push({ x: c * 1.0, y: r * 1.0, z: 0 });
@@ -840,11 +850,30 @@ export class VitaBoardGenerator {
     coords.push({ x: 6.0, y: 3.0, z: 0 });
     // Base
     for (let c = 2; c <= 4; c++) coords.push({ x: c * 1.0, y: 5.0, z: 0 });
-    // Raised belly tiers
+
+    // Layer 1: Expanded One Layer Top (Rim & Neck)
+    coords.push({ x: 2.5, y: 0.0, z: 1 }, { x: 3.5, y: 0.0, z: 1 });
+    coords.push({ x: 2.5, y: 1.0, z: 1 }, { x: 3.5, y: 1.0, z: 1 });
+    coords.push({ x: 3.0, y: 1.0, z: 1 });
+
+    // Layer 1: Raised Belly Tiers
     for (let r = 2; r <= 4; r++) {
       for (let c = 2; c <= 4; c++) coords.push({ x: c * 1.0, y: r * 1.0, z: 1 });
     }
+
+    // Layer 1: Expanded One Layer Below (Pedestal Base)
+    coords.push({ x: 2.5, y: 4.5, z: 1 }, { x: 3.5, y: 4.5, z: 1 });
+    coords.push({ x: 2.5, y: 5.0, z: 1 }, { x: 3.5, y: 5.0, z: 1 });
+    coords.push({ x: 3.0, y: 5.0, z: 1 });
+
+    // Layer 2: Stepped Spine connecting neck, belly, and pedestal base
+    coords.push({ x: 3.0, y: 1.0, z: 2 });
+    coords.push({ x: 3.0, y: 2.0, z: 2 });
     coords.push({ x: 3.0, y: 3.0, z: 2 });
+    coords.push({ x: 3.0, y: 4.0, z: 2 });
+    coords.push({ x: 3.0, y: 5.0, z: 2 });
+
+    // Layer 3: Central Apex Bindu
     coords.push({ x: 3.0, y: 3.0, z: 3 });
     return VitaBoardGenerator._padToTarget(coords, targetCount);
   }

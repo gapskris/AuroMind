@@ -8856,7 +8856,7 @@ body:has(.stage-clear-overlay.active) .toast-banner,
                                 <h3 class="rh-card-title">20 SACRED REALMS</h3>
                                 <span class="rh-card-badge">1,000 Levels · 20 Themes</span>
                             </div>
-                            <p class="rh-card-desc">Grand Odyssey through 20 Thematic Environments with 320 Dedicated 3D Motifs</p>
+                            <p class="rh-card-desc">Grand Odyssey through 20 Thematic Environments with 1,440 Dedicated 3D Motifs</p>
                             <div class="rh-card-footer">
                                 <div class="rh-progress-wrap">
                                     <div class="rh-progress-bar"><div class="rh-progress-fill" id="hub-prog-realms" style="width: 5%; background: linear-gradient(90deg, #0284c7, #0369a1);"></div></div>
@@ -57826,11 +57826,21 @@ class VitaBoardGenerator {
         if (c >= minC - 1 && c <= maxC) coords.push({ x: c * 1.0, y: r * 1.0, z: 0 });
       }
     }
-    for (let c = 0; c < W; c++) {
-      coords.push({ x: c * 1.0, y: 0, z: 1 });
-      coords.push({ x: c * 1.0, y: H - 1, z: 1 });
+    // Stepped upper and lower rims
+    for (let c = 1; c <= 4; c++) {
+      coords.push({ x: c * 1.0, y: 0.0, z: 1 });
+      coords.push({ x: c * 1.0, y: (H - 1) * 1.0, z: 1 });
     }
-    coords.push({ x: 2.5, y: 3.0, z: 1 });
+    // Stepped inner funnels & central waist
+    for (let c = 1; c <= 4; c++) {
+      coords.push({ x: c * 1.0, y: 1.0, z: 1 });
+      coords.push({ x: c * 1.0, y: 5.0, z: 1 });
+    }
+    coords.push({ x: 2.0, y: 2.0, z: 1 }, { x: 3.0, y: 2.0, z: 1 });
+    coords.push({ x: 2.0, y: 3.0, z: 1 }, { x: 3.0, y: 3.0, z: 1 });
+    coords.push({ x: 2.0, y: 4.0, z: 1 }, { x: 3.0, y: 4.0, z: 1 });
+
+    // Waist jewel
     coords.push({ x: 2.5, y: 3.0, z: 2 });
     return VitaBoardGenerator._padToTarget(coords, targetCount);
   }
@@ -58028,8 +58038,8 @@ class VitaBoardGenerator {
     const coords = [];
     // Rim
     for (let c = 2; c <= 4; c++) coords.push({ x: c * 1.0, y: 0.0, z: 0 });
-    // Neck
-    coords.push({ x: 3.0, y: 1.0, z: 0 });
+    // Neck (solid 3-wide foundation for stepped tiers)
+    for (let c = 2; c <= 4; c++) coords.push({ x: c * 1.0, y: 1.0, z: 0 });
     // Belly (wide)
     for (let r = 2; r <= 4; r++) {
       for (let c = 1; c <= 5; c++) coords.push({ x: c * 1.0, y: r * 1.0, z: 0 });
@@ -58041,11 +58051,30 @@ class VitaBoardGenerator {
     coords.push({ x: 6.0, y: 3.0, z: 0 });
     // Base
     for (let c = 2; c <= 4; c++) coords.push({ x: c * 1.0, y: 5.0, z: 0 });
-    // Raised belly tiers
+
+    // Layer 1: Expanded One Layer Top (Rim & Neck)
+    coords.push({ x: 2.5, y: 0.0, z: 1 }, { x: 3.5, y: 0.0, z: 1 });
+    coords.push({ x: 2.5, y: 1.0, z: 1 }, { x: 3.5, y: 1.0, z: 1 });
+    coords.push({ x: 3.0, y: 1.0, z: 1 });
+
+    // Layer 1: Raised Belly Tiers
     for (let r = 2; r <= 4; r++) {
       for (let c = 2; c <= 4; c++) coords.push({ x: c * 1.0, y: r * 1.0, z: 1 });
     }
+
+    // Layer 1: Expanded One Layer Below (Pedestal Base)
+    coords.push({ x: 2.5, y: 4.5, z: 1 }, { x: 3.5, y: 4.5, z: 1 });
+    coords.push({ x: 2.5, y: 5.0, z: 1 }, { x: 3.5, y: 5.0, z: 1 });
+    coords.push({ x: 3.0, y: 5.0, z: 1 });
+
+    // Layer 2: Stepped Spine connecting neck, belly, and pedestal base
+    coords.push({ x: 3.0, y: 1.0, z: 2 });
+    coords.push({ x: 3.0, y: 2.0, z: 2 });
     coords.push({ x: 3.0, y: 3.0, z: 2 });
+    coords.push({ x: 3.0, y: 4.0, z: 2 });
+    coords.push({ x: 3.0, y: 5.0, z: 2 });
+
+    // Layer 3: Central Apex Bindu
     coords.push({ x: 3.0, y: 3.0, z: 3 });
     return VitaBoardGenerator._padToTarget(coords, targetCount);
   }
@@ -59075,19 +59104,16 @@ class BoardRenderer {
 
 
     // Available board area inside container (leaving slight margin for aesthetic floating)
-
     const availW = Math.max(260, containerW - 16);
 
     // Sizing Parity: Use unified stage height budget across all gameplay modes (Pairs, Triads, Botanical, Realms)
-    // and canonical grid envelope (9x6) so tile size stays uniform across themes, modes, and levels.
+    // while strictly guaranteeing that effective height NEVER exceeds physical containerH to prevent tray collisions.
     const promptDeduction = isMobile ? 24 : (isTablet ? 28 : 24);
-    const effectiveSizingH = (typeof sizingH === 'number' && sizingH > 160) ? sizingH : containerH;
-    const availH = Math.max(160, effectiveSizingH - promptDeduction - (isMobile ? 0 : 8));
-
-
+    const baseSizingH = (typeof sizingH === 'number' && sizingH > 160) ? sizingH : containerH;
+    const effectiveSizingH = Math.min(containerH, baseSizingH);
+    const availH = Math.max(120, effectiveSizingH - promptDeduction - (isMobile ? 12 : 20));
 
     const colDenominator = 1 + (colSpan - 1) * spacingFactor;
-
     const rowDenominator = 1 + (rowSpan - 1) * spacingFactor;
 
     const CANONICAL_COLS = 12;
@@ -59095,65 +59121,61 @@ class BoardRenderer {
     const canonicalColDenom = 1 + (CANONICAL_COLS - 1) * spacingFactor;
     const canonicalRowDenom = 1 + (CANONICAL_ROWS - 1) * spacingFactor;
 
-
-
     // Target coverage: 96% of width on mobile, 94% on tablet/desktop
-
     const widthCoverage = isMobile ? 0.96 : 0.94;
-
     const heightCoverage = isMobile ? 0.92 : 0.91;
 
-
-
     const maxWFromWidth = (availW * widthCoverage) / colDenominator;
-
     const maxHFromHeight = (availH * heightCoverage) / rowDenominator;
-
     const maxWFromHeight = maxHFromHeight / aspect;
 
     const canonicalWFromWidth = (availW * widthCoverage) / canonicalColDenom;
     const canonicalWFromHeight = ((availH * heightCoverage) / canonicalRowDenom) / aspect;
     const canonicalFitW = Math.floor(Math.min(canonicalWFromWidth, canonicalWFromHeight));
 
-
-
-    // Canonical tile fit clamped only by physical container bounds for extra-wide/tall formations
-
     let rawFitW = Math.floor(Math.min(canonicalFitW, maxWFromWidth, maxWFromHeight));
-
-
 
     // Dynamic width bounds across viewports (Unified parity across Pairs, Triads, Botanical, Realms)
     let minAllowed, maxAllowed;
     if (isMobile) {
-      minAllowed = isSenior ? 48 : 42;
+      minAllowed = isSenior ? 48 : 32;
       maxAllowed = isSenior ? 84 : 72;
     } else if (isTablet) {
-      minAllowed = isSenior ? 66 : 58;
+      minAllowed = isSenior ? 66 : 48;
       maxAllowed = isSenior ? 130 : 116;
     } else {
-      minAllowed = isSenior ? 70 : 60;
+      minAllowed = isSenior ? 70 : 52;
       maxAllowed = isSenior ? 144 : 126;
     }
 
-    const targetW = Math.max(minAllowed, Math.min(maxAllowed, rawFitW));
-    const width = targetW;
-    const height = Math.round(width * aspect);
+    let targetW = Math.max(minAllowed, Math.min(maxAllowed, rawFitW));
+    let width = targetW;
+    let height = Math.round(width * aspect);
+    let colSpacing = Math.round(width * spacingFactor);
+    let rowSpacing = Math.round(height * spacingFactor);
+
+    const isoScaleX = 5.0;
+    const isoScaleY = 8.0;
+
+    // Strict boundary & overflow guard: verify vertical footprint against physical container
+    const maxSafeBoardH = Math.max(100, containerH - (isMobile ? 24 : 32));
+    let estBoardH = (maxY - minY) * rowSpacing + height + Math.ceil(maxZ * isoScaleY);
+    if (estBoardH > maxSafeBoardH && estBoardH > 0) {
+      const scaleDown = maxSafeBoardH / estBoardH;
+      targetW = Math.max(isMobile ? 22 : 30, Math.floor(targetW * scaleDown));
+      width = targetW;
+      height = Math.round(width * aspect);
+      colSpacing = Math.round(width * spacingFactor);
+      rowSpacing = Math.round(height * spacingFactor);
+    }
 
     // Hero Game Icons and Typography: Scale proportionally with tile width
     const iconRatio = isSenior ? 0.58 : 0.56;
     const fontRatio = isSenior ? 0.17 : 0.155;
-    const iconSize = Math.max(24, Math.round(width * iconRatio));
-    const fontSize = Math.max(9, Math.round(width * fontRatio));
-    const colSpacing = Math.round(width * spacingFactor);
-    const rowSpacing = Math.round(height * spacingFactor);
+    const iconSize = Math.max(18, Math.round(width * iconRatio));
+    const fontSize = Math.max(8, Math.round(width * fontRatio));
     const boardTotalW = (maxX - minX) * colSpacing + width;
     const boardTotalH = (maxY - minY) * rowSpacing + height;
-
-    // Authentic 2.5D Isometric depth compensation & exact bounding box centering:
-    // Stepped layers have prominent visual elevation: isoDx = -(tile.z * 5.0) and isoDy = -(tile.z * 8.0).
-    const isoScaleX = 5.0;
-    const isoScaleY = 8.0;
 
     let minRelX = 0, maxRelX = (maxX - minX) * colSpacing + width;
     let minRelY = 0, maxRelY = (maxY - minY) * rowSpacing + height;
@@ -59175,7 +59197,7 @@ class BoardRenderer {
     const actualBoardH = maxRelY - minRelY;
 
     const minSafeOffsetX = Math.ceil(maxZ * isoScaleX) + (isMobile ? 8 : 16);
-    const minSafeOffsetY = Math.ceil(maxZ * isoScaleY) + (isMobile ? 16 : 24);
+    const minSafeOffsetY = Math.ceil(maxZ * isoScaleY) + (isMobile ? 8 : 14);
 
     let offsetX = minSafeOffsetX;
     if (containerW && containerW > actualBoardW) {
@@ -59185,6 +59207,13 @@ class BoardRenderer {
     let offsetY = minSafeOffsetY;
     if (containerH && containerH > actualBoardH) {
       offsetY = Math.max(minSafeOffsetY, Math.floor((containerH - actualBoardH) / 2) - minRelY);
+    }
+
+    // Strict boundary enforcement: Ensure bottom-most tile never exceeds containerH - safeBottomMargin
+    const safeBottomMargin = isMobile ? 8 : 16;
+    const bottomEdge = maxRelY + offsetY;
+    if (containerH && bottomEdge > containerH - safeBottomMargin) {
+      offsetY = Math.max(minSafeOffsetY, offsetY - (bottomEdge - (containerH - safeBottomMargin)));
     }
 
     return {
@@ -59202,6 +59231,7 @@ class BoardRenderer {
       offsetX, offsetY,
 
       boardTotalW, boardTotalH,
+      actualBoardW, actualBoardH,
 
       containerW, containerH,
 
@@ -59256,8 +59286,9 @@ class BoardRenderer {
 
     const _stageCol = (typeof document !== 'undefined') ? document.getElementById('center-stage-col') : null;
     const _stageH = (_stageCol && _stageCol.clientHeight > 200) ? _stageCol.clientHeight : 0;
-    const unifiedUiReserve = isMobile ? 142 : 144;
-    const unifiedSizingH = (_stageH > 200) ? Math.max(180, _stageH - unifiedUiReserve) : null;
+    const trayReserve = isTileClub ? (isMobile ? 85 : 110) : 0;
+    const unifiedUiReserve = (isMobile ? 142 : 144) + trayReserve;
+    const unifiedSizingH = (_stageH > 200) ? Math.max(160, _stageH - unifiedUiReserve) : null;
 
     let containerH;
     if (_rawH > _minHThresh) {
@@ -59266,7 +59297,7 @@ class BoardRenderer {
       if (_stageH > 200) {
         containerH = unifiedSizingH;
       } else {
-        containerH = typeof window !== 'undefined' ? Math.floor(window.innerHeight * (isMobile ? 0.58 : 0.70)) : 600;
+        containerH = typeof window !== 'undefined' ? Math.floor(window.innerHeight * (isMobile ? 0.52 : (isTileClub ? 0.58 : 0.70))) : 600;
       }
     }
 
@@ -62893,13 +62924,19 @@ class GameManager {
     let tileCount = null;
 
     if (typeof stageParam === 'number') {
-      if (!forceLevel && [12, 24, 36, 48, 60, 72, 84, 96, 108].includes(stageParam)) {
-        tileCount = stageParam;
-      } else {
+      const maxModeLevel = (this.gameplayMode === 'realms') ? TOTAL_REALM_LEVELS : TOTAL_LEVELS;
+      levelNum = Math.max(1, Math.min(maxModeLevel, stageParam));
+      this.player.currentLevel = levelNum;
+      this.savePlayerState();
+    } else if (stageParam && typeof stageParam === 'object') {
+      if (typeof stageParam.level === 'number') {
         const maxModeLevel = (this.gameplayMode === 'realms') ? TOTAL_REALM_LEVELS : TOTAL_LEVELS;
-        levelNum = Math.max(1, Math.min(maxModeLevel, stageParam));
+        levelNum = Math.max(1, Math.min(maxModeLevel, stageParam.level));
         this.player.currentLevel = levelNum;
         this.savePlayerState();
+      }
+      if (typeof stageParam.tileCount === 'number') {
+        tileCount = stageParam.tileCount;
       }
     }
 
@@ -65960,11 +65997,15 @@ const bootAuroMatchApp = () => {
     };
 
     window.setHubStandardTheme = (themeKey) => {
-        window.setStandardTheme(themeKey);
+        if (activeGameManager && activeGameManager.setStandardTheme) {
+            activeGameManager.setStandardTheme(themeKey);
+        }
         const bGold = document.getElementById('hub-btn-gold');
         const bLapis = document.getElementById('hub-btn-lapis');
         if (bGold) bGold.classList.toggle('active', themeKey === 'imperial_gold');
         if (bLapis) bLapis.classList.toggle('active', themeKey === 'royal_lapis');
+        const label = (themeKey === 'imperial_gold') ? 'Imperial Gold & Jewel Reliquary' : 'Royal Lapis & Golden Cloisonné';
+        window.showToastMessage(`✨ Standard Theme: ${label}`);
     };
 
     window.updateHeaderRealmDropdown = () => {

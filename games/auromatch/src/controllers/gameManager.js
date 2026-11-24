@@ -566,13 +566,19 @@ export class GameManager {
     let tileCount = null;
 
     if (typeof stageParam === 'number') {
-      if (!forceLevel && [12, 24, 36, 48, 60, 72, 84, 96, 108].includes(stageParam)) {
-        tileCount = stageParam;
-      } else {
+      const maxModeLevel = (this.gameplayMode === 'realms') ? TOTAL_REALM_LEVELS : TOTAL_LEVELS;
+      levelNum = Math.max(1, Math.min(maxModeLevel, stageParam));
+      this.player.currentLevel = levelNum;
+      this.savePlayerState();
+    } else if (stageParam && typeof stageParam === 'object') {
+      if (typeof stageParam.level === 'number') {
         const maxModeLevel = (this.gameplayMode === 'realms') ? TOTAL_REALM_LEVELS : TOTAL_LEVELS;
-        levelNum = Math.max(1, Math.min(maxModeLevel, stageParam));
+        levelNum = Math.max(1, Math.min(maxModeLevel, stageParam.level));
         this.player.currentLevel = levelNum;
         this.savePlayerState();
+      }
+      if (typeof stageParam.tileCount === 'number') {
+        tileCount = stageParam.tileCount;
       }
     }
 
