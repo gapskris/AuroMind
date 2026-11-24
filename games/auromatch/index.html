@@ -58125,19 +58125,24 @@ class VitaBoardGenerator {
       const k = `${x}_${y}_${z}`;
       if (!set.has(k)) { set.add(k); coords.push({ x: x * 1.0, y: y * 1.0, z }); }
     };
-    // S-curve spiral arm (22 clean non-duplicate base tiles)
-    for (let c = 0; c <= 4; c++) add(c, 0, 0);
-    for (let r = 1; r <= 2; r++) add(4, r, 0);
-    for (let c = 2; c <= 4; c++) add(c, 2, 0);
-    for (let r = 2; r <= 4; r++) add(2, r, 0);
-    for (let c = 2; c <= 6; c++) add(c, 4, 0);
-    for (let r = 0; r <= 4; r++) add(6, r, 0);
-    add(0, 1, 0);
-    add(0, 2, 0);
-    add(0, 3, 0);
-    // Raised spiral center (2 tiles, preserving even symmetry)
-    add(3, 2, 1);
-    add(3, 2, 2);
+    // Symmetrical bilateral Kundalini twin spiral arms (cx = 3.0)
+    for (let r = 1; r <= 3; r++) {
+      for (let c = 2; c <= 4; c++) add(c, r, 0);
+    }
+    for (let c = 1; c <= 5; c++) add(c, 0, 0);
+    for (let c = 1; c <= 5; c++) add(c, 4, 0);
+    for (let r = 1; r <= 3; r++) { add(0, r, 0); add(6, r, 0); }
+    add(1, 1, 0); add(5, 1, 0);
+    add(1, 3, 0); add(5, 3, 0);
+
+    // Stepped inner vortex tiers
+    for (let r = 1; r <= 3; r++) {
+      add(2.5, r, 1);
+      add(3.5, r, 1);
+    }
+    add(3.0, 1.5, 2);
+    add(3.0, 2.5, 2);
+    add(3.0, 2.0, 3);
     return VitaBoardGenerator._padToTarget(coords, targetCount);
   }
 
