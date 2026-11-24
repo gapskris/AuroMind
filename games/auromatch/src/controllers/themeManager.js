@@ -533,13 +533,93 @@ export const BOTANICAL_CAMPAIGN = {
   customTiles: null
 };
 
+// 20 Supplemental On-Disk Sanctuary Material Vaults (320 unique 3D tile PNGs across 20 folders)
+// Used to expand every theme's customTiles deck to 72 unique tiles (144-tile Pairs / 216-tile Triads capacity)
+const SUPPLEMENTAL_VAULT_META = {
+  lapis_lazuli:      { label: 'Lapis Sanctuary',      symbols: ['🔷','💠','🔹','🧿','🌌','💎','✨','⭐','🔮','🌙','☄️','🪐','🌊','❄️','🛡️','⚜️'] },
+  golden_honeycomb:  { label: 'Amber Reliquary',      symbols: ['🍯','☀️','🌻','👑','🏆','🌟','✨','🔔','🪙','🕯️','🏵️','🌼','🧡','🔥','⚡','⚜️'] },
+  celadon_jade:      { label: 'Celadon Jade',         symbols: ['🟢','🍃','🌿','🎋','🪷','🌱','☘️','🐢','🐉','🌲','🍏','💚','🧪','⛰️','🌊','✨'] },
+  amethyst_geode:    { label: 'Amethyst Geode',       symbols: ['🔮','🟣','🍇','🪻','🌌','✨','💎','🔯','🌙','⭐','🪐','🎆','🪷','🦋','👑','⚜️'] },
+  aegean_seaglass:   { label: 'Aegean Seaglass',      symbols: ['🌊','🐚','🐬','⚓','🫧','💧','🩵','🏝️','⛵','🪸','🐟','🔱','🌙','✨','💎','🧭'] },
+  celestial_opal:    { label: 'Celestial Opal',       symbols: ['⚪','🌈','✨','💫','🌟','💎','🔮','🌙','☁️','🕊️','🪷','❄️','🫧','⭐','🪐','☀️'] },
+  desert_sandstone:  { label: 'Desert Sandstone',     symbols: ['🏜️','☀️','🐪','🏺','⏳','🪨','🌾','🌅','🔥','🧭','🏛️','🪙','🌵','🦅','✨','🛡️'] },
+  kyoto_bamboo:      { label: 'Kyoto Bamboo',         symbols: ['🎋','🍃','🌿','🍵','🏯','🪨','🌊','🪷','🌱','🦢','🎐','⛩️','🌲','☘️','✨','🌕'] },
+  kyoto_porcelain:   { label: 'Kyoto Porcelain',      symbols: ['🏺','🍵','🪷','🌸','🦢','🌊','☁️','⚪','🎐','🏯','✨','💠','🕊️','🌙','🎋','🏵️'] },
+  midnight_obsidian: { label: 'Midnight Obsidian',    symbols: ['🌑','🖤','✨','⚡','🌌','💎','🛡️','🗡️','🔮','🌙','⭐','🪐','🔥','👑','⚜️','🦅'] },
+  moroccan_zellige:  { label: 'Zellige Mosaic',       symbols: ['💠','🔷','🔶','🏵️','✨','⭐','🕌','🏺','🧭','☀️','🌙','💎','⚜️','🛡️','🔔','🕯️'] },
+  murano_crystal:    { label: 'Murano Crystal',       symbols: ['💎','🔮','🌈','✨','🫧','💧','🔷','🩷','🩵','🌟','🕯️','🍷','🪷','🦋','👑','⭐'] },
+  nacre_pearl:       { label: 'Nacre Mother-of-Pearl',symbols: ['🦪','⚪','🐚','✨','🌙','🕊️','🪷','💧','🫧','🌊','💎','🦢','☁️','⭐','🌸','👑'] },
+  nordic_pine:       { label: 'Nordic Pine',          symbols: ['🌲','🪵','🍃','🦌','❄️','⛰️','🍂','🌰','🍄','🌿','🔥','🏕️','🦅','🌊','✨','🌱'] },
+  river_basalt:      { label: 'River Basalt',         symbols: ['🪨','🌊','💧','⛰️','🍃','🎋','🐢','🐟','🌑','⚖️','🧘','🌱','🫧','🏛️','✨','🌙'] },
+  rose_alabaster:    { label: 'Rose Alabaster',       symbols: ['🌹','🌸','🪷','🌺','🩷','🌷','🦋','🕊️','✨','💎','🕯️','🦢','💌','🏵️','🌙','👑'] },
+  sandalwood_teak:   { label: 'Sandalwood Teak',      symbols: ['🪵','🌳','🍂','🌰','🕯️','📿','🪷','🔥','🏺','📜','🌿','🕰️','🛎️','☀️','✨','🏛️'] },
+  silver_granite:    { label: 'Silver Granite',       symbols: ['🪨','⛰️','🛡️','⚔️','🏛️','⚪','❄️','💎','🧭','⚖️','🦅','🌙','✨','🔔','🗿','👑'] },
+  smoked_topaz:      { label: 'Smoked Topaz',         symbols: ['🟠','💎','🔥','☀️','🍯','🏺','🪙','🕯️','🌅','🍂','🦁','👑','✨','⚡','🛡️','⚜️'] },
+  tuscan_terracotta: { label: 'Tuscan Terracotta',    symbols: ['🏺','🧱','☀️','🌻','🍇','🫒','🌾','🏛️','🔥','🍂','🌅','🕯️','🪙','🌿','✨','🏵️'] }
+};
+
+const THEME_EXPANSION_VAULTS = {
+  standard_gold:             ['golden_honeycomb', 'smoked_topaz', 'nacre_pearl', 'desert_sandstone'],
+  standard_lapis:            ['lapis_lazuli', 'midnight_obsidian', 'moroccan_zellige', 'murano_crystal'],
+  botanical_art:             ['rose_alabaster', 'kyoto_bamboo', 'celadon_jade', 'kyoto_porcelain'],
+  whispering_pines:          ['nordic_pine', 'sandalwood_teak', 'kyoto_bamboo', 'celadon_jade'],
+  temple_of_lines:           ['river_basalt', 'silver_granite', 'kyoto_porcelain', 'moroccan_zellige'],
+  biblios_wisdom:            ['sandalwood_teak', 'golden_honeycomb', 'desert_sandstone', 'smoked_topaz'],
+  celestial_starlight:       ['lapis_lazuli', 'midnight_obsidian', 'celestial_opal', 'amethyst_geode'],
+  golden_nebula:             ['golden_honeycomb', 'smoked_topaz', 'celestial_opal', 'murano_crystal'],
+  spirit_altar:              ['nacre_pearl', 'rose_alabaster', 'kyoto_porcelain', 'celestial_opal'],
+  sacred_sanctuary:          ['rose_alabaster', 'celadon_jade', 'nacre_pearl', 'golden_honeycomb'],
+  ocean_horizon:             ['aegean_seaglass', 'lapis_lazuli', 'nacre_pearl', 'river_basalt'],
+  terracotta_earth:          ['tuscan_terracotta', 'desert_sandstone', 'sandalwood_teak', 'smoked_topaz'],
+  floral_harmony:            ['rose_alabaster', 'murano_crystal', 'kyoto_porcelain', 'celadon_jade'],
+  blooming_mandala:          ['moroccan_zellige', 'amethyst_geode', 'golden_honeycomb', 'rose_alabaster'],
+  sacred_spiral:             ['celadon_jade', 'aegean_seaglass', 'celestial_opal', 'lapis_lazuli'],
+  master_sanctuary:          ['celestial_opal', 'nacre_pearl', 'golden_honeycomb', 'kyoto_porcelain'],
+  lotus_pond:                ['kyoto_porcelain', 'aegean_seaglass', 'rose_alabaster', 'celadon_jade'],
+  granite_monolith:          ['silver_granite', 'river_basalt', 'midnight_obsidian', 'desert_sandstone'],
+  sandalwood_amber:          ['sandalwood_teak', 'smoked_topaz', 'golden_honeycomb', 'tuscan_terracotta'],
+  obsidian_vault:            ['midnight_obsidian', 'river_basalt', 'amethyst_geode', 'silver_granite'],
+  golden_harvest:            ['golden_honeycomb', 'desert_sandstone', 'tuscan_terracotta', 'smoked_topaz'],
+  opal_aurora:               ['celestial_opal', 'murano_crystal', 'amethyst_geode', 'aegean_seaglass'],
+  bodhi_grove:               ['kyoto_bamboo', 'nordic_pine', 'celadon_jade', 'sandalwood_teak'],
+  child_sensory_prism:       ['murano_crystal', 'celestial_opal', 'rose_alabaster', 'aegean_seaglass', 'golden_honeycomb'],
+  child_nature_wonder:       ['nordic_pine', 'kyoto_bamboo', 'celadon_jade', 'sandalwood_teak', 'tuscan_terracotta'],
+  child_spatial_logic:       ['moroccan_zellige', 'silver_granite', 'river_basalt', 'kyoto_porcelain', 'lapis_lazuli'],
+  child_kindred_empathy:     ['rose_alabaster', 'nacre_pearl', 'golden_honeycomb', 'smoked_topaz', 'celestial_opal'],
+  child_celestial_curiosity: ['lapis_lazuli', 'amethyst_geode', 'midnight_obsidian', 'celestial_opal', 'murano_crystal']
+};
+
+const CHILD_PRIMARY_FOLDER = {
+  child_sensory_prism: 'murano_crystal',
+  child_nature_wonder: 'nordic_pine',
+  child_spatial_logic: 'moroccan_zellige',
+  child_kindred_empathy: 'rose_alabaster',
+  child_celestial_curiosity: 'lapis_lazuli'
+};
+
+const TIER_SUFFIXES = ['Emerald Inlay', 'Ruby Inlay', 'Sapphire Inlay', 'Imperial Inlay'];
+
+export const TARGET_THEME_TILE_COUNT = 72;
+
 function buildCustomTilesForTheme(themeId) {
-  const defs = THEME_TILE_DEFS[themeId] || THEME_TILE_DEFS.whispering_pines;
-  return defs.map((d, idx) => ({
-    name: d.name,
-    image: `./Assets/themes/${themeId}/tile_${String(idx + 1).padStart(2, '0')}.png`,
-    symbol: d.symbol
-  }));
+  const baseDefs = THEME_TILE_DEFS[themeId] || THEME_TILE_DEFS.whispering_pines;
+  const primaryFolder = CHILD_PRIMARY_FOLDER[themeId] || themeId;
+  const result = [];
+  for (let i = 0; i < TARGET_THEME_TILE_COUNT; i++) {
+    const baseDef = baseDefs[i % baseDefs.length];
+    const tier = Math.floor(i / baseDefs.length);
+    const tileNum = String(i + 1).padStart(2, '0');
+    const name = (tier === 0)
+      ? baseDef.name
+      : `${baseDef.name} · ${TIER_SUFFIXES[(tier - 1) % TIER_SUFFIXES.length]}`;
+    result.push({
+      name,
+      image: `./Assets/themes/${primaryFolder}/tile_${tileNum}.png`,
+      symbol: baseDef.symbol,
+      sourceFolder: primaryFolder
+    });
+  }
+  return result;
 }
 
 BOTANICAL_CAMPAIGN.customTiles = buildCustomTilesForTheme('botanical_art');

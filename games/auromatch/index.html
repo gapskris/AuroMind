@@ -8846,28 +8846,7 @@ body:has(.stage-clear-overlay.active) .toast-banner,
                         </div>
                     </div>
 
-                    <!-- Card 3: Botanical Art Campaign -->
-                    <div class="realm-hub-card" id="hub-card-botanical" onclick="window.selectHubMode('botanical')">
-                        <div class="rh-card-icon-wrap" style="background: linear-gradient(135deg, #dcfce7, #bbf7d0); border-color: #10b981;">
-                            <span class="rh-card-icon">🌸</span>
-                        </div>
-                        <div class="rh-card-body">
-                            <div class="rh-card-header">
-                                <h3 class="rh-card-title">BOTANICAL ART</h3>
-                                <span class="rh-card-badge" id="hub-badge-botanical">1 / 200 Levels</span>
-                            </div>
-                            <p class="rh-card-desc">200 Progressive Levels across 4 Sacred Chapters with 24 Master 3D Flora Artworks</p>
-                            <div class="rh-card-footer">
-                                <div class="rh-progress-wrap">
-                                    <div class="rh-progress-bar"><div class="rh-progress-fill" id="hub-prog-botanical" style="width: 1%; background: linear-gradient(90deg, #10b981, #059669);"></div></div>
-                                    <span class="rh-progress-label" id="hub-prog-label-botanical">Chapter 1</span>
-                                </div>
-                                <button class="rh-card-enter-btn" style="background: linear-gradient(135deg, #10b981, #047857);">ENTER REALM ➔</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Card 4: 20 Sacred Realms -->
+                    <!-- Card 3: 20 Sacred Realms -->
                     <div class="realm-hub-card" id="hub-card-realms" onclick="window.selectHubMode('realms')">
                         <div class="rh-card-icon-wrap" style="background: linear-gradient(135deg, #e0f2fe, #bae6fd); border-color: #0284c7;">
                             <span class="rh-card-icon">🗺️</span>
@@ -9121,7 +9100,6 @@ body:has(.stage-clear-overlay.active) .toast-banner,
             <div class="mode-toggle-bar">
                 <button class="mode-btn active" id="btn-mode-vita" onclick="window.switchGameplayMode('vita')" title="Pairs Campaign (400 Levels)">🪷 Pairs</button>
                 <button class="mode-btn" id="btn-mode-tileclub" onclick="window.switchGameplayMode('tile_club')" title="Triad Match-3 Flow (7-Slot Tray)">📥 Triads</button>
-                <button class="mode-btn mode-btn-botanical" id="btn-mode-botanical" onclick="window.switchGameplayMode('botanical')" title="🌸 Botanical Art Campaign (200 Levels)">🌸 Botanical<span class="mode-word-art"> Art</span></button>
                 <button class="mode-btn mode-btn-realms" id="btn-mode-realms" onclick="window.switchGameplayMode('realms')" title="20 Thematic Realms (1,000 Levels)">🗺️ Realms</button>
                 <button class="senior-toggle-btn" id="btn-toggle-senior" onclick="window.toggleSeniorViewMode()" title="Toggle Senior View (aA)" aria-label="Toggle Senior View aA">aA</button>
             </div>
@@ -60823,41 +60801,36 @@ const THEME_EXPANSION_VAULTS = {
   child_celestial_curiosity: ['lapis_lazuli', 'amethyst_geode', 'midnight_obsidian', 'celestial_opal', 'murano_crystal']
 };
 
+const CHILD_PRIMARY_FOLDER = {
+  child_sensory_prism: 'murano_crystal',
+  child_nature_wonder: 'nordic_pine',
+  child_spatial_logic: 'moroccan_zellige',
+  child_kindred_empathy: 'rose_alabaster',
+  child_celestial_curiosity: 'lapis_lazuli'
+};
+
+const TIER_SUFFIXES = ['Emerald Inlay', 'Ruby Inlay', 'Sapphire Inlay', 'Imperial Inlay'];
+
 const TARGET_THEME_TILE_COUNT = 72;
 
 function buildCustomTilesForTheme(themeId) {
-  const defs = THEME_TILE_DEFS[themeId] || THEME_TILE_DEFS.whispering_pines;
-  const isChildTheme = themeId.startsWith('child_');
-  const vaults = THEME_EXPANSION_VAULTS[themeId] || ['golden_honeycomb', 'lapis_lazuli', 'celadon_jade', 'rose_alabaster'];
-  const primaryFolder = isChildTheme ? vaults[0] : themeId;
-
-  const result = defs.map((d, idx) => ({
-    name: d.name,
-    image: `./Assets/themes/${primaryFolder}/tile_${String(idx + 1).padStart(2, '0')}.png`,
-    symbol: d.symbol,
-    sourceFolder: primaryFolder
-  }));
-
-  const usedImages = new Set(result.map(t => t.image));
-  const suppVaults = isChildTheme ? vaults.slice(1) : vaults;
-
-  for (const vFolder of suppVaults) {
-    const meta = SUPPLEMENTAL_VAULT_META[vFolder] || { label: vFolder, symbols: ['✨'] };
-    for (let i = 1; i <= 16 && result.length < TARGET_THEME_TILE_COUNT; i++) {
-      const imgPath = `./Assets/themes/${vFolder}/tile_${String(i).padStart(2, '0')}.png`;
-      if (!usedImages.has(imgPath)) {
-        usedImages.add(imgPath);
-        result.push({
-          name: `${meta.label} · Emblem ${i}`,
-          image: imgPath,
-          symbol: meta.symbols[(i - 1) % meta.symbols.length],
-          sourceFolder: vFolder
-        });
-      }
-    }
-    if (result.length >= TARGET_THEME_TILE_COUNT) break;
+  const baseDefs = THEME_TILE_DEFS[themeId] || THEME_TILE_DEFS.whispering_pines;
+  const primaryFolder = CHILD_PRIMARY_FOLDER[themeId] || themeId;
+  const result = [];
+  for (let i = 0; i < TARGET_THEME_TILE_COUNT; i++) {
+    const baseDef = baseDefs[i % baseDefs.length];
+    const tier = Math.floor(i / baseDefs.length);
+    const tileNum = String(i + 1).padStart(2, '0');
+    const name = (tier === 0)
+      ? baseDef.name
+      : `${baseDef.name} · ${TIER_SUFFIXES[(tier - 1) % TIER_SUFFIXES.length]}`;
+    result.push({
+      name,
+      image: `./Assets/themes/${primaryFolder}/tile_${tileNum}.png`,
+      symbol: baseDef.symbol,
+      sourceFolder: primaryFolder
+    });
   }
-
   return result;
 }
 
@@ -62486,7 +62459,7 @@ function formatTimeMMSS(sec) {
 
 class GameManager {
   constructor(options = {}) {
-    this.gameplayMode = (options.gameplayMode === 'classic') ? 'vita' : (options.gameplayMode || 'vita'); // 'vita' | 'tile_club'
+    this.gameplayMode = (options.gameplayMode === 'classic' || options.gameplayMode === 'botanical') ? 'vita' : (options.gameplayMode || 'vita'); // 'vita' | 'tile_club' | 'realms'
     this.standardTheme = this.loadStandardTheme(); // 'imperial_gold' | 'royal_lapis'
     this.seniorView = (options.seniorView !== undefined) 
       ? !!options.seniorView 
@@ -63107,7 +63080,9 @@ class GameManager {
   }
 
   setGameplayMode(mode) {
-    if (mode === 'classic') mode = 'vita'; // Backward compatibility alias
+    if (mode === 'botanical') mode = 'vita'; // Botanical Art retired; safely redirect to Pairs
+    if (mode === 'classic' || mode === 'pairs') mode = 'vita'; // Backward compatibility alias
+    if (mode === 'triads' || mode === 'triad') mode = 'tile_club'; // Backward compatibility alias
     if (this.gameplayMode === mode && this.tiles && this.tiles.length > 0) return;
 
     if (!this.player.modeLevels) {
@@ -64291,12 +64266,9 @@ const bootAuroMatchApp = () => {
         const btnVita = document.getElementById('btn-mode-vita');
         const btnTileClub = document.getElementById('btn-mode-tileclub');
         const btnRealms = document.getElementById('btn-mode-realms');
-        const btnBotanical = document.getElementById('btn-mode-botanical');
-        [btnVita, btnTileClub, btnRealms, btnBotanical].forEach(b => { if (b) b.classList.remove('active'); });
+        [btnVita, btnTileClub, btnRealms].forEach(b => { if (b) b.classList.remove('active'); });
 
-        if (state.gameplayMode === 'botanical' && btnBotanical) {
-            btnBotanical.classList.add('active');
-        } else if ((state.gameplayMode === 'vita' || state.gameplayMode === 'classic') && btnVita) {
+        if ((state.gameplayMode === 'vita' || state.gameplayMode === 'classic') && btnVita) {
             btnVita.classList.add('active');
         } else if (state.gameplayMode === 'tile_club' && btnTileClub) {
             btnTileClub.classList.add('active');
@@ -64327,9 +64299,7 @@ const bootAuroMatchApp = () => {
         const promptEl = document.getElementById('gameplay-prompt');
         if (promptEl) {
             const formBadge = state.formationName ? ` · ${state.formationName}` : '';
-            if (state.gameplayMode === 'botanical') {
-                promptEl.innerHTML = `<span>🌸 Botanical Art · Level ${state.currentLevel || 1}${formBadge}</span>`;
-            } else if (state.gameplayMode === 'realms') {
+            if (state.gameplayMode === 'realms') {
                 const realmName = state.activeRealm ? state.activeRealm.name : 'Thematic Realm';
                 promptEl.innerHTML = `<span>🗺️ ${realmName}${formBadge}</span>`;
             } else if (state.gameplayMode === 'vita' || state.gameplayMode === 'classic') {
@@ -64981,20 +64951,15 @@ const bootAuroMatchApp = () => {
     };
 
     window.switchGameplayMode = (mode) => {
-        if (mode === 'botanical') {
-            activeGameManager.setGameplayMode('botanical');
-            window.showToastMessage("🌸 Botanical Art: 200 progressive levels of authentic Indian folk art & cloisonné 3D tiles!");
+        if (mode === 'botanical' || mode === 'classic' || mode === 'vita') {
+            activeGameManager.setGameplayMode('vita');
+            window.showToastMessage("🪷 Pairs Campaign: 400 progressive architectural puzzles with vibrant hero game icons!");
             return;
         }
         if (mode === 'realms') {
             activeGameManager.setGameplayMode('realms');
             window.showToastMessage("🗺️ 20 Grand Realms: 1,000 Levels (50 per Chapter) with Dedicated 3D Tile Sets & Environmental Sanctuaries!");
             window.openRealmsBrowser();
-            return;
-        }
-        if (mode === 'classic' || mode === 'vita') {
-            activeGameManager.setGameplayMode('vita');
-            window.showToastMessage("🪷 Pairs Campaign: 400 progressive architectural puzzles with vibrant hero game icons!");
             return;
         }
         activeGameManager.setGameplayMode(mode);
@@ -66017,9 +65982,6 @@ const bootAuroMatchApp = () => {
         if (mode === 'tile_club') {
             if (iconEl) iconEl.textContent = '📥';
             textEl.textContent = 'Triads (Match-3)';
-        } else if (mode === 'botanical') {
-            if (iconEl) iconEl.textContent = '🌸';
-            textEl.textContent = 'Botanical Art';
         } else if (mode === 'realms') {
             if (iconEl) iconEl.textContent = '🗺️';
             const realm = activeGameManager.currentRealm;
@@ -66055,17 +66017,7 @@ const bootAuroMatchApp = () => {
         if (progPairs) progPairs.style.width = `${Math.max(1, pctPairs)}%`;
         if (progLblPairs) progLblPairs.innerText = `${pctPairs}% Completed`;
 
-        // 2. Botanical
-        const badgeBot = document.getElementById('hub-badge-botanical');
-        const progBot = document.getElementById('hub-prog-botanical');
-        const progLblBot = document.getElementById('hub-prog-label-botanical');
-        const ch = Math.ceil(lvl / 50) || 1;
-        if (badgeBot) badgeBot.innerText = `${lvl} / 200 Levels`;
-        const pctBot = Math.min(100, Math.round((lvl / 200) * 100));
-        if (progBot) progBot.style.width = `${Math.max(1, pctBot)}%`;
-        if (progLblBot) progLblBot.innerText = `Chapter ${ch}`;
-
-        // 3. Realms
+        // 2. Realms
         const progRealms = document.getElementById('hub-prog-realms');
         const progLblRealms = document.getElementById('hub-prog-label-realms');
         const unlockedRealms = Math.min(20, Math.ceil(lvl / 50));

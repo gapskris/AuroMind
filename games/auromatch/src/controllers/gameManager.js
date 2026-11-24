@@ -25,7 +25,7 @@ import {
 } from '../ui/particles.js';
 import { ThemeManager, REALMS, TOTAL_REALM_LEVELS, TOTAL_CLASSIC_LEVELS, TOTAL_BOTANICAL_LEVELS, TOTAL_PAIRS_LEVELS } from './themeManager.js';
 
-export const TOTAL_LEVELS = 520;
+export const TOTAL_LEVELS = 1000;
 export { TOTAL_PAIRS_LEVELS, TOTAL_CLASSIC_LEVELS, TOTAL_BOTANICAL_LEVELS };
 
 export const RANKS = [
@@ -35,7 +35,7 @@ export const RANKS = [
   { name: 'Discerner', symbol: '⭐', minLevel: 111, maxLevel: 175 },
   { name: 'Sage', symbol: '🌟', minLevel: 176, maxLevel: 240 },
   { name: 'Explorer', symbol: '💫', minLevel: 241, maxLevel: 300 },
-  { name: 'Luminous', symbol: '✨', minLevel: 301, maxLevel: 520 }
+  { name: 'Luminous', symbol: '✨', minLevel: 301, maxLevel: 1000 }
 ];
 
 export function getRankForLevel(level) {
@@ -132,7 +132,7 @@ export function formatTimeMMSS(sec) {
 
 export class GameManager {
   constructor(options = {}) {
-    this.gameplayMode = (options.gameplayMode === 'classic') ? 'vita' : (options.gameplayMode || 'vita'); // 'vita' | 'tile_club'
+    this.gameplayMode = (options.gameplayMode === 'classic' || options.gameplayMode === 'botanical') ? 'vita' : (options.gameplayMode || 'vita'); // 'vita' | 'tile_club' | 'realms'
     this.standardTheme = this.loadStandardTheme(); // 'imperial_gold' | 'royal_lapis'
     this.seniorView = (options.seniorView !== undefined) 
       ? !!options.seniorView 
@@ -406,7 +406,7 @@ export class GameManager {
         localStorage.setItem('auromatch_player_state', JSON.stringify(payload));
         localStorage.setItem('auromatch_level_index', String(this.player.currentLevel || 1));
         localStorage.setItem('auromatch_sparks_balance', String(this.player.sparks || 100));
-        localStorage.setItem('auromatch_gameplay_mode', this.gameplayMode || 'botanical');
+        localStorage.setItem('auromatch_gameplay_mode', this.gameplayMode || 'vita');
         localStorage.setItem('auromatch_mode_levels', JSON.stringify(this.player.modeLevels));
         setItemAsync('auromatch_player_state', payload);
 
@@ -569,7 +569,8 @@ export class GameManager {
       if (!forceLevel && [12, 24, 36, 48, 60, 72, 84, 96, 108].includes(stageParam)) {
         tileCount = stageParam;
       } else {
-        levelNum = Math.max(1, Math.min(TOTAL_LEVELS, stageParam));
+        const maxModeLevel = (this.gameplayMode === 'realms') ? TOTAL_REALM_LEVELS : TOTAL_LEVELS;
+        levelNum = Math.max(1, Math.min(maxModeLevel, stageParam));
         this.player.currentLevel = levelNum;
         this.savePlayerState();
       }
@@ -594,20 +595,6 @@ export class GameManager {
     }
     const isTileClub = (this.gameplayMode === 'tile_club');
     const K = isTileClub ? 3 : 2;
-    let distinctFloraCount = Math.max(3, Math.floor(tileCount / K));
-    if (isBotanicalMode) {
-      if (levelNum <= 25) distinctFloraCount = Math.min(distinctFloraCount, 8);
-      else if (levelNum <= 75) distinctFloraCount = Math.min(distinctFloraCount, 16);
-      else if (levelNum <= 140) distinctFloraCount = Math.min(distinctFloraCount, 20);
-      else distinctFloraCount = Math.min(distinctFloraCount, 24);
-    }
-    const levelFlora = getTilesForLevel(levelNum, distinctFloraCount);
-
-    // Unpredictable random shape selection: pick a fresh silhouette from the 25-formation gallery
-    const formationIdx = Math.floor(Math.random() * VitaBoardGenerator.FORMATIONS.length);
-    const layout = VitaBoardGenerator.createLevelLayout(levelNum, tileCount, formationIdx);
-    this.currentFormationName = VitaBoardGenerator.getFormationName(levelNum, formationIdx);
-    this.tiles = VitaBoardGenerator.generateSolvableBoard(layout, levelFlora, isTileClub ? 'tile_club' : 'vita');
 
     // Realm & Botanical Campaign Metadata & Archetype assignment
     this.activeRealm = isRealmsMode ? ThemeManager.getRealmForLevel(levelNum) :
@@ -615,10 +602,37 @@ export class GameManager {
     const activeArch = (isRealmsMode && this.activeRealm) ? this.activeRealm.archetype :
                        (isBotanicalMode ? 'botanical' : null);
 
+    // Future-proof visual uniqueness guard:
+    // Every active theme now supplies 72 unique tiles (covering 100% of 60..144-tile boards with 1-to-1 unique art).
+    // If future levels ever exceed 144 tiles (e.g. 180+ tiles), capping distinctFloraCount at available theme artwork
+    // guarantees two identical-looking tiles on the board ALWAYS share the same floraId and can ALWAYS match.
+    const activeArtCatalog = ((isRealmsMode || isBotanicalMode) && this.activeRealm && this.activeRealm.customTiles)
+      ? this.activeRealm.customTiles
+      : (ThemeManager.getStandardTheme(this.standardTheme)?.customTiles || []);
+    const maxUniqueArt = (activeArtCatalog && activeArtCatalog.length > 0) ? activeArtCatalog.length : 72;
+    let distinctFloraCount = Math.min(maxUniqueArt, Math.max(3, Math.floor(tileCount / K)));
+    const levelFlora = getTilesForLevel(levelNum, distinctFloraCount);
+
+    // Deterministic level-seeded shape selection from the 21-formation gallery so Level N has uniform geometry across modes
+    const formationIdx = (Math.max(1, levelNum) - 1) % VitaBoardGenerator.FORMATIONS.length;
+    const layout = VitaBoardGenerator.createLevelLayout(levelNum, tileCount, formationIdx);
+    this.currentFormationName = VitaBoardGenerator.getFormationName(levelNum, formationIdx);
+    this.tiles = VitaBoardGenerator.generateSolvableBoard(layout, levelFlora, isTileClub ? 'tile_club' : 'vita');
+
+    // Order distinctFlora by highest z-layer descending so top visible tiles always display the theme's primary signature art
+    const maxZByFlora = {};
+    this.tiles.forEach(t => {
+      if (maxZByFlora[t.floraId] === undefined || t.z > maxZByFlora[t.floraId]) {
+        maxZByFlora[t.floraId] = t.z;
+      }
+    });
+    const sortedDistinctFlora = Array.from(new Set(this.tiles.map(t => t.floraId)))
+      .sort((a, b) => (maxZByFlora[b] || 0) - (maxZByFlora[a] || 0));
+
     // Apply dedicated custom artistic skins for Realms or Botanical Art
     if ((isRealmsMode || isBotanicalMode) && this.activeRealm && this.activeRealm.customTiles && this.activeRealm.customTiles.length > 0) {
       const artTiles = this.activeRealm.customTiles;
-      const distinctFlora = Array.from(new Set(this.tiles.map(t => t.floraId)));
+      const distinctFlora = sortedDistinctFlora;
       const floraToArtMap = {};
       distinctFlora.forEach((fId, idx) => {
         floraToArtMap[fId] = artTiles[idx % artTiles.length];
@@ -644,7 +658,7 @@ export class GameManager {
       // In standard modes (Pairs, Triads): Apply the active elevated shining 3D theme (Imperial Gold or Royal Lapis)
       const stdTheme = ThemeManager.getStandardTheme(this.standardTheme);
       const artTiles = stdTheme.customTiles;
-      const distinctFlora = Array.from(new Set(this.tiles.map(t => t.floraId)));
+      const distinctFlora = sortedDistinctFlora;
       const floraToArtMap = {};
       const floraToMaterialMap = {};
       distinctFlora.forEach((fId, idx) => {
@@ -676,6 +690,14 @@ export class GameManager {
         }
         t.archetype = floraToMaterialMap[t.floraId] || 'ivory';
       });
+    }
+
+    // Synchronize tray visibility in DOM BEFORE boardRenderer.setTiles() measures container dimensions
+    if (typeof document !== 'undefined') {
+      const trayContainer = document.getElementById('tray-container');
+      if (trayContainer) {
+        trayContainer.style.display = (this.gameplayMode === 'tile_club' || this.isEpiphanyLevelActive) ? 'flex' : 'none';
+      }
     }
 
     if (this.boardRenderer) {
@@ -731,6 +753,7 @@ export class GameManager {
   }
 
   setGameplayMode(mode) {
+    if (mode === 'botanical') mode = 'vita'; // Botanical Art retired; safely redirect to Pairs
     if (mode === 'classic' || mode === 'pairs') mode = 'vita'; // Backward compatibility alias
     if (mode === 'triads' || mode === 'triad') mode = 'tile_club'; // Backward compatibility alias
     if (this.gameplayMode === mode && this.tiles && this.tiles.length > 0) return;

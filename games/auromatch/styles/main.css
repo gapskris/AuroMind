@@ -3178,11 +3178,18 @@ body {
 }
 
 .tile-element.tile-authentic-art .tile-art-img {
-    width: calc(100% - 4px) !important;
-    height: calc(100% - 4px) !important;
-    object-fit: contain !important;
-    border-radius: 7px !important;
-    display: block !important;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    border-radius: 8px !important;
+    display: block;
+    transform: scale(var(--tile-img-scale, 1.24));
+    transform-origin: center center;
+}
+
+.tile-element.tile-authentic-art .tile-art-img.tile-img-hidden,
+.tile-element.tile-authentic-art .tile-art-img[style*="display: none"] {
+    display: none !important;
 }
 
 
@@ -3213,7 +3220,7 @@ body {
 
     height: 100%;
 
-    object-fit: fill;
+    object-fit: cover;
 
     display: block;
 
@@ -3243,7 +3250,7 @@ body {
 
     filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.55)) brightness(1.10);
 
-    transform: translateY(-2px);
+    transform: translateY(-2px) scale(calc(var(--tile-img-scale, 1.24) * 1.03));
 
 }
 
@@ -3253,7 +3260,7 @@ body {
 
     filter: drop-shadow(0 0 16px rgba(251, 191, 36, 0.95)) brightness(1.25);
 
-    transform: translateY(-6px) scale(1.06);
+    transform: translateY(-4px) scale(calc(var(--tile-img-scale, 1.24) * 1.05));
 
 }
 
@@ -6001,6 +6008,10 @@ body[data-theme="botanical"] .app-container {
     --text-current: #fdf2f8 !important;
     --accent-current: #f472b6 !important;
     --overlay-current: rgba(4, 9, 16, 0.90) !important;
+    --tile-base-dark: #07101f !important;
+    --tile-base-rim: #be185d !important;
+    --tile-surface-bg: linear-gradient(145deg, #132442 0%, #0a1426 100%) !important;
+    --tile-border: 1.5px solid rgba(244, 114, 182, 0.65) !important;
 }
 
 /* 2. Outer Viewport Surrounding Canvas */
@@ -6369,6 +6380,7 @@ body[data-theme="royal_lapis"] .settings-modal {
     border: 1.5px solid rgba(251, 191, 36, 0.65) !important;
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5), 0 0 10px rgba(251, 191, 36, 0.25) !important;
     padding: 0 !important;
+    overflow: hidden !important;
 }
 
 [data-theme="royal_lapis"] .tray-tile-art {
@@ -6383,6 +6395,35 @@ body[data-theme="royal_lapis"] .settings-modal {
     display: block;
     border-radius: 6px;
     pointer-events: none;
+    transform: scale(var(--tile-img-scale, 1.24));
+    transform-origin: center center;
+}
+
+.golden-match-ring {
+    position: absolute;
+    pointer-events: none;
+    z-index: 2500;
+    border-radius: 50%;
+    border: 3px solid #fde047;
+    background: radial-gradient(circle, rgba(253, 224, 71, 0.55) 0%, rgba(245, 158, 11, 0.22) 50%, transparent 75%);
+    box-shadow: 0 0 22px #ffd700, 0 0 44px #f59e0b, inset 0 0 18px #fef08a;
+    transform: translate(-50%, -50%) scale(0.2);
+    animation: goldenMatchRingExpand 0.68s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes goldenMatchRingExpand {
+    0% {
+        transform: translate(-50%, -50%) scale(0.25);
+        opacity: 1;
+    }
+    55% {
+        transform: translate(-50%, -50%) scale(1.45);
+        opacity: 0.92;
+    }
+    100% {
+        transform: translate(-50%, -50%) scale(2.15);
+        opacity: 0;
+    }
 }
 
 .tray-tile-fallback {
