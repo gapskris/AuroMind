@@ -113,6 +113,20 @@ export class AuroMatchUniversalInput {
     const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
     if (activeTag === 'textarea' || activeTag === 'input') return;
 
+    // Guard: Do not trigger in-game board hotkeys if an overlay or modal dialog is currently open (Fix for DEF-05)
+    if (typeof document !== 'undefined') {
+      const activeModal = document.querySelector(
+        '.modal-overlay.active, .stage-clear-overlay.active, .realms-browser-overlay.active, .settings-modal.active, #stage-clear-modal.active, #tray-overflow-modal[style*="flex"], #level-jump-modal[style*="flex"], #epiphany-modal[style*="flex"], #realms-browser-modal[style*="flex"], #settings-screen.active-screen'
+      );
+      if (activeModal) {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          this.onAction({ type: 'TOGGLE_MENU' });
+        }
+        return;
+      }
+    }
+
     const key = event.key;
     if (key === 'u' || key === 'U') {
       event.preventDefault();

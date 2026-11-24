@@ -8287,10 +8287,23 @@ body:has(.stage-clear-overlay.active) .toast-banner,
     /* Hide verbose secondary badges — too wide for mobile header row */
     #header-iq-badge,
     #header-rank-badge,
-    #header-level-indicator,
     #header-clean-solve-badge,
     #epiphany-serenity-wrap {
         display: none !important;
+    }
+
+    /* Keep essential level indicator prominently visible on mobile (Fix for DEF-04) */
+    #header-level-indicator {
+        display: inline-flex !important;
+        flex-shrink: 0 !important;
+        white-space: nowrap !important;
+        font-size: 11px !important;
+        font-weight: 700 !important;
+        padding: 2px 7px !important;
+        background: rgba(255, 215, 0, 0.12) !important;
+        border: 1px solid rgba(255, 215, 0, 0.4) !important;
+        border-radius: 8px !important;
+        color: #ffd700 !important;
     }
 
     /* Keep remaining visible badges compact */
@@ -8301,6 +8314,13 @@ body:has(.stage-clear-overlay.active) .toast-banner,
         flex-shrink: 0 !important;
         white-space: nowrap !important;
         font-size: 11px !important;
+    }
+
+    @media (max-width: 480px) {
+        /* On ultra-narrow mobile viewports, prioritize Level, Timer, Score & Settings */
+        .hud-player-badge {
+            display: none !important;
+        }
     }
 
     /* Compact aA toggle on mobile */
@@ -9071,7 +9091,7 @@ body:has(.stage-clear-overlay.active) .toast-banner,
                     <span class="hud-player-badge" id="header-player-badge" title="Player Name">👤 <span id="header-player-name">Seeker</span></span>
                     <span class="hud-iq-badge" id="header-iq-badge" title="Focus IQ: Cognitive concentration and sharpness index">🧠 IQ: <span id="header-iq-count">80</span></span>
                     <span class="hud-rank-badge" id="header-rank-badge" data-full-title="🌱 Aspirant">🌱 Aspirant</span>
-                    <span class="hud-level-indicator" id="header-level-indicator" title="Click to Jump to Level" style="cursor: pointer;" onclick="window.openLevelJumpModal()">Level 1 / 200</span>
+                    <span class="hud-level-indicator" id="header-level-indicator" title="Click to Jump to Level" style="cursor: pointer;" onclick="window.openLevelJumpModal()">Level 1</span>
                     <span class="hud-timer-badge" id="header-timer-badge" title="Level Elapsed Time · Par Target">⏱️ <span id="header-timer-text">00:00</span></span>
                     <div class="epiphany-serenity-meter-wrap" id="epiphany-serenity-wrap" style="display: none; align-items: center; gap: 8px; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(250, 204, 21, 0.4); border-radius: 12px; padding: 2px 10px;">
                         <span style="font-size: 11px; font-weight: 700; color: #facc15;">FOCUS SERENITY: <strong id="serenity-val">100%</strong></span>
@@ -9364,14 +9384,14 @@ body:has(.stage-clear-overlay.active) .toast-banner,
             </div>
 
             <div class="setting-section">
-                <h3 style="font-family: 'Playfair Display', serif; font-size: 16px; margin-bottom: 12px; color: var(--accent-current);">Level Progression (1–200)</h3>
+                <h3 style="font-family: 'Playfair Display', serif; font-size: 16px; margin-bottom: 12px; color: var(--accent-current);">Level Progression</h3>
                 <div class="setting-row">
                     <div>
                         <div class="setting-label" style="font-weight: 700;">Jump to Level</div>
-                        <div style="font-size: 10px; opacity: 0.75; max-width: 200px;">Directly load any level from 1 to 200</div>
+                        <div style="font-size: 10px; opacity: 0.75; max-width: 200px;">Directly load any level in the campaign</div>
                     </div>
                     <div style="display: flex; gap: 8px; align-items: center;">
-                        <input type="number" id="set-jump-level-input" min="1" max="200" value="1" style="width: 60px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-current); color: #fff; padding: 4px 6px; border-radius: 6px; text-align: center; font-weight: 700;" />
+                        <input type="number" id="set-jump-level-input" min="1" max="1000" value="1" style="width: 60px; background: rgba(0,0,0,0.2); border: 1px solid var(--border-current); color: #fff; padding: 4px 6px; border-radius: 6px; text-align: center; font-weight: 700;" />
                         <button class="c-btn" onclick="window.jumpToLevel(parseInt(document.getElementById('set-jump-level-input').value, 10))" style="padding: 4px 10px; font-size: 11px; background: var(--accent-current); color: #0b1215; font-weight: 700; border-radius: 6px;">Go ▶</button>
                     </div>
                 </div>
@@ -9637,16 +9657,16 @@ body:has(.stage-clear-overlay.active) .toast-banner,
             </div>
         </div>
 
-        <!-- Level Jump Quick Modal (1–200 Campaign) -->
+        <!-- Level Jump Quick Modal -->
         <div class="modal-overlay" id="level-jump-modal" style="display: none; align-items: center; justify-content: center; z-index: 120;">
             <div class="settings-modal" style="max-width: 380px; text-align: center; border: 1px solid rgba(251, 191, 36, 0.4); box-shadow: 0 16px 36px rgba(0,0,0,0.6);">
                 <div style="font-size: 32px; margin-bottom: 4px;">🗺️</div>
-                <h3 style="font-family: 'Playfair Display', serif; font-size: 20px; color: #ffd700; margin-bottom: 4px;" id="jump-modal-title">Select Level (1–200)</h3>
-                <p style="font-size: 12px; color: #c5a880; margin-bottom: 16px;" id="jump-modal-subtitle">Jump directly to any level in the 200-Level Campaign</p>
+                <h3 style="font-family: 'Playfair Display', serif; font-size: 20px; color: #ffd700; margin-bottom: 4px;" id="jump-modal-title">Select Level</h3>
+                <p style="font-size: 12px; color: #c5a880; margin-bottom: 16px;" id="jump-modal-subtitle">Jump directly to any level in the campaign</p>
                 <div style="display: flex; gap: 6px; justify-content: center; align-items: center; margin-bottom: 16px;">
                     <button class="c-btn" onclick="window.adjustJumpLevel(-10)" style="padding: 6px 10px; font-size: 12px; font-weight: 700;">-10</button>
                     <button class="c-btn" onclick="window.adjustJumpLevel(-1)" style="padding: 6px 10px; font-size: 12px; font-weight: 700;">-1</button>
-                    <input type="number" id="quick-jump-level-input" min="1" max="200" value="1" style="width: 76px; font-size: 18px; text-align: center; font-weight: 800; background: rgba(0,0,0,0.35); border: 2px solid #ffd700; color: #fff; padding: 6px; border-radius: 8px;" />
+                    <input type="number" id="quick-jump-level-input" min="1" max="1000" value="1" style="width: 76px; font-size: 18px; text-align: center; font-weight: 800; background: rgba(0,0,0,0.35); border: 2px solid #ffd700; color: #fff; padding: 6px; border-radius: 8px;" />
                     <button class="c-btn" onclick="window.adjustJumpLevel(1)" style="padding: 6px 10px; font-size: 12px; font-weight: 700;">+1</button>
                     <button class="c-btn" onclick="window.adjustJumpLevel(10)" style="padding: 6px 10px; font-size: 12px; font-weight: 700;">+10</button>
                 </div>
@@ -58880,6 +58900,20 @@ class AuroMatchUniversalInput {
     const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
     if (activeTag === 'textarea' || activeTag === 'input') return;
 
+    // Guard: Do not trigger in-game board hotkeys if an overlay or modal dialog is currently open (Fix for DEF-05)
+    if (typeof document !== 'undefined') {
+      const activeModal = document.querySelector(
+        '.modal-overlay.active, .stage-clear-overlay.active, .realms-browser-overlay.active, .settings-modal.active, #stage-clear-modal.active, #tray-overflow-modal[style*="flex"], #level-jump-modal[style*="flex"], #epiphany-modal[style*="flex"], #realms-browser-modal[style*="flex"], #settings-screen.active-screen'
+      );
+      if (activeModal) {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          this.onAction({ type: 'TOGGLE_MENU' });
+        }
+        return;
+      }
+    }
+
     const key = event.key;
     if (key === 'u' || key === 'U') {
       event.preventDefault();
@@ -64578,11 +64612,15 @@ const bootAuroMatchApp = () => {
             if (state.gameplayMode === 'realms' && state.activeRealm) {
                 const realm = state.activeRealm;
                 const lvlName = realm.levelName ? `: ${realm.levelName}` : '';
-                levelIndicator.innerText = `Ch. ${realm.chapter || 1}: ${realm.name} · Lvl ${realm.masterLevelIndex || 1}/50${lvlName}${formStr}`;
-                levelIndicator.title = `Chapter ${realm.chapter || 1}: ${realm.name} · Level ${realm.masterLevelIndex || 1} of 15 (Click to Jump)`;
+                levelIndicator.innerText = isNarrow 
+                    ? `Ch. ${realm.chapter || 1} · Lvl ${realm.masterLevelIndex || 1}/50`
+                    : `Ch. ${realm.chapter || 1}: ${realm.name} · Lvl ${realm.masterLevelIndex || 1}/50${lvlName}${formStr}`;
+                levelIndicator.title = `Chapter ${realm.chapter || 1}: ${realm.name} · Level ${realm.masterLevelIndex || 1} of 50 (Click to Jump)`;
             } else {
-                const total = state.totalLevels || 200;
-                levelIndicator.innerText = `Level ${state.currentLevel || 1} / ${total}${formStr}`;
+                const total = state.totalLevels || (window.activeGameManager ? window.activeGameManager.getTotalLevels() : 400);
+                levelIndicator.innerText = isNarrow 
+                    ? `Lvl ${state.currentLevel || 1}/${total}`
+                    : `Level ${state.currentLevel || 1} / ${total}${formStr}`;
                 levelIndicator.title = `Current Level: ${state.currentLevel || 1} of ${total} (${state.formationName || 'Sanctuary Formation'}) · Click to Jump`;
             }
         }
@@ -64784,7 +64822,8 @@ const bootAuroMatchApp = () => {
         const vRecordEval = document.getElementById('victory-record-eval');
 
         if (vTitle) vTitle.innerText = info.isMilestone ? `🌟 Milestone Level ${info.completedLevel} Cleared!` : `Level ${info.completedLevel} Cleared!`;
-        if (vSubtitle) vSubtitle.innerText = `${info.newRank.symbol} ${info.newRank.name} · Next: Level ${info.nextLevel} / ${info.totalLevels || 200}`;
+        const totalLvlCount = info.totalLevels || (window.activeGameManager ? window.activeGameManager.getTotalLevels() : 400);
+        if (vSubtitle) vSubtitle.innerText = `${info.newRank.symbol} ${info.newRank.name} · Next: Level ${info.nextLevel} / ${totalLvlCount}`;
         if (vSparks) vSparks.innerText = `+${info.earnedSparks} ✨`;
         if (vBonusText) {
             let bonusStr = info.cleanSolve ? 'Clean Solve +5 ✨' : 'Standard Clear';
@@ -65343,6 +65382,10 @@ const bootAuroMatchApp = () => {
     };
 
     window.nextLevelStage = () => {
+        if (window._nextLevelDebounceLock) return;
+        window._nextLevelDebounceLock = true;
+        setTimeout(() => { window._nextLevelDebounceLock = false; }, 600);
+
         const modal = document.getElementById('stage-clear-modal');
         if (modal) modal.classList.remove('active');
         activeGameManager.nextLevel();
