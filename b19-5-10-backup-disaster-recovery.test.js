@@ -60,7 +60,7 @@ describe('B19.5-10: Production Safety Guards & Target Detection', () => {
     assert.equal(isProductionTarget({ target: 'development', connectionString: 'postgresql://postgres:pwd@localhost:54322/postgres', env: {} }), false);
   });
 
-  test('10.2: Refuses to target production database without explicit --force-production', () => {
+  test('10.2: Refuses to target production database; forceProduction never authorizes restore', () => {
     const resBackup = validateBackupConfiguration({ target: 'production', forceProduction: false });
     assert.equal(resBackup.allowed, false);
     assert.equal(resBackup.errorCode, 'ERR_PRODUCTION_GUARD_TRIGGERED');
@@ -73,9 +73,61 @@ describe('B19.5-10: Production Safety Guards & Target Detection', () => {
     assert.equal(resRestore.allowed, false);
     assert.equal(resRestore.errorCode, 'ERR_PRODUCTION_GUARD_TRIGGERED');
 
-    // Passing forceProduction: true allows target
+    // Passing forceProduction: true allows target for backup
     const allowedBackup = validateBackupConfiguration({ target: 'production', forceProduction: true });
     assert.equal(allowedBackup.allowed, true);
+
+    // BUT forceProduction: true NEVER authorizes restore to production
+    const forbiddenRestore = validateRestoreConfiguration({
+      target: 'production',
+      backupFile: 'backup.sql',
+      forceProduction: true
+    });
+    assert.equal(forbiddenRestore.allowed, false);
+    assert.equal(forbiddenRestore.errorCode, 'ERR_PRODUCTION_RESTORE_FORBIDDEN');
+  });
+
+  test('10.2b: Ambiguous targets rejected and actual restore requires disposable target confirmation', () => {
+    // 1. Ambiguous target rejected
+    const resAmbiguous = validateRestoreConfiguration({
+      target: '',
+      backupFile: 'backup.sql'
+    });
+    assert.equal(resAmbiguous.allowed, false);
+    assert.equal(resAmbiguous.errorCode, 'ERR_AMBIGUOUS_DATABASE_TARGET');
+
+    const resUnknown = validateRestoreConfiguration({
+      target: 'unspecified',
+      backupFile: 'backup.sql'
+    });
+    assert.equal(resUnknown.allowed, false);
+    assert.equal(resUnknown.errorCode, 'ERR_AMBIGUOUS_DATABASE_TARGET');
+
+    // 2. Non-dry-run restore requires explicit disposable target confirmation
+    const resNoConfirm = validateRestoreConfiguration({
+      target: 'development',
+      backupFile: 'backup.sql',
+      confirmDisposableTarget: false,
+      dryRun: false
+    });
+    assert.equal(resNoConfirm.allowed, false);
+    assert.equal(resNoConfirm.errorCode, 'ERR_DISPOSABLE_TARGET_CONFIRMATION_REQUIRED');
+
+    // 3. Dry-run allows preflight without disposable confirmation
+    const resDryRun = validateRestoreConfiguration({
+      target: 'development',
+      backupFile: 'backup.sql',
+      dryRun: true
+    });
+    assert.equal(resDryRun.allowed, true);
+
+    // 4. Confirmed disposable target allowed
+    const resConfirmed = validateRestoreConfiguration({
+      target: 'development',
+      backupFile: 'backup.sql',
+      confirmDisposableTarget: true
+    });
+    assert.equal(resConfirmed.allowed, true);
   });
 
   test('10.3: Path traversal sequences are blocked on backup and restore paths', () => {
@@ -163,7 +215,7 @@ describe('B19.5-10: Strict Manifest Validation & Restore Atomicity', () => {
       manifestVersion: '1.0',
       backupFile: 'test_backup.sql',
       fileSize: 999999, // Wrong size
-      checksum: 'abc',
+      checksum: 'a'.repeat(64),
       checksumAlgorithm: 'SHA-256'
     };
     const mismatchPath = path.join(TEST_TMP_DIR, 'mismatch.manifest.json');
@@ -171,6 +223,47 @@ describe('B19.5-10: Strict Manifest Validation & Restore Atomicity', () => {
     const sizeRes = validateManifestAndIntegrity(testBackup, mismatchPath);
     assert.equal(sizeRes.valid, false);
     assert.equal(sizeRes.errorCode, 'ERR_FILE_SIZE_MISMATCH');
+
+    // 4. Missing backupFile field
+    const noBackupFile = {
+      manifestVersion: '1.0',
+      fileSize: 26,
+      checksum: 'a'.repeat(64),
+      checksumAlgorithm: 'SHA-256'
+    };
+    const noBackupFilePath = path.join(TEST_TMP_DIR, 'no_file.manifest.json');
+    fs.writeFileSync(noBackupFilePath, JSON.stringify(noBackupFile), 'utf8');
+    const noFileRes = validateManifestAndIntegrity(testBackup, noBackupFilePath);
+    assert.equal(noFileRes.valid, false);
+    assert.equal(noFileRes.errorCode, 'ERR_MISSING_MANIFEST_FIELD');
+
+    // 5. Missing or invalid fileSize
+    const badFileSize = {
+      manifestVersion: '1.0',
+      backupFile: 'test_backup.sql',
+      fileSize: NaN,
+      checksum: 'a'.repeat(64),
+      checksumAlgorithm: 'SHA-256'
+    };
+    const badFileSizePath = path.join(TEST_TMP_DIR, 'bad_size.manifest.json');
+    fs.writeFileSync(badFileSizePath, JSON.stringify(badFileSize), 'utf8');
+    const badSizeRes = validateManifestAndIntegrity(testBackup, badFileSizePath);
+    assert.equal(badSizeRes.valid, false);
+    assert.equal(badSizeRes.errorCode, 'ERR_MISSING_MANIFEST_FIELD');
+
+    // 6. Invalid checksum format (not 64 hex chars)
+    const badChecksum = {
+      manifestVersion: '1.0',
+      backupFile: 'test_backup.sql',
+      fileSize: 26,
+      checksum: 'not_64_hex_characters',
+      checksumAlgorithm: 'SHA-256'
+    };
+    const badChecksumPath = path.join(TEST_TMP_DIR, 'bad_hash.manifest.json');
+    fs.writeFileSync(badChecksumPath, JSON.stringify(badChecksum), 'utf8');
+    const badHashRes = validateManifestAndIntegrity(testBackup, badChecksumPath);
+    assert.equal(badHashRes.valid, false);
+    assert.equal(badHashRes.errorCode, 'ERR_INVALID_CHECKSUM_FORMAT');
   });
 
   test('10.8: Checksum mismatch detects tampered backup dumps', () => {

@@ -84,6 +84,7 @@ export function validateRazorpayWebhookSignature({ rawBody, signature, webhookSe
 
 /**
  * In-memory reference store implementing the DurablePersistenceStore interface for tests.
+ * Clearly marked with isInMemory = true. MUST NOT be used in production.
  */
 export function createInMemoryDurableStore() {
   const orders = new Map();
@@ -92,6 +93,7 @@ export function createInMemoryDurableStore() {
   const entitlements = new Map(); // `${userId}:${sku}` -> record
 
   return {
+    isInMemory: true,
     async getOrderById(orderId) {
       return orders.get(orderId) || null;
     },
@@ -117,6 +119,15 @@ export function createInMemoryDurableStore() {
       entitlements.set(key, record);
       return true;
     },
+    async settleAndGrantEntitlement({ settlementRecord, entitlementRecord }) {
+      if (settledPayments.has(settlementRecord.paymentId)) {
+        return { ok: false, errorCode: 'ERR_PAYMENT_ALREADY_SETTLED', message: 'Payment already settled' };
+      }
+      settledPayments.set(settlementRecord.paymentId, settlementRecord);
+      const key = `${entitlementRecord.userId}:${entitlementRecord.sku}`;
+      entitlements.set(key, entitlementRecord);
+      return { ok: true };
+    },
     async revokeEntitlement(userId, sku) {
       const key = `${userId}:${sku}`;
       return entitlements.delete(key);
@@ -140,14 +151,24 @@ export function createInMemoryDurableStore() {
  * Runs strictly within authenticated backend/Edge Functions.
  */
 export function createRazorpayServerVerifier({
-  keyId,
+  keyId = null,
   keySecret,
-  webhookSecret,
-  persistenceStore = createInMemoryDurableStore(),
-  currency = 'INR'
+  webhookSecret = null,
+  persistenceStore = null,
+  currency = 'INR',
+  isProduction = process.env.NODE_ENV === 'production',
+  razorpayApiClient = null,
+  fetchFn = globalThis.fetch,
+  allowSimulatedOrders = false
 } = {}) {
   if (!keySecret) {
     throw new Error('KEY_SECRET_REQUIRED: Server verifier requires a valid keySecret.');
+  }
+  if (!persistenceStore) {
+    throw new Error('DURABLE_STORE_REQUIRED: A durable persistence store must be explicitly configured.');
+  }
+  if (isProduction && persistenceStore.isInMemory) {
+    throw new Error('IN_MEMORY_STORE_FORBIDDEN: In-memory persistence store is strictly forbidden in production.');
   }
 
   /**
@@ -181,7 +202,58 @@ export function createRazorpayServerVerifier({
       }
     }
 
-    const orderId = `order_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    let orderId;
+    let orderEntity = null;
+
+    if (razorpayApiClient && razorpayApiClient.orders && typeof razorpayApiClient.orders.create === 'function') {
+      try {
+        const apiRes = await razorpayApiClient.orders.create({
+          amount: amountInPaise,
+          currency,
+          receipt: receipt || `rcpt_${Date.now()}`,
+          notes: { userId, sku, ...notes }
+        });
+        orderId = apiRes.id;
+        orderEntity = apiRes;
+      } catch (err) {
+        return { ok: false, errorCode: 'RAZORPAY_API_ORDER_CREATION_FAILED', message: err.message };
+      }
+    } else if (fetchFn && keyId && !allowSimulatedOrders) {
+      try {
+        const basicAuth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+        const resp = await fetchFn('https://api.razorpay.com/v1/orders', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Basic ${basicAuth}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            amount: amountInPaise,
+            currency,
+            receipt: receipt || `rcpt_${Date.now()}`,
+            notes: { userId, sku, ...notes }
+          })
+        });
+        if (!resp.ok) {
+          const errBody = await resp.text().catch(() => '');
+          return { ok: false, errorCode: 'RAZORPAY_API_ORDER_CREATION_FAILED', message: `Razorpay API error: ${resp.status} ${errBody}` };
+        }
+        const data = await resp.json();
+        orderId = data.id;
+        orderEntity = data;
+      } catch (err) {
+        return { ok: false, errorCode: 'RAZORPAY_API_NETWORK_ERROR', message: err.message };
+      }
+    } else if (allowSimulatedOrders) {
+      orderId = `order_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    } else {
+      return {
+        ok: false,
+        errorCode: 'RAZORPAY_API_NOT_CONFIGURED',
+        message: 'Authoritative Razorpay order creation requires razorpayApiClient or fetchFn with keyId.'
+      };
+    }
+
     const orderRecord = Object.freeze({
       id: orderId,
       userId,
@@ -210,7 +282,8 @@ export function createRazorpayServerVerifier({
     userId,
     orderId,
     paymentId,
-    signature
+    signature,
+    paymentEntity = null
   }) {
     if (!userId || !orderId || !paymentId || !signature) {
       return { ok: false, errorCode: 'MISSING_PAYMENT_CREDENTIALS', message: 'userId, orderId, paymentId, and signature are required' };
@@ -256,7 +329,80 @@ export function createRazorpayServerVerifier({
       };
     }
 
-    // 5. Atomic settlement and entitlement grant
+    // 5. Authoritative verification of payment status against trusted Razorpay API or payment entity
+    let authoritativePayment = paymentEntity;
+    if (!authoritativePayment) {
+      if (razorpayApiClient && razorpayApiClient.payments && typeof razorpayApiClient.payments.fetch === 'function') {
+        try {
+          authoritativePayment = await razorpayApiClient.payments.fetch(paymentId);
+        } catch (err) {
+          return { ok: false, errorCode: 'RAZORPAY_PAYMENT_FETCH_FAILED', message: err.message };
+        }
+      } else if (fetchFn && keyId && !allowSimulatedOrders) {
+        try {
+          const basicAuth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+          const resp = await fetchFn(`https://api.razorpay.com/v1/payments/${encodeURIComponent(paymentId)}`, {
+            method: 'GET',
+            headers: { 'Authorization': `Basic ${basicAuth}` }
+          });
+          if (!resp.ok) {
+            return { ok: false, errorCode: 'RAZORPAY_PAYMENT_FETCH_FAILED', message: `Razorpay payment API returned ${resp.status}` };
+          }
+          authoritativePayment = await resp.json();
+        } catch (err) {
+          return { ok: false, errorCode: 'RAZORPAY_API_NETWORK_ERROR', message: err.message };
+        }
+      } else if (allowSimulatedOrders) {
+        authoritativePayment = {
+          id: paymentId,
+          order_id: orderId,
+          status: 'captured',
+          amount: order.amount,
+          currency: order.currency
+        };
+      } else {
+        return {
+          ok: false,
+          errorCode: 'RAZORPAY_API_NOT_CONFIGURED',
+          message: 'Authoritative payment verification requires razorpayApiClient or fetchFn with keyId.'
+        };
+      }
+    }
+
+    // 6. Enforce payment status, amount, currency, and order association
+    if (!authoritativePayment || typeof authoritativePayment !== 'object') {
+      return { ok: false, errorCode: 'INVALID_PAYMENT_RECORD', message: 'Authoritative payment record is invalid' };
+    }
+    if (authoritativePayment.status !== 'captured') {
+      return {
+        ok: false,
+        errorCode: 'PAYMENT_NOT_CAPTURED',
+        message: `Payment status is '${authoritativePayment.status}', expected 'captured'`
+      };
+    }
+    if (authoritativePayment.order_id !== orderId) {
+      return {
+        ok: false,
+        errorCode: 'ORDER_PAYMENT_MISMATCH',
+        message: 'Payment is not associated with the requested order'
+      };
+    }
+    if (authoritativePayment.amount !== order.amount) {
+      return {
+        ok: false,
+        errorCode: 'PAYMENT_AMOUNT_MISMATCH',
+        message: `Payment amount (${authoritativePayment.amount}) does not match order amount (${order.amount})`
+      };
+    }
+    if (authoritativePayment.currency !== order.currency) {
+      return {
+        ok: false,
+        errorCode: 'PAYMENT_CURRENCY_MISMATCH',
+        message: `Payment currency (${authoritativePayment.currency}) does not match order currency (${order.currency})`
+      };
+    }
+
+    // 7. Atomic settlement and entitlement grant at durable persistence boundary
     const settlementRecord = Object.freeze({
       orderId,
       paymentId,
@@ -267,11 +413,6 @@ export function createRazorpayServerVerifier({
       settledAt: new Date().toISOString()
     });
 
-    const recorded = await persistenceStore.recordSettlement(settlementRecord);
-    if (!recorded) {
-      return { ok: false, errorCode: 'SETTLEMENT_RECORDING_FAILED' };
-    }
-
     const entitlementRecord = Object.freeze({
       sku: order.sku,
       userId,
@@ -281,7 +422,30 @@ export function createRazorpayServerVerifier({
       grantedAt: new Date().toISOString()
     });
 
-    await persistenceStore.grantEntitlement(entitlementRecord);
+    try {
+      if (typeof persistenceStore.settleAndGrantEntitlement === 'function') {
+        const settleResult = await persistenceStore.settleAndGrantEntitlement({ settlementRecord, entitlementRecord });
+        if (!settleResult || !settleResult.ok) {
+          return {
+            ok: false,
+            errorCode: settleResult?.errorCode || 'SETTLEMENT_RECORDING_FAILED',
+            message: settleResult?.message || 'Atomic settlement and entitlement grant failed'
+          };
+        }
+      } else {
+        const recorded = await persistenceStore.recordSettlement(settlementRecord);
+        if (!recorded) {
+          return { ok: false, errorCode: 'SETTLEMENT_RECORDING_FAILED' };
+        }
+        await persistenceStore.grantEntitlement(entitlementRecord);
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        errorCode: 'DURABLE_PERSISTENCE_FAILURE',
+        message: `Durable persistence store failure: ${err.message}`
+      };
+    }
 
     return {
       ok: true,
@@ -332,11 +496,17 @@ export function createRazorpayServerVerifier({
       }
 
       // Validate currency and amount match
-      if (payment.amount !== order.amount || payment.currency !== order.currency) {
+      if (payment.amount !== order.amount) {
         return { ok: false, errorCode: 'AMOUNT_MISMATCH' };
       }
+      if (payment.currency !== order.currency) {
+        return { ok: false, errorCode: 'CURRENCY_MISMATCH' };
+      }
+      if (payment.status && payment.status !== 'captured') {
+        return { ok: false, errorCode: 'PAYMENT_NOT_CAPTURED' };
+      }
 
-      await persistenceStore.recordSettlement({
+      const settlementRecord = Object.freeze({
         orderId,
         paymentId,
         userId: order.userId,
@@ -346,7 +516,7 @@ export function createRazorpayServerVerifier({
         settledAt: new Date().toISOString()
       });
 
-      await persistenceStore.grantEntitlement({
+      const entitlementRecord = Object.freeze({
         sku: order.sku,
         userId: order.userId,
         orderId,
@@ -354,6 +524,16 @@ export function createRazorpayServerVerifier({
         status: 'active',
         grantedAt: new Date().toISOString()
       });
+
+      if (typeof persistenceStore.settleAndGrantEntitlement === 'function') {
+        const sRes = await persistenceStore.settleAndGrantEntitlement({ settlementRecord, entitlementRecord });
+        if (!sRes || !sRes.ok) {
+          return { ok: false, errorCode: sRes?.errorCode || 'SETTLEMENT_RECORDING_FAILED' };
+        }
+      } else {
+        await persistenceStore.recordSettlement(settlementRecord);
+        await persistenceStore.grantEntitlement(entitlementRecord);
+      }
 
       return { ok: true, eventType, processed: true, userId: order.userId, sku: order.sku };
     }
@@ -435,7 +615,9 @@ export function createMockRazorpayTestFixture(initialEntitlements = []) {
     keyId: 'rzp_mock_key',
     keySecret: testKeySecret,
     webhookSecret: 'test_webhook_secret_67890',
-    persistenceStore: store
+    persistenceStore: store,
+    isProduction: false,
+    allowSimulatedOrders: true
   });
 
   return {

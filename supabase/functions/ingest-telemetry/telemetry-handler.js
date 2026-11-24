@@ -244,6 +244,51 @@ export class MemoryRateLimitStore {
 export const defaultMemoryStore = new MemoryRateLimitStore();
 
 /**
+ * Core entrypoint logic for the telemetry Edge Function.
+ * Verifies JWT session on the server boundary to derive authenticated identity
+ * and fails closed if distributed rate limiting is unavailable.
+ *
+ * @param {Request} req
+ * @param {object} [options]
+ * @param {object} [options.supabaseClient]
+ * @param {boolean} [options.failClosedOnRpcError=true]
+ * @returns {Promise<Response>}
+ */
+export async function handleIngestEdgeRequest(req, options = {}) {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
+  const supabase = options.supabaseClient;
+  let authenticatedUserId = null;
+
+  // Derive authenticated identity from verified JWT at trusted server boundary
+  const authHeader = req.headers.get('Authorization') || req.headers.get('authorization');
+  if (authHeader && authHeader.startsWith('Bearer ') && supabase && supabase.auth) {
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    if (token) {
+      try {
+        const { data, error: authError } = await supabase.auth.getUser(token);
+        const user = data?.user;
+        if (!authError && user && typeof user.id === 'string') {
+          authenticatedUserId = user.id;
+        }
+      } catch {
+        // Token verification threw or failed; treat as unauthenticated guest
+        authenticatedUserId = null;
+      }
+    }
+  }
+
+  // Production ingestion fails closed if database rate limit RPC is unavailable
+  return handleTelemetryIngestRequest(req, {
+    supabaseClient: supabase,
+    authenticatedUserId,
+    failClosedOnRpcError: options.failClosedOnRpcError ?? true
+  });
+}
+
+/**
  * Bounded body reader for telemetry payloads (64 KiB maximum).
  *
  * @param {Request} req
@@ -418,8 +463,18 @@ export async function handleTelemetryIngestRequest(req, options = {}) {
       }
     }
 
-    // Fallback to memory / coordinator store (across simulated invocations or isolates)
+    // Fallback to memory store ONLY when failClosedOnRpcError is not enabled (e.g. testing)
     if (!rateCheck) {
+      if (options.failClosedOnRpcError) {
+        return new Response(JSON.stringify({
+          ok: false,
+          error: 'RATE_LIMIT_UNAVAILABLE',
+          message: 'Distributed rate limiting service unavailable'
+        }), {
+          status: 503,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
       const store = options.rateLimitStore ?? defaultMemoryStore;
       rateCheck = await store.checkRateLimit(clientHash, maxRequests, windowSeconds);
     }

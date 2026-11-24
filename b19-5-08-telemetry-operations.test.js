@@ -20,6 +20,7 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  handleIngestEdgeRequest,
   handleTelemetryIngestRequest,
   deriveClientIdentifier,
   deepSanitizeTelemetryPayload,
@@ -309,6 +310,131 @@ describe('B19.5-08: Telemetry Security & Event Schema Validation', () => {
     const res = await handleTelemetryIngestRequest(req, {
       supabaseClient: mockSupabaseRpcFailing,
       failClosedOnRpcError: true
+    });
+
+    assert.equal(res.status, 503);
+    const body = await res.json();
+    assert.equal(body.error, 'RATE_LIMIT_UNAVAILABLE');
+  });
+
+  test('8.8b: handleIngestEdgeRequest derives authenticated identity from verified JWT at server boundary', async () => {
+    const insertedRecords = [];
+    const mockSupabase = {
+      rpc: async () => ({ data: { allowed: true, remaining: 59, reset_at: '2026-11-25T00:00:00Z' }, error: null }),
+      auth: {
+        getUser: async (token) => {
+          if (token === 'valid-user-jwt-123') {
+            return { data: { user: { id: 'usr_verified_999' } }, error: null };
+          }
+          return { data: { user: null }, error: { message: 'Invalid token' } };
+        }
+      },
+      from: () => ({
+        upsert: async (rows) => {
+          insertedRecords.push(...rows);
+          return { error: null };
+        }
+      })
+    };
+
+    const req = new Request('http://localhost/functions/v1/ingest-telemetry', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'cf-connecting-ip': '1.2.3.4',
+        'Authorization': 'Bearer valid-user-jwt-123'
+      },
+      body: JSON.stringify({
+        events: [{
+          eventId: '11111111-1111-4111-8111-111111111111',
+          eventName: 'level_completed',
+          category: 'progression',
+          userId: 'spoofed_client_id_attacker',
+          payload: { score: 100 }
+        }]
+      })
+    });
+
+    const res = await handleIngestEdgeRequest(req, {
+      supabaseClient: mockSupabase,
+      failClosedOnRpcError: true
+    });
+
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.equal(insertedRecords.length, 1);
+    assert.equal(insertedRecords[0].user_id, 'usr_verified_999', 'Verified user id from JWT must be set, client spoof ignored');
+  });
+
+  test('8.8c: handleIngestEdgeRequest supports guest telemetry with null user_id when unauthenticated', async () => {
+    const insertedRecords = [];
+    const mockSupabase = {
+      rpc: async () => ({ data: { allowed: true, remaining: 59, reset_at: '2026-11-25T00:00:00Z' }, error: null }),
+      auth: {
+        getUser: async () => ({ data: { user: null }, error: { message: 'No token' } })
+      },
+      from: () => ({
+        upsert: async (rows) => {
+          insertedRecords.push(...rows);
+          return { error: null };
+        }
+      })
+    };
+
+    const req = new Request('http://localhost/functions/v1/ingest-telemetry', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'cf-connecting-ip': '1.2.3.4'
+      },
+      body: JSON.stringify({
+        events: [{
+          eventId: '22222222-2222-4222-8222-222222222222',
+          eventName: 'level_completed',
+          category: 'progression',
+          userId: 'spoofed_guest_trying_to_claim_account',
+          payload: { score: 50 }
+        }]
+      })
+    });
+
+    const res = await handleIngestEdgeRequest(req, {
+      supabaseClient: mockSupabase,
+      failClosedOnRpcError: true
+    });
+
+    assert.equal(res.status, 200);
+    assert.equal(insertedRecords.length, 1);
+    assert.equal(insertedRecords[0].user_id, null, 'Unauthenticated guest must have user_id null');
+  });
+
+  test('8.8d: handleIngestEdgeRequest fails closed (503) if rate limit RPC is down', async () => {
+    const mockSupabaseRpcFailing = {
+      rpc: async () => ({ error: { message: 'Postgres connection pool exhausted' }, data: null }),
+      auth: {
+        getUser: async () => ({ data: { user: null }, error: null })
+      }
+    };
+
+    const req = new Request('http://localhost/functions/v1/ingest-telemetry', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'cf-connecting-ip': '1.2.3.4'
+      },
+      body: JSON.stringify({
+        events: [{
+          eventId: '33333333-3333-4333-8333-333333333333',
+          eventName: 'level_completed',
+          category: 'progression',
+          payload: { score: 10 }
+        }]
+      })
+    });
+
+    const res = await handleIngestEdgeRequest(req, {
+      supabaseClient: mockSupabaseRpcFailing
     });
 
     assert.equal(res.status, 503);

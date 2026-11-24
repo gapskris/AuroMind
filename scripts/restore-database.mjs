@@ -25,7 +25,9 @@ export function validateRestoreConfiguration({
   target = 'development',
   connectionString = '',
   forceProduction = false,
-  backupFile = ''
+  confirmDisposableTarget = false,
+  backupFile = '',
+  dryRun = false
 } = {}) {
   if (!backupFile) {
     return {
@@ -45,19 +47,38 @@ export function validateRestoreConfiguration({
     };
   }
 
-  const isProd = isProductionTarget({ target, connectionString });
-
-  if (isProd && !forceProduction) {
+  // Prevent ambiguous or unverified database targets
+  const normTarget = (target || '').toLowerCase().trim();
+  if (!normTarget || normTarget === 'unspecified' || normTarget === 'unknown') {
     return {
       allowed: false,
-      errorCode: 'ERR_PRODUCTION_GUARD_TRIGGERED',
-      message: 'Refusing to restore to production database without explicit --force-production confirmation.'
+      errorCode: 'ERR_AMBIGUOUS_DATABASE_TARGET',
+      message: 'Restore target is ambiguous or unverified.'
+    };
+  }
+
+  const isProd = isProductionTarget({ target, connectionString });
+
+  if (isProd) {
+    return {
+      allowed: false,
+      errorCode: forceProduction ? 'ERR_PRODUCTION_RESTORE_FORBIDDEN' : 'ERR_PRODUCTION_GUARD_TRIGGERED',
+      message: 'Restoring to a production database is strictly forbidden. Database restores cannot target production environments.'
+    };
+  }
+
+  // Require explicit confirmation for non-dry-run restores against disposable/local targets
+  if (!confirmDisposableTarget && !dryRun) {
+    return {
+      allowed: false,
+      errorCode: 'ERR_DISPOSABLE_TARGET_CONFIRMATION_REQUIRED',
+      message: 'Restoration overwrites database data. Explicit confirmation (--confirm-disposable-target) is required.'
     };
   }
 
   return {
     allowed: true,
-    isProduction: isProd,
+    isProduction: false,
     target,
     backupFile: path.resolve(backupFile)
   };
@@ -113,13 +134,22 @@ export function validateManifestAndIntegrity(backupFile, manifestFile = null) {
   if (manifestData.manifestVersion !== '1.0') {
     return { valid: false, errorCode: 'ERR_UNSUPPORTED_MANIFEST_VERSION', message: `Unsupported manifest version: ${manifestData.manifestVersion}` };
   }
-  if (manifestData.checksumAlgorithm !== 'SHA-256' || !manifestData.checksum) {
-    return { valid: false, errorCode: 'ERR_INVALID_CHECKSUM_ALGORITHM', message: 'Manifest must specify SHA-256 algorithm and checksum.' };
+  if (manifestData.checksumAlgorithm !== 'SHA-256') {
+    return { valid: false, errorCode: 'ERR_INVALID_CHECKSUM_ALGORITHM', message: 'Manifest must specify SHA-256 algorithm.' };
+  }
+  if (!manifestData.checksum || typeof manifestData.checksum !== 'string' || !/^[a-f0-9]{64}$/i.test(manifestData.checksum)) {
+    return { valid: false, errorCode: 'ERR_INVALID_CHECKSUM_FORMAT', message: 'Manifest must specify a valid 64-character SHA-256 checksum.' };
+  }
+  if (!manifestData.backupFile || typeof manifestData.backupFile !== 'string') {
+    return { valid: false, errorCode: 'ERR_MISSING_MANIFEST_FIELD', message: 'Manifest must specify backupFile name.' };
+  }
+  if (manifestData.fileSize === undefined || manifestData.fileSize === null || !Number.isFinite(manifestData.fileSize) || manifestData.fileSize <= 0) {
+    return { valid: false, errorCode: 'ERR_MISSING_MANIFEST_FIELD', message: 'Manifest must specify a positive numeric fileSize.' };
   }
 
   // Validate filename association
   const backupBasename = path.basename(backupFile);
-  if (manifestData.backupFile && manifestData.backupFile !== backupBasename) {
+  if (manifestData.backupFile !== backupBasename) {
     return {
       valid: false,
       errorCode: 'ERR_MANIFEST_FILENAME_MISMATCH',
@@ -129,7 +159,7 @@ export function validateManifestAndIntegrity(backupFile, manifestFile = null) {
 
   // Validate file size
   const actualSize = Buffer.byteLength(fileContent, 'utf8');
-  if (manifestData.fileSize !== undefined && manifestData.fileSize !== actualSize) {
+  if (manifestData.fileSize !== actualSize) {
     return {
       valid: false,
       errorCode: 'ERR_FILE_SIZE_MISMATCH',
@@ -214,6 +244,7 @@ export async function executeDatabaseRestore(options = {}) {
     target = 'development',
     connectionString = process.env.DATABASE_URL || '',
     forceProduction = false,
+    confirmDisposableTarget = false,
     backupFile = '',
     manifestFile = '',
     dryRun = false,
@@ -225,7 +256,9 @@ export async function executeDatabaseRestore(options = {}) {
     target,
     connectionString,
     forceProduction,
-    backupFile
+    confirmDisposableTarget,
+    backupFile,
+    dryRun
   });
 
   if (!configCheck.allowed) {

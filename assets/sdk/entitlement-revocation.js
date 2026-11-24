@@ -49,11 +49,20 @@ export async function verifyVersionedEntitlement({
   configRootPublicKey = null,
   currentTimestamp = Date.now(),
   anchorTimestamp = null,
-  requireLastValidatedAt = false,
+  requireLastValidatedAt = true,
   expectedSubject = null
 }) {
   if (!token || typeof token !== 'string') {
     return { valid: false, reason: 'TOKEN_MISSING' };
+  }
+
+  // Validate currentTimestamp is a finite positive number
+  if (currentTimestamp === undefined || currentTimestamp === null) {
+    return { valid: false, reason: 'INVALID_CURRENT_TIMESTAMP' };
+  }
+  const curTime = Number(currentTimestamp);
+  if (!Number.isFinite(curTime) || curTime <= 0) {
+    return { valid: false, reason: 'INVALID_CURRENT_TIMESTAMP' };
   }
 
   const parts = token.split('.');
@@ -85,12 +94,20 @@ export async function verifyVersionedEntitlement({
     return { valid: false, reason: 'KEY_ID_MISSING' };
   }
 
-  // 2. Validate Payload Structure & Subject Binding
+  // 2. Validate Payload Structure & Subject Binding (Lifetime cannot bypass)
   if (!payload || typeof payload !== 'object') {
     return { valid: false, reason: 'PAYLOAD_INVALID' };
   }
-  if (expectedSubject && payload.sub !== expectedSubject) {
-    return { valid: false, reason: 'SUBJECT_MISMATCH', expected: expectedSubject, actual: payload.sub };
+  if (!payload.sub || typeof payload.sub !== 'string' || payload.sub.trim() === '') {
+    return { valid: false, reason: 'SUBJECT_REQUIRED' };
+  }
+  if (expectedSubject) {
+    if (typeof expectedSubject !== 'string' || expectedSubject.trim() === '') {
+      return { valid: false, reason: 'INVALID_EXPECTED_SUBJECT' };
+    }
+    if (payload.sub !== expectedSubject) {
+      return { valid: false, reason: 'SUBJECT_MISMATCH', expected: expectedSubject, actual: payload.sub };
+    }
   }
 
   // 3. Process emergency revocation list if signed remote config is supplied (Fail-Closed)
@@ -169,16 +186,16 @@ export async function verifyVersionedEntitlement({
       return { valid: false, reason: 'INVALID_EXPIRATION_TIMESTAMP' };
     }
     const expMs = expVal > 1e11 ? expVal : expVal * 1000;
-    if (currentTimestamp > expMs) {
+    if (curTime > expMs) {
       return { valid: false, reason: 'TOKEN_EXPIRED', expiredAt: payload.exp };
     }
   } else if (payload.exp !== undefined && payload.exp !== null) {
     const expVal = Number(payload.exp);
-    if (!Number.isFinite(expVal)) {
+    if (!Number.isFinite(expVal) || expVal <= 0) {
       return { valid: false, reason: 'INVALID_EXPIRATION_TIMESTAMP' };
     }
     const expMs = expVal > 1e11 ? expVal : expVal * 1000;
-    if (currentTimestamp > expMs) {
+    if (curTime > expMs) {
       return { valid: false, reason: 'TOKEN_EXPIRED', expiredAt: payload.exp };
     }
   }
@@ -186,10 +203,10 @@ export async function verifyVersionedEntitlement({
   // 8. Monotonic clock manipulation defense (anchor timestamp)
   if (anchorTimestamp !== null && anchorTimestamp !== undefined) {
     const anchorMs = Number(anchorTimestamp);
-    if (!Number.isFinite(anchorMs)) {
+    if (!Number.isFinite(anchorMs) || anchorMs <= 0) {
       return { valid: false, reason: 'INVALID_ANCHOR_TIMESTAMP' };
     }
-    if (currentTimestamp < anchorMs - 60000) {
+    if (curTime < anchorMs - 60000) {
       return { valid: false, reason: 'CLOCK_ROLLBACK_DETECTED' };
     }
   }
@@ -197,15 +214,15 @@ export async function verifyVersionedEntitlement({
   // 9. Validation Timestamp & 30-Day Offline Grace Period
   if (payload.lastValidatedAt !== undefined && payload.lastValidatedAt !== null) {
     const lastValidatedTime = new Date(payload.lastValidatedAt).getTime();
-    if (!Number.isFinite(lastValidatedTime)) {
+    if (!Number.isFinite(lastValidatedTime) || lastValidatedTime <= 0) {
       return { valid: false, reason: 'INVALID_VALIDATION_TIMESTAMP' };
     }
     // Backward clock manipulation behind lastValidatedAt
-    if (currentTimestamp < lastValidatedTime - 60000) {
+    if (curTime < lastValidatedTime - 60000) {
       return { valid: false, reason: 'CLOCK_ROLLBACK_DETECTED' };
     }
     // Forward grace boundary (exact 2,592,000,000 ms)
-    if (currentTimestamp - lastValidatedTime > OFFLINE_GRACE_MS) {
+    if (curTime - lastValidatedTime > OFFLINE_GRACE_MS) {
       return { valid: false, reason: 'OFFLINE_GRACE_EXCEEDED' };
     }
   } else if (requireLastValidatedAt) {

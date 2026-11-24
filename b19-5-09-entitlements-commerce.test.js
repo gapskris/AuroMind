@@ -265,6 +265,136 @@ describe('B19.5-09: Razorpay Client & Server Security Boundary', () => {
     assert.ok(await fixture.store.getEntitlement('user_bob', 'sku_a'));
   });
 
+  test('9.4b: Authoritative payment verification checks payment entity status, currency, amount, and handles fetch failures', async () => {
+    const fixture = createMockRazorpayTestFixture();
+
+    const orderRes = await fixture.verifier.createAuthoritativeOrder({
+      userId: 'user_alice',
+      sku: 'supporter_pack',
+      amount: 50000
+    });
+    const orderId = orderRes.order.id;
+    const paymentId = 'pay_test_auth_123';
+
+    const hmac = crypto.createHmac('sha256', fixture.testKeySecret);
+    hmac.update(`${orderId}|${paymentId}`);
+    const validSig = hmac.digest('hex');
+
+    // 1. Payment status not captured (e.g. 'failed' or 'authorized')
+    const failedPaymentRes = await fixture.verifier.verifyAuthoritativePayment({
+      userId: 'user_alice',
+      orderId,
+      paymentId,
+      signature: validSig,
+      paymentEntity: { id: paymentId, order_id: orderId, status: 'failed', amount: 50000, currency: 'INR' }
+    });
+    assert.equal(failedPaymentRes.ok, false);
+    assert.equal(failedPaymentRes.errorCode, 'PAYMENT_NOT_CAPTURED');
+
+    // 2. Order ID mismatch
+    const wrongOrderRes = await fixture.verifier.verifyAuthoritativePayment({
+      userId: 'user_alice',
+      orderId,
+      paymentId,
+      signature: validSig,
+      paymentEntity: { id: paymentId, order_id: 'order_wrong_456', status: 'captured', amount: 50000, currency: 'INR' }
+    });
+    assert.equal(wrongOrderRes.ok, false);
+    assert.equal(wrongOrderRes.errorCode, 'ORDER_PAYMENT_MISMATCH');
+
+    // 3. Amount mismatch (e.g. partial capture)
+    const partialCaptureRes = await fixture.verifier.verifyAuthoritativePayment({
+      userId: 'user_alice',
+      orderId,
+      paymentId,
+      signature: validSig,
+      paymentEntity: { id: paymentId, order_id: orderId, status: 'captured', amount: 25000, currency: 'INR' }
+    });
+    assert.equal(partialCaptureRes.ok, false);
+    assert.equal(partialCaptureRes.errorCode, 'PAYMENT_AMOUNT_MISMATCH');
+
+    // 4. Currency mismatch (e.g. USD instead of INR)
+    const currencyMismatchRes = await fixture.verifier.verifyAuthoritativePayment({
+      userId: 'user_alice',
+      orderId,
+      paymentId,
+      signature: validSig,
+      paymentEntity: { id: paymentId, order_id: orderId, status: 'captured', amount: 50000, currency: 'USD' }
+    });
+    assert.equal(currencyMismatchRes.ok, false);
+    assert.equal(currencyMismatchRes.errorCode, 'PAYMENT_CURRENCY_MISMATCH');
+
+    // 5. Duplicate webhook replay defense
+    const webhookPayload = JSON.stringify({
+      event: 'payment.captured',
+      payload: {
+        payment: {
+          entity: { id: 'pay_hook_1', order_id: orderId, amount: 50000, currency: 'INR', status: 'captured' }
+        }
+      }
+    });
+    const hookHmac = crypto.createHmac('sha256', 'test_webhook_secret_67890');
+    hookHmac.update(webhookPayload);
+    const hookSig = hookHmac.digest('hex');
+
+    const firstHook = await fixture.verifier.processAuthoritativeWebhook({ rawBody: webhookPayload, signature: hookSig });
+    assert.equal(firstHook.ok, true);
+    assert.equal(firstHook.processed, true);
+
+    const duplicateHook = await fixture.verifier.processAuthoritativeWebhook({ rawBody: webhookPayload, signature: hookSig });
+    assert.equal(duplicateHook.ok, true);
+    assert.equal(duplicateHook.ignored, true);
+    assert.equal(duplicateHook.reason, 'ALREADY_SETTLED');
+  });
+
+  test('9.4c: Production verifier requires durable persistence and authoritative API configuration', async () => {
+    // 1. Missing persistenceStore fails closed
+    assert.throws(() => {
+      createRazorpayServerVerifier({
+        keyId: 'rzp_key',
+        keySecret: 'rzp_secret',
+        persistenceStore: null
+      });
+    }, /DURABLE_STORE_REQUIRED/);
+
+    // 2. In-memory persistence store rejected in production mode
+    assert.throws(() => {
+      createRazorpayServerVerifier({
+        keyId: 'rzp_key',
+        keySecret: 'rzp_secret',
+        persistenceStore: createInMemoryDurableStore(),
+        isProduction: true
+      });
+    }, /IN_MEMORY_STORE_FORBIDDEN/);
+
+    // 3. Durable persistence failure during atomic settlement returns error
+    const failingStore = {
+      isInMemory: false,
+      getOrderById: async () => ({ id: 'ord_1', userId: 'u1', sku: 's1', amount: 1000, currency: 'INR' }),
+      isPaymentSettled: async () => false,
+      settleAndGrantEntitlement: async () => { throw new Error('Database disk full'); }
+    };
+
+    const verifier = createRazorpayServerVerifier({
+      keyId: 'rzp_key',
+      keySecret: 'rzp_secret',
+      persistenceStore: failingStore,
+      isProduction: false,
+      allowSimulatedOrders: true
+    });
+
+    const hmac = crypto.createHmac('sha256', 'rzp_secret');
+    hmac.update('ord_1|pay_1');
+    const res = await verifier.verifyAuthoritativePayment({
+      userId: 'u1',
+      orderId: 'ord_1',
+      paymentId: 'pay_1',
+      signature: hmac.digest('hex')
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.errorCode, 'DURABLE_PERSISTENCE_FAILURE');
+  });
+
 });
 
 describe('B19.5-09: Ed25519 Entitlement Verification Hardening', () => {
@@ -322,13 +452,22 @@ describe('B19.5-09: Ed25519 Entitlement Verification Hardening', () => {
     assert.equal(r3.valid, false);
     assert.equal(r3.reason, 'TOKEN_EXPIRED');
 
-    // 4. LIFETIME tier passes without exp
+    // 4. LIFETIME tier passes without exp when lastValidatedAt is present
     const tokenLifetime = await mintVersionedEntitlementToken({
-      payload: { sub: 'usr_1', sku: 'pack_1', tier: 'LIFETIME' },
+      payload: { sub: 'usr_1', sku: 'pack_1', tier: 'LIFETIME', lastValidatedAt: new Date().toISOString() },
       privateKey: keyPair.privateKey
     });
     const r4 = await verifyVersionedEntitlement({ token: tokenLifetime, keyStore });
     assert.equal(r4.valid, true);
+
+    // 5. Default requireLastValidatedAt fails closed when lastValidatedAt is missing
+    const tokenNoValidation = await mintVersionedEntitlementToken({
+      payload: { sub: 'usr_1', sku: 'pack_1', tier: 'LIFETIME' },
+      privateKey: keyPair.privateKey
+    });
+    const r5 = await verifyVersionedEntitlement({ token: tokenNoValidation, keyStore });
+    assert.equal(r5.valid, false);
+    assert.equal(r5.reason, 'MISSING_VALIDATION_TIMESTAMP');
   });
 
   test('9.7: Validation timestamp and exact 30-day offline grace period (2,592,000,000 ms)', async () => {
@@ -347,7 +486,30 @@ describe('B19.5-09: Ed25519 Entitlement Verification Hardening', () => {
     assert.equal(rBadDate.valid, false);
     assert.equal(rBadDate.reason, 'INVALID_VALIDATION_TIMESTAMP');
 
-    // 2. Token within 30-day offline grace passes
+    // 2. Non-finite or non-positive currentTimestamp fails closed
+    const tokenValid = await mintVersionedEntitlementToken({
+      payload: { sub: 'usr_1', sku: 'pack_1', tier: 'LIFETIME', lastValidatedAt: new Date(t0).toISOString() },
+      privateKey: keyPair.privateKey
+    });
+    const rNanTime = await verifyVersionedEntitlement({ token: tokenValid, keyStore, currentTimestamp: NaN });
+    assert.equal(rNanTime.valid, false);
+    assert.equal(rNanTime.reason, 'INVALID_CURRENT_TIMESTAMP');
+
+    const rNegTime = await verifyVersionedEntitlement({ token: tokenValid, keyStore, currentTimestamp: -500 });
+    assert.equal(rNegTime.valid, false);
+    assert.equal(rNegTime.reason, 'INVALID_CURRENT_TIMESTAMP');
+
+    // 3. Account / subject mismatch fails closed even for LIFETIME tokens
+    const rSubjectMismatch = await verifyVersionedEntitlement({
+      token: tokenValid,
+      keyStore,
+      currentTimestamp: t0,
+      expectedSubject: 'usr_different_account'
+    });
+    assert.equal(rSubjectMismatch.valid, false);
+    assert.equal(rSubjectMismatch.reason, 'SUBJECT_MISMATCH');
+
+    // 4. Token within 30-day offline grace passes
     const tokenGrace = await mintVersionedEntitlementToken({
       payload: { sub: 'usr_1', sku: 'pack_1', tier: 'LIFETIME', lastValidatedAt: new Date(t0).toISOString() },
       privateKey: keyPair.privateKey
@@ -357,13 +519,18 @@ describe('B19.5-09: Ed25519 Entitlement Verification Hardening', () => {
     const rWithin = await verifyVersionedEntitlement({ token: tokenGrace, keyStore, currentTimestamp: t29Days });
     assert.equal(rWithin.valid, true);
 
-    // 3. Beyond 30 days fails
+    // 5. Exact grace boundary passes (exact 2,592,000,000 ms)
+    const tExactBoundary = t0 + OFFLINE_GRACE_MS;
+    const rExact = await verifyVersionedEntitlement({ token: tokenGrace, keyStore, currentTimestamp: tExactBoundary });
+    assert.equal(rExact.valid, true, 'Exact 30-day grace boundary must pass');
+
+    // 6. Beyond 30 days fails (even by 1 ms)
     const t30DaysPlus = t0 + OFFLINE_GRACE_MS + 1000;
     const rExceeded = await verifyVersionedEntitlement({ token: tokenGrace, keyStore, currentTimestamp: t30DaysPlus });
     assert.equal(rExceeded.valid, false);
     assert.equal(rExceeded.reason, 'OFFLINE_GRACE_EXCEEDED');
 
-    // 4. Backward clock manipulation behind lastValidatedAt fails
+    // 7. Backward clock manipulation behind lastValidatedAt fails
     const tBackward = t0 - 120000; // 2 minutes before validation
     const rBackward = await verifyVersionedEntitlement({ token: tokenGrace, keyStore, currentTimestamp: tBackward });
     assert.equal(rBackward.valid, false);
