@@ -1181,11 +1181,13 @@ export function createAuroMindSDK(options = {}) {
 
   let syncConsent = false;
   let syncOutbox = new Set();
+  let syncOutboxOwnerUserId = null;
   const MAX_OUTBOX_ATTEMPTS = 5;
   const syncAttempts = new Map();
   let syncMetadata = {};
   let syncMetadataOwnerUserId = null;
   const memorySyncMetadataByUser = new Map();
+  let activeOutboxMigrationPromise = null;
 
   function isPermanentSyncFailure(res) {
     if (!res) return false;
@@ -1199,14 +1201,15 @@ export function createAuroMindSDK(options = {}) {
     return false;
   }
 
-  async function handleOutboxPushFailure(gid, pushRes) {
+  async function handleOutboxPushFailure(gid, pushRes, activeUserId = null) {
     const attempts = (syncAttempts.get(gid) || 0) + 1;
     syncAttempts.set(gid, attempts);
     const isPermanent = isPermanentSyncFailure(pushRes) || attempts >= MAX_OUTBOX_ATTEMPTS;
     if (isPermanent) {
       syncOutbox.delete(gid);
       syncAttempts.delete(gid);
-      await clearIdbOutboxForGame(gid);
+      const expectedUser = activeUserId !== null ? activeUserId : ((currentAccount && currentAccount.userId) || null);
+      await clearIdbOutboxForGame(gid, expectedUser);
       loggingService.warn('sync', `Permanently evicting mutation for "${gid}" (attempts: ${attempts}): ${pushRes?.message || pushRes?.status || 'max_attempts_exceeded'}`);
     } else {
       syncOutbox.add(gid);
@@ -1343,6 +1346,7 @@ export function createAuroMindSDK(options = {}) {
   function refreshActiveSyncOutbox(account, { migrateFromGuest = false } = {}) {
     syncAttempts.clear();
     const activeUserId = account?.userId || null;
+    syncOutboxOwnerUserId = activeUserId;
     if (!activeUserId) {
       const guestRes = lsGetRaw(LS_OUTBOX_KEY);
       if (guestRes.ok && guestRes.raw) {
@@ -1383,6 +1387,9 @@ export function createAuroMindSDK(options = {}) {
           }
         } catch {}
       }
+      activeOutboxMigrationPromise = migrateIdbGuestOutboxToUser(activeUserId).finally(() => {
+        activeOutboxMigrationPromise = null;
+      });
     }
   }
 
@@ -1409,12 +1416,16 @@ export function createAuroMindSDK(options = {}) {
   function persistSyncState() {
     try {
       const activeAcct = capabilities.authEnabled ? sanitizeAccountRecord(currentAccount, getNow().getTime()) : null;
-      const consentKey = activeAcct?.userId ? getSyncConsentStorageKey(activeAcct.userId) : LS_SYNC_CONSENT_KEY;
+      const activeUserId = activeAcct?.userId || null;
+      if (syncOutboxOwnerUserId !== activeUserId) {
+        return;
+      }
+      const consentKey = activeUserId ? getSyncConsentStorageKey(activeUserId) : LS_SYNC_CONSENT_KEY;
       lsSetRaw(consentKey, String(syncConsent));
-      const outboxKey = activeAcct?.userId ? getSyncOutboxStorageKey(activeAcct.userId) : LS_OUTBOX_KEY;
+      const outboxKey = activeUserId ? getSyncOutboxStorageKey(activeUserId) : LS_OUTBOX_KEY;
       lsSetRaw(outboxKey, JSON.stringify(Array.from(syncOutbox)));
-      if (activeAcct && activeAcct.userId && syncMetadataOwnerUserId === activeAcct.userId) {
-        persistSyncMetadataForUser(activeAcct.userId, syncMetadata);
+      if (activeUserId && syncMetadataOwnerUserId === activeUserId) {
+        persistSyncMetadataForUser(activeUserId, syncMetadata);
       }
     } catch {}
   }
@@ -1694,6 +1705,47 @@ export function createAuroMindSDK(options = {}) {
     }
   }
 
+  async function clearIdbOutboxForGame(gid, targetUserId = null) {
+    try {
+      const idbMutations = await idbGetOutbox();
+      const expectedUser = targetUserId !== undefined && targetUserId !== null
+        ? targetUserId
+        : ((currentAccount && currentAccount.userId) || null);
+      for (const mut of idbMutations) {
+        if (mut && mut.gameId === gid && mut.id) {
+          const mutUser = mut.userId || null;
+          // Strictly delete only if owned by the target user/account (or guest if target is null)
+          if (mutUser === expectedUser) {
+            await idbDeleteOutbox(mut.id);
+          }
+        }
+      }
+    } catch {}
+  }
+
+  async function migrateIdbGuestOutboxToUser(targetUserId) {
+    if (!targetUserId || typeof targetUserId !== 'string') return;
+    try {
+      const idbMutations = await idbGetOutbox();
+      for (const mut of idbMutations) {
+        if (mut && typeof mut.gameId === 'string' && mut.gameId.trim()) {
+          const mutUser = mut.userId || null;
+          // Guest mutations strictly have mutUser === null
+          if (mutUser === null) {
+            const updated = {
+              ...mut,
+              userId: targetUserId,
+              migratedAt: getNow().toISOString()
+            };
+            await idbPutOutbox(updated);
+          }
+        }
+      }
+    } catch (err) {
+      loggingService.warn('sync', `Failed to migrate guest outbox mutations to ${targetUserId}: ${err?.message}`);
+    }
+  }
+
   // --- Low-level localStorage helpers (auromind.platform.* ONLY) ---
 
   function lsGetRaw(key) {
@@ -1883,8 +1935,12 @@ export function createAuroMindSDK(options = {}) {
         allowLegacyFallback: !prevUserId && Boolean(nextUserId),
         consumeLegacyOnMigrate: !prevUserId && Boolean(nextUserId)
       });
+      const isExplicitGuestToAccount = Boolean(
+        (!prevUserId && Boolean(nextUserId)) &&
+        (options.migrateFromGuest === true || preserveGuestProfile || reason === 'guest_upgrade' || reason === 'upgrade_guest')
+      );
       refreshActiveSyncOutbox(nextAccount, {
-        migrateFromGuest: !prevUserId && Boolean(nextUserId)
+        migrateFromGuest: isExplicitGuestToAccount
       });
       if (broadcast) {
         broadcastPlatformEvent('AUTH_STATE_CHANGED', {
@@ -2777,7 +2833,7 @@ export function createAuroMindSDK(options = {}) {
         reason: existing ? 'VALID' : 'NO_SESSION'
       });
     },
-    async signIn(method, params = {}) {
+    async signIn(method, params = {}, options = {}) {
       if (!capabilities.authEnabled || !providers.auth.isConfigured()) {
         return Object.freeze({
           ok: false,
@@ -2799,7 +2855,12 @@ export function createAuroMindSDK(options = {}) {
           });
         }
         if (res && res.ok && res.account) {
-          const sanitized = applyAccountTransition(res.account, { broadcast: true, reason: 'sign_in' });
+          const shouldMigrate = Boolean(options && (options.migrateGuestData || options.migrateFromGuest));
+          const sanitized = applyAccountTransition(res.account, {
+            broadcast: true,
+            reason: 'sign_in',
+            migrateFromGuest: shouldMigrate
+          });
           if (!sanitized) {
             return Object.freeze({
               ok: false,
@@ -2828,7 +2889,7 @@ export function createAuroMindSDK(options = {}) {
         return res;
       });
     },
-    async signUp(params = {}) {
+    async signUp(params = {}, options = {}) {
       if (!capabilities.authEnabled || !providers.auth.isConfigured()) {
         return Object.freeze({
           ok: false,
@@ -2849,7 +2910,12 @@ export function createAuroMindSDK(options = {}) {
           });
         }
         if (res && res.ok && res.account) {
-          const sanitized = applyAccountTransition(res.account, { broadcast: true, reason: 'sign_up' });
+          const shouldMigrate = Boolean(options && (options.migrateGuestData || options.migrateFromGuest));
+          const sanitized = applyAccountTransition(res.account, {
+            broadcast: true,
+            reason: 'sign_up',
+            migrateFromGuest: shouldMigrate
+          });
           if (!sanitized) {
             return Object.freeze({
               ok: false,
@@ -2921,7 +2987,12 @@ export function createAuroMindSDK(options = {}) {
           });
         }
         if (res && res.ok && res.account) {
-          const sanitized = applyAccountTransition(res.account, { broadcast: true, reason: 'otp_verified' });
+          const shouldMigrate = Boolean(options && (options.migrateGuestData || options.migrateFromGuest));
+          const sanitized = applyAccountTransition(res.account, {
+            broadcast: true,
+            reason: 'otp_verified',
+            migrateFromGuest: shouldMigrate
+          });
           if (!sanitized) {
             return Object.freeze({
               ok: false,
@@ -3022,7 +3093,12 @@ export function createAuroMindSDK(options = {}) {
           });
         }
         if (res && res.ok && res.account) {
-          const sanitized = applyAccountTransition(res.account, { broadcast: true, reason: 'oauth_callback' });
+          const shouldMigrate = Boolean(options && (options.migrateGuestData || options.migrateFromGuest));
+          const sanitized = applyAccountTransition(res.account, {
+            broadcast: true,
+            reason: 'oauth_callback',
+            migrateFromGuest: shouldMigrate
+          });
           if (!sanitized) {
             return Object.freeze({
               ok: false,
@@ -3064,6 +3140,10 @@ export function createAuroMindSDK(options = {}) {
         if (res && res.linked) {
           migrateGuestProfileIfAbsent(activeAccount, targetGuestId);
           cachedPlayerProfile = null;
+          refreshActiveSyncOutbox(activeAccount, { migrateFromGuest: true });
+          if (activeOutboxMigrationPromise) {
+            try { await activeOutboxMigrationPromise; } catch {}
+          }
         }
         return res;
       }
@@ -3086,15 +3166,16 @@ export function createAuroMindSDK(options = {}) {
         });
       }
 
+      const upgradeAuthOptions = { ...options, migrateGuestData: true, migrateFromGuest: true };
       let authRes;
       if (options.mode === 'signUp') {
-        authRes = await this.signUp(credentials);
+        authRes = await this.signUp(credentials, upgradeAuthOptions);
       } else if (options.method === 'verify_otp') {
-        authRes = await this.verifyOtp(credentials?.email, credentials?.token || credentials?.code, options);
+        authRes = await this.verifyOtp(credentials?.email, credentials?.token || credentials?.code, upgradeAuthOptions);
       } else if (options.method === 'oauth_callback') {
-        authRes = await this.handleAuthCallback(credentials, options);
+        authRes = await this.handleAuthCallback(credentials, upgradeAuthOptions);
       } else {
-        authRes = await this.signIn(options.method || 'email_password', credentials);
+        authRes = await this.signIn(options.method || 'email_password', credentials, upgradeAuthOptions);
       }
 
       if (!authRes || !authRes.ok || !authRes.account) {
@@ -3111,6 +3192,12 @@ export function createAuroMindSDK(options = {}) {
       // Preserve guest profile/preferences in new user's isolated profile slot without overwriting existing user profile
       migrateGuestProfileIfAbsent(authRes.account, activeGuestId);
       cachedPlayerProfile = null;
+
+      // Migrate guest outbox mutations to authenticated user
+      refreshActiveSyncOutbox(authRes.account, { migrateFromGuest: true });
+      if (activeOutboxMigrationPromise) {
+        try { await activeOutboxMigrationPromise; } catch {}
+      }
 
       const linkRes = await this.linkGuestIdentity(activeGuestId);
 
@@ -3424,13 +3511,18 @@ export function createAuroMindSDK(options = {}) {
           loggingService.warn('sync', 'Blocked local-only Sankalpa identifier from entering sync outbox');
           return false;
         }
+        const activeAcct = getActiveAccountSanitized({ expireSideEffects: false });
+        const activeUserId = activeAcct?.userId || null;
+        if (syncOutboxOwnerUserId !== activeUserId) {
+          refreshActiveSyncOutbox(activeAcct);
+        }
         syncOutbox.add(gid);
         persistSyncState();
 
         const mutation = {
           id: `${gid}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
           gameId: gid,
-          userId: (currentAccount && currentAccount.userId) || null,
+          userId: activeUserId,
           attempts: 0,
           status: 'pending',
           queuedAt: getNow().toISOString(),
@@ -3450,15 +3542,26 @@ export function createAuroMindSDK(options = {}) {
       return Math.min(base + jitter, 15 * 60 * 1000);
     },
     async drainOutbox() {
-      // Hydrate durable IndexedDB outbox entries scoped to current identity (offline recovery if localStorage was cleared)
+      if (activeOutboxMigrationPromise) {
+        try { await activeOutboxMigrationPromise; } catch {}
+      }
+      // Hydrate durable IndexedDB outbox entries scoped strictly to current identity
       try {
         const idbMutations = await idbGetOutbox();
-        const activeUserId = (currentAccount && currentAccount.userId) || null;
+        const activeAcct = getActiveAccountSanitized({ expireSideEffects: false });
+        const activeUserId = activeAcct?.userId || null;
+        if (syncOutboxOwnerUserId !== activeUserId) {
+          refreshActiveSyncOutbox(activeAcct);
+        }
         let added = false;
         for (const mut of idbMutations) {
           if (mut && typeof mut.gameId === 'string' && mut.gameId.trim()) {
             const mutUser = mut.userId || null;
-            if (mutUser === activeUserId || (!mutUser && !activeUserId) || (!mutUser && activeUserId)) {
+            // STRICT IDENTITY ISOLATION:
+            // Authenticated account: ONLY hydrate mutations where mutUser === activeUserId.
+            // Guest mode: ONLY hydrate mutations where mutUser === null.
+            const isOwnedByCurrentIdentity = activeUserId ? (mutUser === activeUserId) : (mutUser === null);
+            if (isOwnedByCurrentIdentity) {
               const gid = mut.gameId.trim();
               if (!syncOutbox.has(gid)) {
                 syncOutbox.add(gid);
@@ -3469,7 +3572,26 @@ export function createAuroMindSDK(options = {}) {
         }
         if (added) persistSyncState();
       } catch {}
-      return this.syncNow();
+      const pending = Array.from(syncOutbox);
+      if (pending.length === 0) {
+        return Object.freeze({ status: 'success', drained: 0, results: Object.freeze([]) });
+      }
+      const aggregatedResults = [];
+      let lastResultStatus = 'success';
+      for (const gid of pending) {
+        const res = await this.syncNow(gid);
+        if (res && Array.isArray(res.results)) {
+          aggregatedResults.push(...res.results);
+        }
+        if (res && res.status !== 'success') {
+          lastResultStatus = res.status;
+        }
+      }
+      return Object.freeze({
+        status: lastResultStatus,
+        drained: aggregatedResults.length,
+        results: Object.freeze(aggregatedResults)
+      });
     },
     async onReconnect() {
       if (!this.isAvailable() || !this.hasConsent()) {
@@ -3478,13 +3600,27 @@ export function createAuroMindSDK(options = {}) {
       return this.drainOutbox();
     },
     getPendingOutboxCount() {
+      const activeAcct = getActiveAccountSanitized({ expireSideEffects: true });
+      const activeUserId = activeAcct?.userId || null;
+      if (syncOutboxOwnerUserId !== activeUserId) {
+        refreshActiveSyncOutbox(activeAcct);
+      }
       return syncOutbox.size;
     },
     getPendingGames() {
+      const activeAcct = getActiveAccountSanitized({ expireSideEffects: true });
+      const activeUserId = activeAcct?.userId || null;
+      if (syncOutboxOwnerUserId !== activeUserId) {
+        refreshActiveSyncOutbox(activeAcct);
+      }
       return Array.from(syncOutbox);
     },
     getSyncStatus() {
       const activeAcct = getActiveAccountSanitized({ expireSideEffects: true });
+      const activeUserId = activeAcct?.userId || null;
+      if (syncOutboxOwnerUserId !== activeUserId) {
+        refreshActiveSyncOutbox(activeAcct);
+      }
       if (!activeAcct || !activeAcct.userId) {
         return Object.freeze({
           available: this.isAvailable(),
@@ -3508,6 +3644,9 @@ export function createAuroMindSDK(options = {}) {
       });
     },
     async syncNow(targetGameId = null) {
+      if (activeOutboxMigrationPromise) {
+        try { await activeOutboxMigrationPromise; } catch {}
+      }
       if (activeSyncPromise) {
         return activeSyncPromise;
       }
@@ -3523,6 +3662,9 @@ export function createAuroMindSDK(options = {}) {
           const activeAcct = getActiveAccountSanitized({ expireSideEffects: true });
           if (!activeAcct || !activeAcct.userId) {
             return Object.freeze({ status: 'skipped', reason: 'auth_required' });
+          }
+          if (syncOutboxOwnerUserId !== activeAcct.userId) {
+            refreshActiveSyncOutbox(activeAcct);
           }
 
           const userId = activeAcct.userId;
@@ -3543,17 +3685,6 @@ export function createAuroMindSDK(options = {}) {
             });
 
           const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
-
-          const clearIdbOutboxForGame = async (gid) => {
-            try {
-              const idbMutations = await idbGetOutbox();
-              for (const mut of idbMutations) {
-                if (mut && mut.gameId === gid && mut.id) {
-                  await idbDeleteOutbox(mut.id);
-                }
-              }
-            } catch {}
-          };
 
           const MANDATORY_LOCAL_ONLY_VALUE_RE =
             /(?:sankalpa_e2ee_vault|auromasti-sankalpa-backup|auromind_sankalpa_vault|sankalpa_reflections)/i;
@@ -3818,7 +3949,7 @@ export function createAuroMindSDK(options = {}) {
                   if (pushRes && pushRes.status === 'success') {
                     syncOutbox.delete(gid);
                     syncAttempts.delete(gid);
-                    await clearIdbOutboxForGame(gid);
+                    await clearIdbOutboxForGame(gid, userId);
                     if (!isStillActiveUser()) {
                       return makeAbortedResult(results);
                     }
@@ -3829,7 +3960,7 @@ export function createAuroMindSDK(options = {}) {
                     };
                     results.push({ gameId: gid, action: 'pushed_initial', revision: pushRes.newRevision });
                   } else {
-                    await handleOutboxPushFailure(gid, pushRes);
+                    await handleOutboxPushFailure(gid, pushRes, userId);
                     results.push({ gameId: gid, action: 'push_failed', error: pushRes?.message || pushRes?.status });
                   }
                 }
@@ -3881,7 +4012,7 @@ export function createAuroMindSDK(options = {}) {
               if (localEnvelope.checksum && remoteEnvelope.checksum && localEnvelope.checksum === remoteEnvelope.checksum) {
                 syncOutbox.delete(gid);
                 syncAttempts.delete(gid);
-                await clearIdbOutboxForGame(gid);
+                await clearIdbOutboxForGame(gid, userId);
                 if (!isStillActiveUser()) {
                   return makeAbortedResult(results);
                 }
@@ -3911,7 +4042,7 @@ export function createAuroMindSDK(options = {}) {
                 if (pushRes && pushRes.status === 'success') {
                   syncOutbox.delete(gid);
                   syncAttempts.delete(gid);
-                  await clearIdbOutboxForGame(gid);
+                  await clearIdbOutboxForGame(gid, userId);
                   if (!isStillActiveUser()) {
                     return makeAbortedResult(results);
                   }
@@ -3985,7 +4116,7 @@ export function createAuroMindSDK(options = {}) {
                         if (retryPush && retryPush.status === 'success') {
                           syncOutbox.delete(gid);
                           syncAttempts.delete(gid);
-                          await clearIdbOutboxForGame(gid);
+                          await clearIdbOutboxForGame(gid, userId);
                           if (!isStillActiveUser()) {
                             return makeAbortedResult(results);
                           }
@@ -4011,7 +4142,7 @@ export function createAuroMindSDK(options = {}) {
                     });
                   }
                 } else {
-                  await handleOutboxPushFailure(gid, pushRes);
+                  await handleOutboxPushFailure(gid, pushRes, userId);
                   results.push({ gameId: gid, action: 'push_failed', error: pushRes?.message });
                 }
               } else if (mergeResolution.status === 'use_remote') {
@@ -4024,7 +4155,7 @@ export function createAuroMindSDK(options = {}) {
                 }
                 syncOutbox.delete(gid);
                 syncAttempts.delete(gid);
-                await clearIdbOutboxForGame(gid);
+                await clearIdbOutboxForGame(gid, userId);
                 if (!isStillActiveUser()) {
                   return makeAbortedResult(results);
                 }
@@ -4065,7 +4196,7 @@ export function createAuroMindSDK(options = {}) {
                 if (pushRes && pushRes.status === 'success') {
                   syncOutbox.delete(gid);
                   syncAttempts.delete(gid);
-                  await clearIdbOutboxForGame(gid);
+                  await clearIdbOutboxForGame(gid, userId);
                   if (!isStillActiveUser()) {
                     return makeAbortedResult(results);
                   }
@@ -4084,7 +4215,7 @@ export function createAuroMindSDK(options = {}) {
                     serverRecord: pushRes.serverRecord
                   });
                 } else {
-                  await handleOutboxPushFailure(gid, pushRes);
+                  await handleOutboxPushFailure(gid, pushRes, userId);
                   results.push({ gameId: gid, action: 'auto_merged_push_failed', error: pushRes?.message });
                 }
               } else {
@@ -5595,15 +5726,21 @@ export function createAuroMindSDK(options = {}) {
         lsRemoveRaw(LS_SYNC_META_KEY);
         refreshActiveSyncMetadata(currentAccount);
         refreshActiveSyncConsent(currentAccount, { allowLegacyFallback: true });
+        refreshActiveSyncOutbox(currentAccount, { migrateFromGuest: false });
 
-        // Non-destructively hydrate any pending mutations from durable IDB outbox
+        // Non-destructively hydrate any pending mutations from durable IDB outbox for current identity
         try {
           const idbMutations = await idbGetOutbox();
+          const activeUserId = currentAccount?.userId || null;
           let hydrated = false;
           for (const mut of idbMutations) {
-            if (mut && typeof mut.gameId === 'string' && mut.gameId.trim() && !syncOutbox.has(mut.gameId.trim())) {
-              syncOutbox.add(mut.gameId.trim());
-              hydrated = true;
+            if (mut && typeof mut.gameId === 'string' && mut.gameId.trim()) {
+              const mutUser = mut.userId || null;
+              const isOwned = activeUserId ? (mutUser === activeUserId) : (mutUser === null);
+              if (isOwned && !syncOutbox.has(mut.gameId.trim())) {
+                syncOutbox.add(mut.gameId.trim());
+                hydrated = true;
+              }
             }
           }
           if (hydrated) persistSyncState();
