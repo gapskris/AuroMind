@@ -1060,10 +1060,14 @@ export class GameManager {
       const earnedPts = Math.round(100 * comboMult);
       this.player.score = (this.player.score || 0) + earnedPts;
 
+      let earnedSparks = 0;
+      let relicScore = 0;
       // Award bonus sparks for Golden Relic archetypes (+10 Sparks!)
       if (flora && flora.archetype === 'golden_relic') {
-        this.player.sparks = (this.player.sparks || 100) + 10;
-        this.player.score += 50;
+        earnedSparks = 10;
+        relicScore = 50;
+        this.player.sparks = (this.player.sparks || 100) + earnedSparks;
+        this.player.score += relicScore;
       }
       this.savePlayerState();
 
@@ -1074,7 +1078,10 @@ export class GameManager {
 
       this.moveHistory.push({
         type: 'match_pair',
-        tiles: [firstTile, tile]
+        tiles: [firstTile, tile],
+        earnedPts: earnedPts + relicScore,
+        earnedSparks: earnedSparks,
+        prevComboCount: this.comboCount
       });
 
       // Visual 2-Tile Radiant Glow & Kinetic Convergence Smash
@@ -1224,6 +1231,17 @@ export class GameManager {
       playAshramMeditationGong();
       // Award score (+250 for triads)
       this.player.score = (this.player.score || 0) + 250;
+
+      // Convert loose tray_add entries into an atomic triad_dissolve transaction (Fix for DEF-01)
+      const clearedIdSet = new Set(cleared.map(t => t.id));
+      this.moveHistory = this.moveHistory.filter(m => !(m.type === 'tray_add' && clearedIdSet.has(m.tile.id)));
+      this.moveHistory.push({
+        type: 'triad_dissolve',
+        triggeringTile: tile,
+        trayTiles: cleared.filter(t => t.id !== tile.id),
+        clearedTiles: cleared,
+        earnedPts: 250
+      });
       this.savePlayerState();
 
       const flora = (cleared.length > 0 && cleared[0].floraData)
@@ -1265,10 +1283,42 @@ export class GameManager {
       });
       this.matchedPairs.shift();
       this.selectedTile = null;
+
+      // Revert earned score and sparks (Fix for DEF-02)
+      if (lastMove.earnedPts) {
+        this.player.score = Math.max(0, (this.player.score || 0) - lastMove.earnedPts);
+      }
+      if (lastMove.earnedSparks) {
+        this.player.sparks = Math.max(0, (this.player.sparks || 0) - lastMove.earnedSparks);
+      }
+      this.comboCount = Math.max(1, (lastMove.prevComboCount || 1) - 1);
+      this.savePlayerState();
+    } else if (lastMove.type === 'triad_dissolve') {
+      // Revert score (Fix for DEF-01 & DEF-02)
+      this.player.score = Math.max(0, (this.player.score || 0) - (lastMove.earnedPts || 250));
+
+      // Return triggering tile to board
+      lastMove.triggeringTile.isMatched = false;
+      lastMove.triggeringTile.isSelected = false;
+
+      // Restore remaining tiles to tray and re-establish their tray_add history
+      lastMove.trayTiles.forEach(t => {
+        t.isMatched = true;
+        t.isSelected = false;
+        this.tray.push(t);
+        this.moveHistory.push({ type: 'tray_add', tile: t });
+      });
+      this.tray.sort((a, b) => (a.floraId || '').localeCompare(b.floraId || ''));
+      this.savePlayerState();
     } else if (lastMove.type === 'tray_add') {
-      lastMove.tile.isMatched = false;
+      // Safe check: Only return tile to board if it is actually in the tray (Prevents orphan tiles - DEF-01)
       const idx = this.tray.indexOf(lastMove.tile);
-      if (idx !== -1) this.tray.splice(idx, 1);
+      if (idx !== -1) {
+        this.tray.splice(idx, 1);
+        lastMove.tile.isMatched = false;
+        lastMove.tile.isSelected = false;
+        this.savePlayerState();
+      }
     }
 
     if (this.boardRenderer) {
@@ -1289,6 +1339,7 @@ export class GameManager {
     this.moveHistory = this.moveHistory.filter(m => !(m.type === 'tray_add' && m.tile.id === tileId));
 
     if (this.boardRenderer) this.boardRenderer.render();
+    this.savePlayerState();
     this.notifyState();
   }
 
@@ -1377,9 +1428,18 @@ export class GameManager {
     this.moveHistory = [];
     this.isStageCompleted = false;
 
+    // Reset stage timer & performance metrics (Fix for DEF-03)
+    this.stopStageTimer();
+    this.stageStartTime = null;
+    this.stageElapsedBeforePause = 0;
+    this.hintsUsedInStage = 0;
+    this.comboCount = 1;
+    this.startStageTimer();
+
     if (this.boardRenderer) {
       if (this.boardRenderer) this.boardRenderer.render();
     }
+    this.savePlayerState();
     this.notifyState();
   }
 
