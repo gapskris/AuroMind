@@ -1,7 +1,7 @@
 {
-  "name": "AuroMind — Sanctuary of Mindful Games",
-  "short_name": "AuroMind",
-  "description": "Mindful and intergenerational casual gaming sanctuary",
+  "name": "AuroMasti — A Little Twist. A Lot of Masti!",
+  "short_name": "AuroMasti",
+  "description": "A Little Twist. A Lot of Masti! Play, explore, and enjoy intergenerational games.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

@@ -193,7 +193,7 @@ function initPortalSDK() {
         if (hasOAuthParams && sdk.auth && typeof sdk.auth.handleAuthCallback === 'function' && sdk.auth.isAvailable()) {
           await sdk.auth.handleAuthCallback(window.location.href);
           if (typeof history !== 'undefined' && typeof history.replaceState === 'function') {
-            history.replaceState(history.state, document.title || 'AuroMind', window.location.pathname);
+            history.replaceState(history.state, document.title || 'AuroMasti', window.location.pathname);
           }
         }
       } catch (_oauthErr) {}
@@ -298,7 +298,7 @@ function trackWebsiteVisit() {
       'page_view',
       {
         path: (typeof window !== 'undefined' && window.location.pathname) || '/',
-        title: (typeof document !== 'undefined' && document.title) || 'AuroMind',
+        title: (typeof document !== 'undefined' && document.title) || 'AuroMasti',
         referrerDomain,
         ...utm
       },
@@ -430,7 +430,7 @@ function initTheaterMode() {
       window.suspendAmbientAudio();
     }
 
-    if (theaterTitle) theaterTitle.textContent = title || 'AuroMind Game';
+    if (theaterTitle) theaterTitle.textContent = title || 'AuroMasti Game';
     if (theaterIcon && icon) theaterIcon.src = icon;
     
     // Enter True Game Mode: hides portal header & sidebar for 100% viewport height
@@ -505,7 +505,7 @@ function initTheaterMode() {
     if (catalogScroll) catalogScroll.style.display = 'flex';
 
     if (window.location.hash.startsWith('#play-')) {
-      history.pushState({ inGame: false }, 'AuroMind', window.location.pathname);
+      history.pushState({ inGame: false }, 'AuroMasti', window.location.pathname);
     }
 
     // Resume ambient audio if it was playing prior to entering theater
@@ -1034,37 +1034,39 @@ function initAmbientAudio() {
 
   function startAmbientAudio() {
     if (isPlaying) return;
-    if (!audioCtx) {
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      audioCtx = new AudioContext();
+    try {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return;
+        audioCtx = new AudioContextClass();
+      }
+      if (audioCtx.state === 'suspended') {
+        const p = audioCtx.resume();
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      }
+
+      oscillator = audioCtx.createOscillator();
+      gainNode = audioCtx.createGain();
+
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(432, audioCtx.currentTime);
+
+      gainNode.gain.setValueAtTime(0.001, audioCtx.currentTime);
+      gainNode.gain.linearRampToValueAtTime(Math.max(0.0001, currentVolume), audioCtx.currentTime + 1);
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      oscillator.start();
+      isPlaying = true;
+      audioBtn.classList.add('active');
+    } catch (_audioErr) {
+      isPlaying = false;
+      audioBtn.classList.remove('active');
     }
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume();
-    }
-
-    oscillator = audioCtx.createOscillator();
-    gainNode = audioCtx.createGain();
-
-    oscillator.type = 'sine';
-    oscillator.frequency.setValueAtTime(432, audioCtx.currentTime);
-
-    gainNode.gain.setValueAtTime(0.001, audioCtx.currentTime);
-    gainNode.gain.linearRampToValueAtTime(Math.max(0.0001, currentVolume), audioCtx.currentTime + 1);
-
-    oscillator.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-
-    oscillator.start();
-    isPlaying = true;
-    audioBtn.classList.add('active');
   }
 
   audioBtn.addEventListener('click', () => {
-    if (!audioCtx) {
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      audioCtx = new AudioContext();
-    }
-
     if (isPlaying) {
       stopAmbientAudio();
     } else {
@@ -2053,7 +2055,7 @@ function initFeedbackModal() {
     }
 
     if (subjectInput) {
-      subjectInput.value = `💬 AuroMind Feedback: [${topic}]`;
+      subjectInput.value = `💬 AuroMasti Feedback: [${topic}]`;
     }
 
     const originalBtnHTML = submitBtn ? submitBtn.innerHTML : '<span>Send Feedback 🕊️</span>';

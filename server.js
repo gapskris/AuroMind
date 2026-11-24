@@ -227,6 +227,6 @@ if (isMain) {
   const host = '0.0.0.0';
   const app = createApp();
   app.listen(port, host, () => {
-    console.log(`AuroMind portal listening at http://${host}:${port}`);
+    console.log(`AuroMasti portal listening at http://${host}:${port}`);
   });
 }

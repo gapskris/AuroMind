@@ -28,6 +28,7 @@ const ASSETS_TO_CACHE = [
   './src/ui/constellation.js',
   './src/ui/particles.js',
   './src/ui/scriptureCard.js',
+  './Assets/auromatch-sdk-bridge.js',
   './Assets/icons/logo.svg',
   './Assets/icons/favicon.svg',
   './Assets/icons/favicon.png',

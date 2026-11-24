@@ -292,24 +292,35 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // C. General app assets: StaleWhileRevalidate
+  // C. General app assets: StaleWhileRevalidate with safe offline fallback
   event.respondWith(
     (async () => {
       const cache = await caches.open(CACHE_NAME);
       const cleanHref = url.origin + url.pathname;
       const cachedResponse =
         (await cache.match(event.request)) || (await cache.match(cleanHref));
-      const fetchPromise = fetch(event.request)
-        .then(async (networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            const copy = networkResponse.clone();
-            await cache.put(cleanHref, copy);
-          }
-          return networkResponse;
-        })
-        .catch(() => cachedResponse);
+      if (cachedResponse) {
+        fetch(event.request)
+          .then(async (networkResponse) => {
+            if (networkResponse && networkResponse.status === 200) {
+              const copy = networkResponse.clone();
+              await cache.put(cleanHref, copy);
+            }
+          })
+          .catch(() => {});
+        return cachedResponse;
+      }
 
-      return cachedResponse || fetchPromise;
+      try {
+        const networkResponse = await fetch(event.request);
+        if (networkResponse && networkResponse.status === 200) {
+          const copy = networkResponse.clone();
+          await cache.put(cleanHref, copy);
+        }
+        return networkResponse;
+      } catch (_err) {
+        return new Response('', { status: 504, statusText: 'Offline' });
+      }
     })()
   );
 });

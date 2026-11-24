@@ -84,7 +84,13 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
       const shellCache = await caches.open(PORTAL_CACHE_NAME);
-      await shellCache.addAll(PORTAL_SHELL_ASSETS);
+      try {
+        await shellCache.addAll(PORTAL_SHELL_ASSETS);
+      } catch (_addAllErr) {
+        await Promise.allSettled(
+          PORTAL_SHELL_ASSETS.map((assetUrl) => shellCache.add(assetUrl).catch(() => {}))
+        );
+      }
 
       // Warm Google Fonts CSS and referenced woff2 font files without failing installation if offline (AURO-34)
       try {

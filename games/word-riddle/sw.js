@@ -11,7 +11,8 @@ const SHELL_URLS = [
   './assets/index-ClQZWKJi.js',
   './assets/vendor-Bb8JjhAW.js',
   './assets/vendor-react-BohcAXVY.js',
-  './assets/vendor-data-ukx0zKqE.js'
+  './assets/vendor-data-ukx0zKqE.js',
+  './assets/word-riddle-sdk-bridge.js'
 ];
 
 // Lazy/background-cached theme chunks so all 15 themes work offline (AURO-16)

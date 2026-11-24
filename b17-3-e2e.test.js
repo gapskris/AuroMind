@@ -48,7 +48,7 @@ test('E2E Suite A - 1: Portal loads successfully and renders valid document titl
     assert.equal(response.status(), 200, 'Portal must respond with HTTP 200');
 
     const title = await page.title();
-    assert.ok(title.includes('AuroMind'), `Page title must contain AuroMind, got: ${title}`);
+    assert.ok(title.includes('AuroMasti') || title.includes('AuroMind'), `Page title must contain AuroMasti, got: ${title}`);
 
     // Verify zero unhandled runtime JavaScript exceptions
     const runtimeExceptions = consoleErrors.filter(e => e.type === 'pageerror');
@@ -65,7 +65,7 @@ test('E2E Suite A - 2: Main navigation header and controls render correctly', as
 
     // Verify brand text in sidebar
     const brandText = await page.$eval('.sidebar-brand-text h1', el => el.textContent.trim());
-    assert.equal(brandText, 'AuroMind', 'Sidebar brand title must be AuroMind');
+    assert.ok(brandText === 'AuroMasti' || brandText === 'AuroMind', `Sidebar brand title must be AuroMasti, got: ${brandText}`);
 
     // Verify search input
     const searchInput = await page.$('#search-input');
@@ -1161,7 +1161,7 @@ test('E2E Suite F - 1: Web App Manifest loads and contains required PWA metadata
     assert.equal(manifestResponse.status(), 200, 'Manifest must return HTTP 200');
 
     const manifestJson = await manifestResponse.json();
-    assert.ok(manifestJson.name.includes('AuroMind'), 'Manifest name must contain AuroMind');
+    assert.ok(manifestJson.name.includes('AuroMasti') || manifestJson.name.includes('AuroMind'), 'Manifest name must contain AuroMasti');
     assert.ok(manifestJson.icons && manifestJson.icons.length > 0, 'Manifest must declare icons');
     assert.equal(manifestJson.display, 'standalone', 'Manifest display must be standalone');
   } finally {

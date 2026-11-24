@@ -124,17 +124,18 @@ html, body {
 .sidebar-brand-text h1 {
   font-size: 1.25rem;
   font-weight: 800;
-  letter-spacing: -0.02em;
-  color: #0284C7;
+  letter-spacing: -0.01em;
+  color: #D2741C;
   line-height: 1.1;
 }
 
 .sidebar-brand-text p {
-  font-size: 0.66rem;
-  color: #0284C7;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  font-weight: 700;
+  font-size: 0.65rem;
+  color: #78350F;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-weight: 600;
+  line-height: 1.25;
 }
 
 .sidebar-scroll {
@@ -380,15 +381,15 @@ html, body {
 }
 
 .hero-banner {
-  background: linear-gradient(135deg, #E0F2FE 0%, #DBEAFE 50%, #EFF6FF 100%);
-  border: 1.5px solid rgba(2, 132, 199, 0.22);
+  background: linear-gradient(135deg, #FFF9F3 0%, #FFF3E6 50%, #FEEBD5 100%);
+  border: 1.5px solid rgba(210, 116, 28, 0.25);
   border-radius: var(--radius-lg);
   padding: 1.25rem 1.6rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1.5rem;
-  box-shadow: 0 8px 24px rgba(2, 132, 199, 0.08);
+  box-shadow: 0 8px 24px rgba(210, 116, 28, 0.08);
   position: relative;
   overflow: hidden;
 }
@@ -400,7 +401,7 @@ html, body {
   top: -40%;
   width: 300px;
   height: 300px;
-  background: radial-gradient(circle, rgba(2, 132, 199, 0.15) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(210, 116, 28, 0.15) 0%, transparent 70%);
   border-radius: 50%;
   pointer-events: none;
 }
@@ -410,13 +411,47 @@ html, body {
   z-index: 2;
 }
 
+.hero-brand-lockup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-bottom: 0.55rem;
+}
+
+.hero-brand-title {
+  font-size: clamp(1.15rem, 1.8vw, 1.55rem);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #D2741C;
+  line-height: 1.15;
+}
+
+.hero-brand-tagline {
+  font-size: clamp(1.45rem, 2.3vw, 2.1rem);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #4A200B;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.hero-brand-pillars {
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #786C65;
+  margin-top: 0.15rem;
+}
+
 .hero-badge-tag {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  background: rgba(2, 132, 199, 0.12);
-  border: 1px solid rgba(2, 132, 199, 0.3);
-  color: #0284C7;
+  background: rgba(210, 116, 28, 0.12);
+  border: 1px solid rgba(210, 116, 28, 0.3);
+  color: #D2741C;
   font-size: 0.72rem;
   font-weight: 800;
   text-transform: uppercase;
@@ -427,12 +462,12 @@ html, body {
 }
 
 .hero-title {
-  font-size: clamp(1.25rem, 1.9vw, 1.6rem);
+  font-size: clamp(1.35rem, 2.2vw, 1.85rem);
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: 0.02em;
   line-height: 1.25;
   margin-bottom: 0.35rem;
-  color: #0B1E36;
+  color: #D2741C;
 }
 
 .hero-desc {
@@ -455,7 +490,7 @@ html, body {
 .stat-num {
   font-size: 1.15rem;
   font-weight: 800;
-  color: #0284C7;
+  color: #D2741C;
   line-height: 1.1;
 }
 
@@ -1491,9 +1526,16 @@ body.senior-mode .guide-pillar-modal-item p {
     align-items: center !important;
     justify-content: space-between !important;
   }
-  .hero-title {
-    font-size: 1.15rem !important;
+  .hero-title,
+  .hero-brand-tagline {
+    font-size: 1.25rem !important;
     margin: 0 0 0.15rem 0 !important;
+  }
+  .hero-brand-title {
+    font-size: 0.95rem !important;
+  }
+  .hero-brand-pillars {
+    font-size: 0.65rem !important;
   }
   .hero-desc {
     font-size: 0.8rem !important;
