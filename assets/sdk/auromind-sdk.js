@@ -245,7 +245,7 @@ export function reconcileGuestRecords(first, second) {
   };
 }
 
-const SENSITIVE_KEY_PATTERN = /(?:password|passphrase|token|access_token|refresh_token|id_token|accessToken|refreshToken|idToken|secret|auth|authorization|bearer|credential|otp|auth_code|code_verifier|sankalpa|vault|key|private|cipher|salt|iv|seed|intention|reflection|prayer|audio|raw_audio|rawAudio|audio_blob|audio_buffer|speech_recording|corpus_text|stroke|strokes|canvas_strokes|svg_data|journal|note|personalNotes)/i;
+const SENSITIVE_KEY_PATTERN = /(?:password|passphrase|token|access_token|refresh_token|id_token|accessToken|refreshToken|idToken|secret|auth|authorization|bearer|credential|otp|auth_code|code_verifier|sankalpa|vault|key|private|cipher|salt|iv|seed|intention|reflection|prayer|audio|raw_audio|rawAudio|audio_blob|audio_buffer|speech_recording|corpus_text|stroke|strokes|canvas_strokes|svg_data|canvas_data|artwork_content|artwork_data|raw_artwork|save_payload|savepayload|save_content|savecontent|raw_save|journal|note|personalNotes)/i;
 const SENSITIVE_VALUE_PATTERNS = [
   /eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}/g, // JWT
   /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, // Email
@@ -591,6 +591,9 @@ export function sanitizeTelemetryPayload(data, depth = 0) {
   if (depth > 6) return null;
   if (data === null || data === undefined) return data;
   if (typeof data !== 'object') {
+    if (typeof data === 'number') {
+      return Number.isFinite(data) ? data : null;
+    }
     if (typeof data === 'string') {
       let sanitized = data;
       for (const pat of SENSITIVE_VALUE_PATTERNS) {
@@ -1906,7 +1909,13 @@ export function createAuroMindSDK(options = {}) {
     persistPlayerProfileForKey(userKey, migratedProf);
   }
 
-  function applyAccountTransition(rawAccount, { preserveGuestProfile = false, linkedGuestId = null, broadcast = true, reason = 'auth_change' } = {}) {
+  function applyAccountTransition(rawAccount, {
+    preserveGuestProfile = false,
+    linkedGuestId = null,
+    broadcast = true,
+    reason = 'auth_change',
+    migrateFromGuest = false
+  } = {}) {
     const prevUserId = currentAccount?.userId || null;
     const nextAccount = capabilities.authEnabled
       ? sanitizeAccountRecord(rawAccount, getNow().getTime())
@@ -1937,7 +1946,7 @@ export function createAuroMindSDK(options = {}) {
       });
       const isExplicitGuestToAccount = Boolean(
         (!prevUserId && Boolean(nextUserId)) &&
-        (options.migrateFromGuest === true || preserveGuestProfile || reason === 'guest_upgrade' || reason === 'upgrade_guest')
+        (migrateFromGuest === true || preserveGuestProfile || reason === 'guest_upgrade' || reason === 'upgrade_guest')
       );
       refreshActiveSyncOutbox(nextAccount, {
         migrateFromGuest: isExplicitGuestToAccount
@@ -2861,6 +2870,9 @@ export function createAuroMindSDK(options = {}) {
             reason: 'sign_in',
             migrateFromGuest: shouldMigrate
           });
+          if (activeOutboxMigrationPromise) {
+            try { await activeOutboxMigrationPromise; } catch {}
+          }
           if (!sanitized) {
             return Object.freeze({
               ok: false,
@@ -2916,6 +2928,9 @@ export function createAuroMindSDK(options = {}) {
             reason: 'sign_up',
             migrateFromGuest: shouldMigrate
           });
+          if (activeOutboxMigrationPromise) {
+            try { await activeOutboxMigrationPromise; } catch {}
+          }
           if (!sanitized) {
             return Object.freeze({
               ok: false,
@@ -2993,6 +3008,9 @@ export function createAuroMindSDK(options = {}) {
             reason: 'otp_verified',
             migrateFromGuest: shouldMigrate
           });
+          if (activeOutboxMigrationPromise) {
+            try { await activeOutboxMigrationPromise; } catch {}
+          }
           if (!sanitized) {
             return Object.freeze({
               ok: false,
@@ -3099,6 +3117,9 @@ export function createAuroMindSDK(options = {}) {
             reason: 'oauth_callback',
             migrateFromGuest: shouldMigrate
           });
+          if (activeOutboxMigrationPromise) {
+            try { await activeOutboxMigrationPromise; } catch {}
+          }
           if (!sanitized) {
             return Object.freeze({
               ok: false,
@@ -5715,6 +5736,9 @@ export function createAuroMindSDK(options = {}) {
           if (typeof providers.auth.onAuthStateChange === 'function') {
             if (authUnsubscribe) authUnsubscribe();
             authUnsubscribe = providers.auth.onAuthStateChange((account) => {
+              if (authInFlight) {
+                return;
+              }
               applyAccountTransition(account || null, { broadcast: true, reason: 'provider_event' });
             });
           }

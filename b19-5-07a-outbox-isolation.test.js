@@ -225,6 +225,32 @@ function createMockAuthProvider(initialAccount = null) {
       for (const cb of authListeners) cb({ ...currentAccount });
       return { ok: true, status: 'authenticated', account: { ...currentAccount } };
     },
+    async verifyOtp(params = {}) {
+      const email = params.email || 'player@example.com';
+      const userId = params.userId || `user_${email.split('@')[0]}`;
+      currentAccount = {
+        userId,
+        email,
+        displayName: email.split('@')[0],
+        provider: 'email',
+        expiresAt: new Date(Date.now() + 3600_000).toISOString()
+      };
+      for (const cb of authListeners) cb({ ...currentAccount });
+      return { ok: true, status: 'authenticated', account: { ...currentAccount } };
+    },
+    async handleOAuthCallback(params = {}) {
+      const email = params.email || 'oauth_user@example.com';
+      const userId = params.userId || 'user_oauth';
+      currentAccount = {
+        userId,
+        email,
+        displayName: 'OAuth Player',
+        provider: 'google',
+        expiresAt: new Date(Date.now() + 3600_000).toISOString()
+      };
+      for (const cb of authListeners) cb({ ...currentAccount });
+      return { ok: true, status: 'authenticated', account: { ...currentAccount } };
+    },
     async linkGuestIdentity(_guestId) {
       return { linked: true };
     },
@@ -749,6 +775,259 @@ describe('B19.5-07A: Offline Outbox Identity Isolation & Ownership Enforcement',
     assert.equal(idbAfter['mut_g_riddle'].userId, null);
 
     sdk.dispose();
+  });
+
+  describe('B19.5-07A1: Outbox Migration Argument Propagation & Edge Cases', () => {
+
+    test('07A1-1: Explicit signIn with migrateFromGuest: true migrates guest outbox to new account', async () => {
+      const { env, storage, idb } = createSdkEnv();
+      const auth = createMockAuthProvider(null);
+      const cloud = createMockCloudSyncStore();
+
+      const sdk = createAuroMindSDK({ env });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth, cloudSync: cloud.provider }
+      });
+
+      const matchHarness = createInMemoryGameAdapter('auromatch', { score: 10 });
+      sdk.adapters.register(matchHarness.adapter, { mergeStrategy: AuroMatchMergeStrategy });
+      await sdk.adapters.init('auromatch');
+
+      // Guest queues mutation
+      await sdk.sync.queueLocalChange('auromatch');
+      assert.equal(sdk.sync.getPendingOutboxCount(), 1);
+
+      // Explicit signIn with migrateFromGuest: true
+      const res = await sdk.auth.signIn('email', { email: 'alice@example.com', userId: 'user_alice' }, { migrateFromGuest: true });
+      assert.ok(res.ok);
+
+      // Verify migration succeeded
+      assert.equal(sdk.sync.getPendingOutboxCount(), 1);
+      assert.deepEqual(sdk.sync.getPendingGames(), ['auromatch']);
+
+      const idbStore = idb._peekStore('AuroMindPlatformDB', 'platform_sync_outbox');
+      const muts = Object.values(idbStore).filter((m) => m && m.gameId === 'auromatch');
+      assert.equal(muts.length, 1);
+      assert.equal(muts[0].userId, 'user_alice');
+
+      sdk.dispose();
+    });
+
+    test('07A1-2: Ordinary signIn without migration options does NOT migrate guest outbox', async () => {
+      const { env, storage, idb } = createSdkEnv();
+      const auth = createMockAuthProvider(null);
+      const cloud = createMockCloudSyncStore();
+
+      const sdk = createAuroMindSDK({ env });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth, cloudSync: cloud.provider }
+      });
+
+      const matchHarness = createInMemoryGameAdapter('auromatch', { score: 10 });
+      sdk.adapters.register(matchHarness.adapter, { mergeStrategy: AuroMatchMergeStrategy });
+      await sdk.adapters.init('auromatch');
+
+      // Guest queues mutation
+      await sdk.sync.queueLocalChange('auromatch');
+      assert.equal(sdk.sync.getPendingOutboxCount(), 1);
+
+      // Ordinary signIn (no migration option)
+      const res = await sdk.auth.signIn('email', { email: 'bob@example.com', userId: 'user_bob' });
+      assert.ok(res.ok);
+
+      // Bob's outbox must be empty
+      assert.equal(sdk.sync.getPendingOutboxCount(), 0);
+      assert.deepEqual(sdk.sync.getPendingGames(), []);
+
+      // Guest mutation remains in IDB owned by null
+      const idbStore = idb._peekStore('AuroMindPlatformDB', 'platform_sync_outbox');
+      const muts = Object.values(idbStore).filter((m) => m && m.gameId === 'auromatch');
+      assert.equal(muts.length, 1);
+      assert.equal(muts[0].userId, null);
+
+      sdk.dispose();
+    });
+
+    test('07A1-3: Account A -> Account B switch with migrateFromGuest: true never migrates', async () => {
+      const { env, storage, idb } = createSdkEnv();
+      const auth = createMockAuthProvider(null);
+      const cloud = createMockCloudSyncStore();
+
+      const sdk = createAuroMindSDK({ env });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth, cloudSync: cloud.provider }
+      });
+
+      const matchHarness = createInMemoryGameAdapter('auromatch', { score: 50 });
+      sdk.adapters.register(matchHarness.adapter, { mergeStrategy: AuroMatchMergeStrategy });
+      await sdk.adapters.init('auromatch');
+
+      // Account A signs in
+      await sdk.auth.signIn('email', { email: 'alpha@example.com', userId: 'user_alpha' });
+      await sdk.sync.queueLocalChange('auromatch');
+      assert.equal(sdk.sync.getPendingOutboxCount(), 1);
+
+      // Account B signs in directly (Account -> Account switch) even if migrateFromGuest is true!
+      await sdk.auth.signIn('email', { email: 'beta@example.com', userId: 'user_beta' }, { migrateFromGuest: true });
+
+      // Account B must NOT have Account A mutation
+      assert.equal(sdk.sync.getPendingOutboxCount(), 0);
+      assert.deepEqual(sdk.sync.getPendingGames(), []);
+
+      // Mutation in IDB must still be strictly owned by user_alpha
+      const idbStore = idb._peekStore('AuroMindPlatformDB', 'platform_sync_outbox');
+      const muts = Object.values(idbStore).filter((m) => m && m.gameId === 'auromatch');
+      assert.equal(muts.length, 1);
+      assert.equal(muts[0].userId, 'user_alpha');
+
+      sdk.dispose();
+    });
+
+    test('07A1-4: verifyOtp correctly propagates explicit migration option', async () => {
+      const { env, storage, idb } = createSdkEnv();
+      const auth = createMockAuthProvider(null);
+      const cloud = createMockCloudSyncStore();
+
+      const sdk = createAuroMindSDK({ env });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth, cloudSync: cloud.provider }
+      });
+
+      const matchHarness = createInMemoryGameAdapter('auromatch', { score: 99 });
+      sdk.adapters.register(matchHarness.adapter, { mergeStrategy: AuroMatchMergeStrategy });
+      await sdk.adapters.init('auromatch');
+
+      // Guest queues mutation
+      await sdk.sync.queueLocalChange('auromatch');
+
+      // verifyOtp with migrateGuestData: true
+      const res = await sdk.auth.verifyOtp('otpuser@example.com', '123456', { migrateGuestData: true, userId: 'user_otp' });
+      assert.ok(res.ok);
+
+      // Outbox migrated to user_otpuser
+      assert.equal(sdk.sync.getPendingOutboxCount(), 1);
+      const idbStore = idb._peekStore('AuroMindPlatformDB', 'platform_sync_outbox');
+      const muts = Object.values(idbStore).filter((m) => m && m.gameId === 'auromatch');
+      assert.equal(muts.length, 1);
+      assert.equal(muts[0].userId, 'user_otpuser');
+
+      sdk.dispose();
+    });
+
+    test('07A1-5: handleAuthCallback correctly propagates explicit migration option', async () => {
+      const { env, storage, idb } = createSdkEnv();
+      const auth = createMockAuthProvider(null);
+      const cloud = createMockCloudSyncStore();
+
+      const sdk = createAuroMindSDK({ env });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth, cloudSync: cloud.provider }
+      });
+
+      const matchHarness = createInMemoryGameAdapter('auromatch', { score: 100 });
+      sdk.adapters.register(matchHarness.adapter, { mergeStrategy: AuroMatchMergeStrategy });
+      await sdk.adapters.init('auromatch');
+
+      // Guest queues mutation
+      await sdk.sync.queueLocalChange('auromatch');
+
+      // handleAuthCallback with migrateFromGuest: true
+      const res = await sdk.auth.handleAuthCallback({ code: 'valid_code', state: 'valid_state' }, { migrateFromGuest: true, userId: 'user_oauth' });
+      assert.ok(res.ok);
+
+      // Outbox migrated to user_oauth
+      assert.equal(sdk.sync.getPendingOutboxCount(), 1);
+      const idbStore = idb._peekStore('AuroMindPlatformDB', 'platform_sync_outbox');
+      const muts = Object.values(idbStore).filter((m) => m && m.gameId === 'auromatch');
+      assert.equal(muts.length, 1);
+      assert.equal(muts[0].userId, 'user_oauth');
+
+      sdk.dispose();
+    });
+
+    test('07A1-6: Repeated upgrade does not duplicate data and handles ALREADY_AUTHENTICATED', async () => {
+      const { env, storage, idb } = createSdkEnv();
+      const auth = createMockAuthProvider(null);
+      const cloud = createMockCloudSyncStore();
+
+      const sdk = createAuroMindSDK({ env });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth, cloudSync: cloud.provider }
+      });
+
+      const matchHarness = createInMemoryGameAdapter('auromatch', { score: 123 });
+      sdk.adapters.register(matchHarness.adapter, { mergeStrategy: AuroMatchMergeStrategy });
+      await sdk.adapters.init('auromatch');
+
+      // Guest queues mutation
+      await sdk.sync.queueLocalChange('auromatch');
+
+      // First upgrade
+      const up1 = await sdk.auth.upgradeGuestToAccount({ email: 'upgrade@example.com', userId: 'user_up' });
+      assert.ok(up1.ok);
+      assert.equal(sdk.sync.getPendingOutboxCount(), 1);
+
+      // Second upgrade while already authenticated fails gracefully without duplicating
+      const up2 = await sdk.auth.upgradeGuestToAccount({ email: 'upgrade2@example.com', userId: 'user_up2' });
+      assert.equal(up2.ok, false);
+      assert.equal(up2.errorCode, 'ALREADY_AUTHENTICATED');
+
+      // Mutations in IDB must still be exactly 1
+      const idbStore = idb._peekStore('AuroMindPlatformDB', 'platform_sync_outbox');
+      const muts = Object.values(idbStore).filter((m) => m && m.gameId === 'auromatch');
+      assert.equal(muts.length, 1);
+      assert.equal(muts[0].userId, 'user_up');
+
+      sdk.dispose();
+    });
+
+    test('07A1-7: Failed auth preserves source guest mutation in guest state', async () => {
+      const { env, storage, idb } = createSdkEnv();
+      const auth = createMockAuthProvider(null);
+      // Mock failure on next signIn
+      auth.signIn = async () => ({ ok: false, errorCode: 'INVALID_CREDENTIALS', message: 'Wrong password' });
+      const cloud = createMockCloudSyncStore();
+
+      const sdk = createAuroMindSDK({ env });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth, cloudSync: cloud.provider }
+      });
+
+      const matchHarness = createInMemoryGameAdapter('auromatch', { score: 456 });
+      sdk.adapters.register(matchHarness.adapter, { mergeStrategy: AuroMatchMergeStrategy });
+      await sdk.adapters.init('auromatch');
+
+      // Guest queues mutation
+      await sdk.sync.queueLocalChange('auromatch');
+
+      // Attempt signIn that fails
+      const failRes = await sdk.auth.signIn('email', { email: 'bad@example.com' }, { migrateFromGuest: true });
+      assert.equal(failRes.ok, false);
+
+      // Guest mutation must remain intact with userId: null
+      assert.equal(sdk.sync.getPendingOutboxCount(), 1);
+      const idbStore = idb._peekStore('AuroMindPlatformDB', 'platform_sync_outbox');
+      const muts = Object.values(idbStore).filter((m) => m && m.gameId === 'auromatch');
+      assert.equal(muts.length, 1);
+      assert.equal(muts[0].userId, null);
+
+      sdk.dispose();
+    });
+
   });
 
 });

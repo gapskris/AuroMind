@@ -27,7 +27,23 @@ export const VALID_CATEGORIES = new Set([
   'lifecycle', 'engagement', 'progression', 'error', 'commerce', 'ui', 'system'
 ]);
 
+export const ALLOWLISTED_EVENT_NAMES = new Set([
+  'app_launch', 'app_foreground', 'app_background', 'session_start', 'session_end',
+  'level_started', 'level_completed', 'level_complete', 'level_failed', 'stage_completed', 'puzzle_solved', 'round_start',
+  'game_launched', 'game_closed', 'achievement_unlocked', 'achievement_progress',
+  'streak_incremented', 'daily_challenge_completed',
+  'save_corruption_detected', 'storage_quota_warning', 'sync_conflict_detected',
+  'network_error', 'audio_context_error', 'service_worker_error', 'telemetry_overflow_incident',
+  'senior_mode_toggled', 'theme_changed', 'sound_toggled', 'music_toggled',
+  'commercial_gate_evaluated', 'entitlement_verified',
+  'probe_event', 'test_event', 'active_session'
+]);
+
+export const FORBIDDEN_KEY_PATTERN =
+  /(?:sankalpa|intention|vault|passphrase|password|secret|token|bearer|credential|key|journal|reflection|personalnotes|personal_notes|audio_blob|audio_buffer|speech_recording|corpus_text|canvas_strokes|strokes|svg_data|canvas_data|artwork_content|artwork_data|raw_artwork|save_payload|savepayload|save_content|raw_save)/i;
+
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const EVENT_NAME_REGEX = /^[a-z][a-z0-9_]{1,63}$/i;
 
 /**
  * Derives a privacy-preserving client bucket hash using SHA-256 (AUDIT-SEC-06).
@@ -105,6 +121,21 @@ export class MemoryRateLimitStore {
    * @returns {Promise<{ allowed: boolean, current: number, limit: number, remaining: number, retryAfter: number }>}
    */
   async checkRateLimit(key, maxRequests = DEFAULT_RATE_LIMIT_MAX, windowSeconds = DEFAULT_RATE_LIMIT_WINDOW_SECONDS) {
+    if (
+      maxRequests === null || maxRequests === undefined ||
+      windowSeconds === null || windowSeconds === undefined ||
+      !Number.isFinite(maxRequests) || !Number.isFinite(windowSeconds) ||
+      maxRequests < 1 || windowSeconds < 1
+    ) {
+      return {
+        allowed: false,
+        current: 0,
+        limit: 0,
+        remaining: 0,
+        retryAfter: 60,
+        error: 'INVALID_PARAMETERS'
+      };
+    }
     const now = Date.now();
     const windowMs = windowSeconds * 1000;
     let entry = this.buckets.get(key);
@@ -400,22 +431,42 @@ export async function handleTelemetryIngestRequest(req, options = {}) {
         continue;
       }
 
-      if (!evt.eventName || typeof evt.eventName !== 'string' || !VALID_CATEGORIES.has(evt.category)) {
+      if (!evt.eventName || typeof evt.eventName !== 'string' || !EVENT_NAME_REGEX.test(evt.eventName) || !VALID_CATEGORIES.has(evt.category)) {
         skipped++;
         continue;
       }
 
-      // Privacy Invariant: Redact any sensitive keys if present in payload (defense-in-depth)
-      const rawPayload = evt.payload && typeof evt.payload === 'object' ? { ...evt.payload } : {};
+      if (options.enforceAllowlist === true && !ALLOWLISTED_EVENT_NAMES.has(evt.eventName)) {
+        skipped++;
+        continue;
+      }
+
+      // Privacy Invariant: Purge forbidden sensitive keys completely (ADR-09)
+      const rawPayload = evt.payload && typeof evt.payload === 'object' && !Array.isArray(evt.payload)
+        ? { ...evt.payload }
+        : {};
       for (const k of Object.keys(rawPayload)) {
-        if (/sankalpa|password|secret|token/i.test(k)) {
-          rawPayload[k] = '[REDACTED]';
+        if (FORBIDDEN_KEY_PATTERN.test(k)) {
+          delete rawPayload[k];
+          continue;
         }
+        const val = rawPayload[k];
+        if (typeof val === 'number' && !Number.isFinite(val)) {
+          delete rawPayload[k];
+        }
+      }
+
+      // Identity context protection (AUDIT-SEC-06): prevent unauthenticated clients from spoofing user_id
+      let safeUserId = null;
+      if (options.authenticatedUserId && typeof options.authenticatedUserId === 'string') {
+        safeUserId = options.authenticatedUserId;
+      } else if (options.allowClientUserId !== false && evt.userId && typeof evt.userId === 'string') {
+        safeUserId = evt.userId;
       }
 
       toInsert.push({
         event_id: evt.eventId,
-        user_id: evt.userId || null,
+        user_id: safeUserId,
         guest_id: evt.guestId || null,
         session_id: evt.sessionId || null,
         game_id: evt.gameId || 'portal',

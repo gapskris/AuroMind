@@ -126,9 +126,12 @@ export async function verifyVersionedEntitlement({
     return { valid: false, reason: 'CLOCK_ROLLBACK_DETECTED' };
   }
 
-  // 7. 30-day offline grace period
+  // 7. 30-day offline grace period & clock manipulation
   if (payload.lastValidatedAt) {
     const lastValidatedTime = new Date(payload.lastValidatedAt).getTime();
+    if (Number.isFinite(lastValidatedTime) && currentTimestamp < lastValidatedTime - 60000) {
+      return { valid: false, reason: 'CLOCK_ROLLBACK_DETECTED' };
+    }
     if (currentTimestamp - lastValidatedTime > OFFLINE_GRACE_MS) {
       return { valid: false, reason: 'OFFLINE_GRACE_EXCEEDED' };
     }
