@@ -986,9 +986,12 @@ export function saveProfileState(options = {}) {
         }
 
         // 2. Working cache in localStorage for active in-game UI
-        localStorage.setItem('auro_match_user', serializedUser);
-        localStorage.setItem('auro_match_consecrations', serializedCons);
-        localStorage.setItem('auro_match_unlocked_tiles', serializedTiles);
+        // Only mirror to working cache if currentScope matches the active UI scope
+        if (!currentScope || getActiveScope() === currentScope) {
+            localStorage.setItem('auro_match_user', serializedUser);
+            localStorage.setItem('auro_match_consecrations', serializedCons);
+            localStorage.setItem('auro_match_unlocked_tiles', serializedTiles);
+        }
 
         // 3. In IndexedDB: ONLY write unscoped keys for unauthenticated guest mode!
         // Authenticated accounts NEVER write to shared unscoped keys in IndexedDB.
@@ -1009,37 +1012,68 @@ export function loadProfileState(options = {}) {
     let userData = null;
     let consecrationsData = null;
     let unlockedData = null;
+    let isValidUserRecord = false;
 
     if (typeof localStorage !== 'undefined') {
         if (currentScope) {
-            userData = localStorage.getItem(`auro_match_user:${currentScope}`);
-            consecrationsData = localStorage.getItem(`auro_match_consecrations:${currentScope}`);
-            unlockedData = localStorage.getItem(`auro_match_unlocked_tiles:${currentScope}`);
+            const rawScopedUser = localStorage.getItem(`auro_match_user:${currentScope}`);
+            if (rawScopedUser) {
+                const parsed = tryParseJson(rawScopedUser);
+                if (parsed.ok && parsed.value && typeof parsed.value === 'object' && !Array.isArray(parsed.value)) {
+                    const embeddedOwner = getRecordOwnerId(parsed.value);
+                    if (isAuthenticated) {
+                        // Strict validation for authenticated accounts:
+                        // Embedded owner must be a valid non-empty string exactly matching currentScope!
+                        // Reject missing, malformed, non-string, whitespace and foreign metadata.
+                        if (embeddedOwner && embeddedOwner === currentScope) {
+                            userData = parsed.value;
+                            isValidUserRecord = true;
+                            consecrationsData = localStorage.getItem(`auro_match_consecrations:${currentScope}`);
+                            unlockedData = localStorage.getItem(`auro_match_unlocked_tiles:${currentScope}`);
+                        } else {
+                            console.warn(`[Storage] loadProfileState: Scoped user record in "auro_match_user:${currentScope}" failed ownership validation (owner="${embeddedOwner}"). Failing closed.`);
+                        }
+                    } else {
+                        // Guest mode
+                        if (!embeddedOwner || embeddedOwner === currentScope) {
+                            userData = parsed.value;
+                            isValidUserRecord = true;
+                            consecrationsData = localStorage.getItem(`auro_match_consecrations:${currentScope}`);
+                            unlockedData = localStorage.getItem(`auro_match_unlocked_tiles:${currentScope}`);
+                        }
+                    }
+                }
+            }
         }
-        if (!userData) {
+
+        if (!isValidUserRecord) {
+            // Check fallback working cache
             const rawWorking = localStorage.getItem('auro_match_user');
             if (rawWorking) {
                 const parsed = tryParseJson(rawWorking);
-                const owner = getRecordOwnerId(parsed.value);
-                // For authenticated accounts: ONLY load if owner is strictly established as currentScope!
-                // Missing, unowned, or foreign owner fails closed!
-                if (isAuthenticated ? (owner && owner === currentScope) : (!currentScope || !owner || owner === currentScope)) {
-                    userData = rawWorking;
-                    consecrationsData = consecrationsData || localStorage.getItem('auro_match_consecrations');
-                    unlockedData = unlockedData || localStorage.getItem('auro_match_unlocked_tiles');
+                if (parsed.ok && parsed.value && typeof parsed.value === 'object' && !Array.isArray(parsed.value)) {
+                    const owner = getRecordOwnerId(parsed.value);
+                    if (isAuthenticated ? (owner && owner === currentScope) : (!currentScope || !owner || owner === currentScope)) {
+                        userData = parsed.value;
+                        isValidUserRecord = true;
+                        consecrationsData = localStorage.getItem('auro_match_consecrations');
+                        unlockedData = localStorage.getItem('auro_match_unlocked_tiles');
+                    }
                 }
             }
         }
     }
 
-    if (!userData && currentScope) {
+    if (!isValidUserRecord && currentScope) {
+        // Scoped user record failed validation or not found: return fresh profile state!
+        // Do NOT load foreign/unowned reflections or unlocked tiles!
         profileState = createFreshProfileState(currentScope);
         return profileState;
     }
 
     // Legacy fallback (only for unauthenticated guest mode)
     const legacyData = (typeof localStorage !== 'undefined') ? localStorage.getItem('auro_match_profile') : null;
-    if (legacyData && !userData && !currentScope && !isAuthenticated) {
+    if (legacyData && !isValidUserRecord && !currentScope && !isAuthenticated) {
         try {
             const parsedLegacy = JSON.parse(legacyData);
             profileState = parsedLegacy;
@@ -1049,40 +1083,50 @@ export function loadProfileState(options = {}) {
         } catch(e) {}
     }
 
-    if (userData) {
-        try {
-            const parsed = JSON.parse(userData);
-            profileState.profile = parsed.profile;
-            profileState.progression = parsed.progression;
-            profileState.settings = { ...profileState.settings, ...(parsed.settings || {}) };
-            profileState.dailyDrawDate = parsed.dailyDrawDate || "";
-            if (currentScope) profileState.ownerId = currentScope;
-        } catch(e) {
-            console.error("Failed to parse auro_match_user");
+    if (userData && isValidUserRecord) {
+        profileState.profile = userData.profile || createFreshProfileState(currentScope).profile;
+        profileState.progression = userData.progression || createFreshProfileState(currentScope).progression;
+        profileState.settings = { ...profileState.settings, ...(userData.settings || {}) };
+        profileState.dailyDrawDate = userData.dailyDrawDate || "";
+        if (currentScope) {
+            profileState.ownerId = currentScope;
+            if (profileState.profile) profileState.profile.ownerId = currentScope;
         }
     }
     
-    if (consecrationsData) {
+    if (consecrationsData && isValidUserRecord) {
         try {
-            profileState.reflections = JSON.parse(consecrationsData);
+            const parsed = JSON.parse(consecrationsData);
+            if (Array.isArray(parsed)) {
+                profileState.reflections = parsed;
+            } else {
+                profileState.reflections = [];
+            }
         } catch(e) {
+            profileState.reflections = [];
             console.error("Failed to parse auro_match_consecrations");
         }
-    } else if (currentScope && !userData) {
+    } else {
         profileState.reflections = [];
     }
     
-    if (unlockedData) {
+    if (unlockedData && isValidUserRecord) {
         try {
-            profileState.progression.completedLevelIds = JSON.parse(unlockedData);
-            profileState.progression.completedLevelsCount = Math.max(
-                Number(profileState.progression.completedLevelsCount || 0),
-                profileState.progression.completedLevelIds.length
-            );
+            const parsed = JSON.parse(unlockedData);
+            if (Array.isArray(parsed)) {
+                profileState.progression.completedLevelIds = parsed;
+                profileState.progression.completedLevelsCount = Math.max(
+                    Number(profileState.progression.completedLevelsCount || 0),
+                    parsed.length
+                );
+            } else {
+                profileState.progression.completedLevelIds = [];
+            }
         } catch(e) {
+            profileState.progression.completedLevelIds = [];
             console.error("Failed to parse auro_match_unlocked_tiles");
         }
-    } else if (currentScope && !userData) {
+    } else {
         profileState.progression.completedLevelIds = [];
         profileState.progression.completedLevelsCount = 0;
     }
@@ -1469,7 +1513,7 @@ export function createAuroMatchGameAdapter() {
                 (profileState.progression.completedLevelsCount > 0 ||
                  (profileState.progression.completedLevelIds && profileState.progression.completedLevelIds.length > 0))
             );
-            const effectiveOwner = active || profileState?.ownerId || guestId || null;
+            const effectiveOwner = active || (isOwnerValid ? profileState?.ownerId : null) || guestId || null;
             const payload = {
                 schemaVersion: 1,
                 profileState: JSON.parse(JSON.stringify(isOwnerValid ? profileState : createFreshProfileState(active))),
@@ -1500,20 +1544,72 @@ export function createAuroMatchGameAdapter() {
 
             const currentScope = getActiveScope();
             const targetScope = resolveAccountScope(context) || resolveAccountScope(envelope);
+            const isAuthenticatedTarget = Boolean(targetScope && !targetScope.startsWith('guest_'));
             const isScopeTransition = Boolean(targetScope && targetScope !== currentScope);
             const skipLocalMerge = Boolean(context?.skipLocalMerge || envelope?.skipLocalMerge || isScopeTransition);
 
-            // Owner mismatch validation: fail closed!
-            // Permits guest-to-account migration ONLY when explicitly verified (context.guestId / migrateFromGuest)
-            const envelopeOwner = envelope.ownerId || envelope.userId || envelope.payload?.ownerId || envelope.payload?.profileState?.ownerId || null;
-            if (envelopeOwner && targetScope && envelopeOwner !== targetScope) {
-                const isGuestMigration = Boolean(
-                    envelopeOwner.startsWith('guest_') &&
-                    (context?.guestId === envelopeOwner || envelope.guestId === envelopeOwner || context?.migrateFromGuest)
-                );
-                if (!isGuestMigration) {
-                    console.warn(`[Storage] applyEnvelope: Owner mismatch: envelope belongs to "${envelopeOwner}", target is "${targetScope}". Rejecting.`);
+            // Resolve candidate owner from envelope metadata
+            const rawOwnerCandidate = envelope.ownerId ??
+                envelope.userId ??
+                envelope.payload?.ownerId ??
+                envelope.payload?.profileState?.ownerId ??
+                envelope.payload?.profileState?.profile?.ownerId ??
+                envelope.payload?.user?.ownerId ??
+                envelope.payload?.user?.profile?.ownerId ??
+                null;
+
+            if (isAuthenticatedTarget) {
+                // Authenticated target MUST receive a valid non-empty string owner
+                if (typeof rawOwnerCandidate !== 'string' || rawOwnerCandidate.trim().length === 0) {
+                    console.warn(`[Storage] applyEnvelope: Authenticated target "${targetScope}" requires non-empty string owner. Received: ${JSON.stringify(rawOwnerCandidate)}. Rejecting.`);
                     return false;
+                }
+                const envelopeOwner = rawOwnerCandidate.trim();
+
+                if (envelopeOwner === targetScope) {
+                    // Exact owner-to-target match: accepted
+                } else {
+                    // Check for explicit verified guest migration
+                    const isGuestOwner = envelopeOwner.startsWith('guest_');
+                    const verifiedGuestId = (typeof context?.guestId === 'string' && context.guestId.trim())
+                        || (typeof context?.verifiedGuestId === 'string' && context.verifiedGuestId.trim())
+                        || (typeof window !== 'undefined' && typeof window.__AUROMIND_GUEST_ID__ === 'string' ? window.__AUROMIND_GUEST_ID__.trim() : null);
+
+                    const isVerifiedGuestMigration = Boolean(
+                        isGuestOwner &&
+                        verifiedGuestId &&
+                        verifiedGuestId === envelopeOwner &&
+                        (context?.guestId === envelopeOwner || context?.migrateFromGuest)
+                    );
+
+                    if (!isVerifiedGuestMigration) {
+                        console.warn(`[Storage] applyEnvelope: Owner mismatch or unverified guest migration: envelope belongs to "${envelopeOwner}", target is "${targetScope}". Rejecting.`);
+                        return false;
+                    }
+                }
+            } else if (targetScope) {
+                // Guest target with explicit targetScope
+                if (rawOwnerCandidate !== null && rawOwnerCandidate !== undefined) {
+                    if (typeof rawOwnerCandidate !== 'string' || rawOwnerCandidate.trim().length === 0) {
+                        return false;
+                    }
+                    const envelopeOwner = rawOwnerCandidate.trim();
+                    if (envelopeOwner !== targetScope) {
+                        return false;
+                    }
+                }
+            } else {
+                // Unscoped guest
+                if (rawOwnerCandidate !== null && rawOwnerCandidate !== undefined) {
+                    if (typeof rawOwnerCandidate === 'string') {
+                        const envelopeOwner = rawOwnerCandidate.trim();
+                        if (envelopeOwner.length > 0 && !envelopeOwner.startsWith('guest_')) {
+                            // Reject authenticated account envelope applied to unscoped guest
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
                 }
             }
 
