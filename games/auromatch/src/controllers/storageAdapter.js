@@ -1117,17 +1117,43 @@ export function createAuroMatchGameAdapter() {
                 payload
             };
         },
-        applyEnvelope: async (envelope) => {
+        applyEnvelope: async (envelope, context = {}) => {
             if (!envelope || !envelope.payload) return false;
+            if (envelope.gameId && envelope.gameId !== 'auromatch') return false;
+            if (isPurgeActive()) {
+                console.warn('[Storage] applyEnvelope blocked: Purge is active.');
+                return false;
+            }
             if (envelope.payload.profileState) {
                 profileState = envelope.payload.profileState;
+                saveProfileState({ skipLocalMerge: true });
+                return true;
+            }
+            if (envelope.payload.user || envelope.payload.consecrations || envelope.payload.unlockedTiles) {
+                const { user, consecrations, unlockedTiles } = envelope.payload;
+                if (user && typeof user === 'object') {
+                    profileState.profile = user.profile || profileState.profile;
+                    profileState.progression = user.progression || profileState.progression;
+                    profileState.settings = { ...profileState.settings, ...(user.settings || {}) };
+                    profileState.dailyDrawDate = user.dailyDrawDate || profileState.dailyDrawDate;
+                }
+                if (Array.isArray(consecrations)) {
+                    profileState.reflections = consecrations;
+                }
+                if (Array.isArray(unlockedTiles)) {
+                    profileState.progression.completedLevelIds = unlockedTiles;
+                    profileState.progression.completedLevelsCount = Math.max(
+                        Number(profileState.progression.completedLevelsCount || 0),
+                        unlockedTiles.length
+                    );
+                }
                 saveProfileState({ skipLocalMerge: true });
                 return true;
             }
             return false;
         },
         init: async (scopedContext) => {
-            const guestId = scopedContext.getGuestId();
+            const guestId = scopedContext?.getGuestId ? scopedContext.getGuestId() : null;
             if (guestId) {
                 if (typeof window !== 'undefined') {
                     window.__AUROMIND_GUEST_ID__ = guestId;
@@ -1136,6 +1162,7 @@ export function createAuroMatchGameAdapter() {
                     profileState.profile.platformGuestId = guestId;
                 }
             }
+            await autoHealFromIndexedDB();
         }
     };
 }

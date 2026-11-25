@@ -1363,6 +1363,82 @@ describe('Part 1C — Scope C: Flora Database Dual-Write Parity & Consistency', 
       else globalThis.indexedDB = prevIDB;
     }
   });
+
+  test('Flora-8: AuroMatch bridge and native adapters cross-format envelope support, account switch isolation, and purge safety', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+
+    try {
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+
+      // 1. Cross-format: Bridge payload { user, consecrations, unlockedTiles } applied to native adapter
+      storage.setItem('auro_match_consecrations', JSON.stringify([{ id: 'guest_c', text: 'Guest' }]));
+      const bridgeEnvelope = {
+        gameId: 'auromatch',
+        payload: {
+          user: {
+            profile: { lotusPetalCount: 45, consciousnessPoints: 120 },
+            progression: { completedLevelsCount: 3, completedLevelIds: ['flora_cross_1', 'flora_cross_2'], unlockedThemes: ['flowers'] }
+          },
+          consecrations: [{ id: 'cross_c1', text: 'Cross Consecration' }],
+          unlockedTiles: ['flora_cross_1', 'flora_cross_2']
+        }
+      };
+      const nativeApplied = await nativeAdapter.applyEnvelope(bridgeEnvelope);
+      assert.equal(nativeApplied, true);
+      assert.equal(profileState.profile.lotusPetalCount, 45);
+      assert.deepEqual(profileState.progression.completedLevelIds, ['flora_cross_1', 'flora_cross_2']);
+      assert.deepEqual(profileState.reflections, [{ id: 'cross_c1', text: 'Cross Consecration' }]);
+
+      // 2. Cross-format: Native payload { profileState } applied to bridge adapter with skipLocalMerge
+      storage.setItem('auro_match_consecrations', JSON.stringify([{ id: 'stale_c', text: 'Stale Prior User' }]));
+      storage.setItem('auro_match_unlocked_tiles', JSON.stringify(['stale_tile_1']));
+      const nativeEnvelope = {
+        gameId: 'auromatch',
+        skipLocalMerge: true,
+        payload: {
+          profileState: {
+            profile: { lotusPetalCount: 99, consciousnessPoints: 300 },
+            progression: { completedLevelsCount: 4, completedLevelIds: ['remote_tile_a', 'remote_tile_b'], unlockedThemes: ['flowers', 'qualities'] },
+            settings: { volumeRaga: 0.8 },
+            reflections: [{ id: 'remote_refl_1', text: 'Remote Pure Reflection' }],
+            dailyDrawDate: '2026-11-25'
+          }
+        }
+      };
+      const bridgeApplied = await bridgeAdapter.applyEnvelope(nativeEnvelope, { skipLocalMerge: true });
+      assert.equal(bridgeApplied, true);
+      const postTiles = JSON.parse(storage.getItem('auro_match_unlocked_tiles'));
+      assert.deepEqual(postTiles, ['remote_tile_a', 'remote_tile_b'], 'skipLocalMerge must isolate new account tiles without leaking stale prior user tiles');
+      const postCons = JSON.parse(storage.getItem('auro_match_consecrations'));
+      assert.deepEqual(postCons, [{ id: 'remote_refl_1', text: 'Remote Pure Reflection' }], 'skipLocalMerge must isolate new account reflections');
+
+      // 3. Purge lock blocks both bridge and native applyEnvelope
+      setPurgeLock(true);
+      const blockedNative = await nativeAdapter.applyEnvelope(bridgeEnvelope);
+      assert.equal(blockedNative, false, 'native applyEnvelope must fail closed when purge is active');
+      const blockedBridge = await bridgeAdapter.applyEnvelope(nativeEnvelope);
+      assert.equal(blockedBridge, false, 'bridge applyEnvelope must fail closed when purge is active');
+      setPurgeLock(false);
+
+      // 4. Mismatched gameId is rejected
+      const foreignEnvelope = { gameId: 'vak', payload: { profileState: {} } };
+      assert.equal(await nativeAdapter.applyEnvelope(foreignEnvelope), false);
+      assert.equal(await bridgeAdapter.applyEnvelope(foreignEnvelope), false);
+    } finally {
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
 });
 
 describe('Part 1D — Focused Correction: Remote Save Integrity & Account-Switch Race', () => {

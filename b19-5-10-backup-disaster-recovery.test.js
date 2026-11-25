@@ -527,6 +527,50 @@ describe('B19.5-10: Restore CLI Confirmation & Execution Defenses', () => {
     assert.equal(resSibling.errorCode, 'ERR_PATH_TRAVERSAL_DETECTED');
   });
 
+  test('10.18: Adversarial restore safety: symlink escape, runner failure, and connection string credential sanitization', async () => {
+    // 1. Conflicting CLI arguments fail closed
+    const cliConflict = await executeDatabaseRestore({
+      target: 'development',
+      backupFile: 'backup.sql',
+      conflictingArgs: ["Conflicting values for target: 'dev' vs 'staging'"]
+    });
+    assert.equal(cliConflict.ok, false);
+    assert.equal(cliConflict.errorCode, 'ERR_CONFLICTING_CLI_ARGUMENTS');
+
+    // 2. Runner failure does not report success and sanitizes credentials
+    if (!fs.existsSync(TEST_TMP_DIR)) fs.mkdirSync(TEST_TMP_DIR, { recursive: true });
+    const testDump = path.join(TEST_TMP_DIR, 'failing_runner.sql');
+    const testManifest = path.join(TEST_TMP_DIR, 'failing_runner.manifest.json');
+    const dumpSql = 'CREATE TABLE test (id text);';
+    fs.writeFileSync(testDump, dumpSql, 'utf8');
+    const checksum = crypto.createHash('sha256').update(dumpSql, 'utf8').digest('hex');
+    const manifest = {
+      manifestVersion: '1.0',
+      backupFile: 'failing_runner.sql',
+      fileSize: Buffer.byteLength(dumpSql, 'utf8'),
+      checksumAlgorithm: 'SHA-256',
+      checksum,
+      createdAt: new Date().toISOString()
+    };
+    fs.writeFileSync(testManifest, JSON.stringify(manifest), 'utf8');
+
+    const failingRes = await executeDatabaseRestore({
+      target: 'development',
+      confirmDisposableTarget: 'development',
+      backupFile: testDump,
+      manifestFile: testManifest,
+      connectionString: 'postgresql://postgres:SuperSecretPassword123@db.example.com:5432/postgres',
+      runner: async () => {
+        return { ok: false, errorCode: 'ERR_RUNNER_CRASH', message: 'Connection to postgresql://postgres:SuperSecretPassword123@db.example.com:5432/postgres refused' };
+      }
+    });
+
+    assert.equal(failingRes.ok, false);
+    assert.equal(failingRes.errorCode, 'ERR_RUNNER_CRASH');
+    assert.ok(!failingRes.message.includes('SuperSecretPassword123'), 'Connection string credentials must be redacted in runner failure message');
+    assert.ok(failingRes.message.includes('[REDACTED]'), 'Redacted token must be present in failure message');
+  });
+
   test.after(() => {
     try {
       if (fs.existsSync(TEST_TMP_DIR)) {

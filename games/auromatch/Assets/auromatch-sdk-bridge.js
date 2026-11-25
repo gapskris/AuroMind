@@ -18,6 +18,7 @@ import {
 
 import {
   autoHealFromIndexedDB,
+  isPurgeActive,
   loadProfileState,
   mergeAuroMatchUserRecords,
   mergeUniqueItems,
@@ -135,38 +136,62 @@ export function createAuroMatchGameAdapter() {
         payload
       };
     },
-    applyEnvelope: async (envelope) => {
+    applyEnvelope: async (envelope, context = {}) => {
       if (!envelope || !envelope.payload || typeof envelope.payload !== 'object') return false;
       if (envelope.gameId && envelope.gameId !== 'auromatch') return false;
+      if (typeof isPurgeActive === 'function' && isPurgeActive()) {
+        console.warn('[AuroMatch Bridge] applyEnvelope blocked: Purge is active.');
+        return false;
+      }
       try {
         if (typeof localStorage === 'undefined') return false;
-        const { user, consecrations, unlockedTiles } = envelope.payload;
+        const skipLocalMerge = Boolean(context?.skipLocalMerge || envelope?.skipLocalMerge);
+        const { user, consecrations, unlockedTiles, profileState: envelopeProfileState } = envelope.payload;
+
+        let effectiveUser = user;
+        let effectiveConsecrations = consecrations;
+        let effectiveTiles = unlockedTiles;
+
+        if (envelopeProfileState && typeof envelopeProfileState === 'object') {
+          effectiveUser = {
+            profile: envelopeProfileState.profile,
+            progression: envelopeProfileState.progression,
+            settings: envelopeProfileState.settings,
+            dailyDrawDate: envelopeProfileState.dailyDrawDate
+          };
+          effectiveConsecrations = envelopeProfileState.reflections;
+          effectiveTiles = envelopeProfileState.progression?.completedLevelIds;
+        }
 
         let localUser = null;
         let localConsecrations = [];
         let localTiles = [];
-        try {
-          const rawUser = localStorage.getItem('auro_match_user');
-          if (rawUser) localUser = JSON.parse(rawUser);
-        } catch {}
-        try {
-          const rawCons = localStorage.getItem('auro_match_consecrations');
-          if (rawCons) localConsecrations = JSON.parse(rawCons);
-        } catch {}
-        try {
-          const rawTiles = localStorage.getItem('auro_match_unlocked_tiles');
-          if (rawTiles) localTiles = JSON.parse(rawTiles);
-        } catch {}
+        if (!skipLocalMerge) {
+          try {
+            const rawUser = localStorage.getItem('auro_match_user');
+            if (rawUser) localUser = JSON.parse(rawUser);
+          } catch {}
+          try {
+            const rawCons = localStorage.getItem('auro_match_consecrations');
+            if (rawCons) localConsecrations = JSON.parse(rawCons);
+          } catch {}
+          try {
+            const rawTiles = localStorage.getItem('auro_match_unlocked_tiles');
+            if (rawTiles) localTiles = JSON.parse(rawTiles);
+          } catch {}
+        }
 
-        const mergedTiles = Array.isArray(unlockedTiles)
-          ? mergeUniqueItems(localTiles, unlockedTiles)
-          : mergeUniqueItems(localTiles, []);
-        const mergedConsecrations = Array.isArray(consecrations)
-          ? mergeUniqueItems(localConsecrations, consecrations)
-          : mergeUniqueItems(localConsecrations, []);
+        const mergedTiles = Array.isArray(effectiveTiles)
+          ? (skipLocalMerge ? effectiveTiles : mergeUniqueItems(localTiles, effectiveTiles))
+          : (skipLocalMerge ? [] : mergeUniqueItems(localTiles, []));
+        const mergedConsecrations = Array.isArray(effectiveConsecrations)
+          ? (skipLocalMerge ? effectiveConsecrations : mergeUniqueItems(localConsecrations, effectiveConsecrations))
+          : (skipLocalMerge ? [] : mergeUniqueItems(localConsecrations, []));
 
-        if (user && typeof user === 'object') {
-          const mergedUser = mergeAuroMatchUserRecords(localUser, user);
+        if (effectiveUser && typeof effectiveUser === 'object') {
+          const mergedUser = skipLocalMerge
+            ? JSON.parse(JSON.stringify(effectiveUser))
+            : mergeAuroMatchUserRecords(localUser, effectiveUser);
           if (mergedUser.progression) {
             mergedUser.progression.completedLevelIds = mergeUniqueItems(
               mergedUser.progression.completedLevelIds || [],
@@ -179,10 +204,10 @@ export function createAuroMatchGameAdapter() {
           }
           await setItemDualWrite('auro_match_user', mergedUser);
         }
-        if (Array.isArray(consecrations)) {
+        if (Array.isArray(effectiveConsecrations) || skipLocalMerge) {
           await setItemDualWrite('auro_match_consecrations', mergedConsecrations);
         }
-        if (Array.isArray(unlockedTiles)) {
+        if (Array.isArray(effectiveTiles) || skipLocalMerge) {
           await setItemDualWrite('auro_match_unlocked_tiles', mergedTiles);
         }
         loadProfileState();
