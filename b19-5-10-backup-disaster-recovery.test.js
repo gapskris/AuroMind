@@ -18,6 +18,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import os from 'node:os';
 
 import {
   isProductionTarget,
@@ -569,6 +570,49 @@ describe('B19.5-10: Restore CLI Confirmation & Execution Defenses', () => {
     assert.equal(failingRes.errorCode, 'ERR_RUNNER_CRASH');
     assert.ok(!failingRes.message.includes('SuperSecretPassword123'), 'Connection string credentials must be redacted in runner failure message');
     assert.ok(failingRes.message.includes('[REDACTED]'), 'Redacted token must be present in failure message');
+
+    // 3. Real symlink / junction breakout: external directory outside approved workspace must fail closed
+    const outsideTargetDir = path.join(os.tmpdir(), `outside_restore_${Date.now()}`);
+    fs.mkdirSync(outsideTargetDir, { recursive: true });
+    const outsideDump = path.join(outsideTargetDir, 'outside_escaped.sql');
+    const dumpContent = 'CREATE TABLE escaped_test (id int);';
+    fs.writeFileSync(outsideDump, dumpContent, 'utf8');
+    const outsideChecksum = crypto.createHash('sha256').update(dumpContent, 'utf8').digest('hex');
+    const outsideManifest = path.join(outsideTargetDir, 'outside_escaped.manifest.json');
+    fs.writeFileSync(outsideManifest, JSON.stringify({
+      manifestVersion: '1.0',
+      backupFile: 'outside_escaped.sql',
+      fileSize: Buffer.byteLength(dumpContent, 'utf8'),
+      checksumAlgorithm: 'SHA-256',
+      checksum: outsideChecksum,
+      createdAt: new Date().toISOString()
+    }), 'utf8');
+
+    const junctionLink = path.join(TEST_TMP_DIR, 'symlink_breakout_link');
+    try {
+      try {
+        fs.symlinkSync(outsideTargetDir, junctionLink, 'junction');
+      } catch {
+        fs.symlinkSync(outsideTargetDir, junctionLink, 'dir');
+      }
+
+      const escapedDumpPath = path.join(junctionLink, 'outside_escaped.sql');
+      const escapedManifestPath = path.join(junctionLink, 'outside_escaped.manifest.json');
+
+      const escapeRes = await executeDatabaseRestore({
+        target: 'development',
+        confirmDisposableTarget: 'development',
+        backupFile: escapedDumpPath,
+        manifestFile: escapedManifestPath
+      });
+
+      assert.equal(escapeRes.ok, false);
+      assert.equal(escapeRes.errorCode, 'ERR_PATH_TRAVERSAL_DETECTED');
+      assert.ok(escapeRes.message.includes('escape the approved workspace'));
+    } finally {
+      try { fs.unlinkSync(junctionLink); } catch {}
+      try { fs.rmSync(outsideTargetDir, { recursive: true, force: true }); } catch {}
+    }
   });
 
   test.after(() => {

@@ -55,7 +55,9 @@ import {
   profileState,
   createAuroMatchGameAdapter as createAuroMatchNativeAdapter,
   isPurgeActive,
-  setPurgeLock
+  setPurgeLock,
+  getActiveScope,
+  setAccountScope
 } from './games/auromatch/src/controllers/storageAdapter.js';
 import { createAuroMatchGameAdapter as createAuroMatchBridgeAdapter } from './games/auromatch/Assets/auromatch-sdk-bridge.js';
 import { createTestEnvironment } from './e2e/browser-harness.js';
@@ -1439,6 +1441,184 @@ describe('Part 1C — Scope C: Flora Database Dual-Write Parity & Consistency', 
       else globalThis.indexedDB = prevIDB;
     }
   });
+
+  test('Flora-9: Two-account regression: isolation across init, autoHealFromIndexedDB, dual-write reconciliation, empty/populated stores, and guest migration', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+    setAccountScope(null);
+
+    try {
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+
+      // Scoped contexts for two accounts
+      const scopedContextA = {
+        getGuestId: () => 'guest_A',
+        getIdentity: () => ({ mode: 'guest', guestId: 'guest_A' }),
+        accountScope: 'guest_A'
+      };
+      const scopedContextB = {
+        getGuestId: () => 'guest_B',
+        getIdentity: () => ({ mode: 'authenticated', account: { userId: 'user_B' } }),
+        accountScope: 'user_B'
+      };
+
+      // 1. Guest Account A initializes and writes progression, reflections, and settings
+      await nativeAdapter.init(scopedContextA);
+      profileState.profile.lotusPetalCount = 75;
+      profileState.profile.consciousnessPoints = 250;
+      profileState.progression.completedLevelIds = ['flora_lotus'];
+      profileState.progression.completedLevelsCount = 1;
+      profileState.reflections = [{ id: 'refl_A1', text: 'Account A Sacred Reflection' }];
+      profileState.settings.volumeRaga = 0.90;
+      saveProfileState({ accountScope: 'guest_A' });
+
+      // Verify Account A saved to localStorage and IDB
+      assert.ok(storage.getItem('auro_match_user:guest_A'), 'Account A scoped key must exist in localStorage');
+      assert.equal(profileState.profile.lotusPetalCount, 75);
+
+      // 2. Account A signs out.
+      setAccountScope(null);
+
+      // 3. Account B signs in with distinct data.
+      // 4. Account B initializes the AuroMatch adapter.
+      await nativeAdapter.init(scopedContextB);
+
+      // 5. Trigger IndexedDB recovery, auto-heal and dual-write reconciliation for Account B
+      const healedB = await autoHealFromIndexedDB(scopedContextB);
+      assert.equal(healedB, false, 'Auto-heal for Account B must NOT restore Account A data from IndexedDB');
+      await reconcileDualWriteParity();
+
+      // 6. Verify NO Account A data is read, merged, restored or written into Account B
+      assert.equal(profileState.profile.lotusPetalCount, 0, 'Account B must not inherit Account A lotus petals');
+      assert.equal(profileState.progression.completedLevelsCount, 0, 'Account B must have 0 completed levels');
+      assert.deepEqual(profileState.reflections, [], 'Account B must have zero Account A reflections');
+      assert.equal(profileState.ownerId, 'user_B', 'Active profile owner must be user_B');
+
+      // Account B writes its own distinct data
+      profileState.profile.lotusPetalCount = 20;
+      profileState.progression.completedLevelIds = ['flora_jasmine'];
+      profileState.progression.completedLevelsCount = 1;
+      profileState.reflections = [{ id: 'refl_B1', text: 'Account B Distinct Reflection' }];
+      saveProfileState({ accountScope: 'user_B' });
+
+      // 7. Switch back to Account A and verify A's own data remains completely intact
+      await nativeAdapter.init(scopedContextA);
+      assert.equal(profileState.profile.lotusPetalCount, 75, 'Account A lotus petals must remain 75');
+      assert.deepEqual(profileState.progression.completedLevelIds, ['flora_lotus'], 'Account A levels must remain intact');
+      assert.deepEqual(profileState.reflections, [{ id: 'refl_A1', text: 'Account A Sacred Reflection' }], 'Account A reflections must remain intact');
+
+      // -----------------------------------------------------------------------
+      // Repeat Scenarios:
+      // (a) Empty localStorage and populated IndexedDB
+      // Clear localStorage completely; IDB still holds both Account A and Account B data
+      storage.clear();
+      // Account B initializes: must restore ONLY Account B's records from IDB, zero Account A records
+      await nativeAdapter.init(scopedContextB);
+      assert.equal(profileState.profile.lotusPetalCount, 20, 'Account B restored its own petals from IDB');
+      assert.deepEqual(profileState.progression.completedLevelIds, ['flora_jasmine'], 'Account B restored its own levels');
+      assert.deepEqual(profileState.reflections, [{ id: 'refl_B1', text: 'Account B Distinct Reflection' }]);
+
+      // Account A initializes: must restore ONLY Account A's records from IDB
+      await nativeAdapter.init(scopedContextA);
+      assert.equal(profileState.profile.lotusPetalCount, 75, 'Account A restored its own petals from IDB');
+      assert.deepEqual(profileState.progression.completedLevelIds, ['flora_lotus']);
+
+      // (b) Populated localStorage and empty IndexedDB
+      resetIndexedDBConnection();
+      const emptyIdb = createFakeIndexedDB();
+      globalThis.indexedDB = emptyIdb;
+      // Account B saves local state, populating IDB without touching Account A
+      await nativeAdapter.init(scopedContextB);
+      saveProfileState({ accountScope: 'user_B' });
+      const idbDb = await new Promise(r => {
+        const req = emptyIdb.open('AuroMatchDB');
+        req.onsuccess = () => r(req.result);
+      });
+      const idbBUser = await new Promise(r => {
+        const tx = idbDb.transaction('gameState', 'readonly');
+        const req = tx.objectStore().get('auro_match_user:user_B');
+        req.onsuccess = () => r(req.result);
+      });
+      assert.ok(idbBUser, 'Account B must populate IDB from localStorage');
+      const idbAUser = await new Promise(r => {
+        const tx = idbDb.transaction('gameState', 'readonly');
+        const req = tx.objectStore().get('auro_match_user:guest_A');
+        req.onsuccess = () => r(req.result);
+      });
+      assert.equal(idbAUser, undefined, 'Account A must not be populated in IDB by Account B write');
+
+      // (c) Conflicting localStorage and IndexedDB snapshots for Account B
+      // Modify localStorage tiles for Account B; IDB has 'flora_jasmine'
+      storage.setItem('auro_match_unlocked_tiles:user_B', JSON.stringify(['flora_rose']));
+      const healedConflict = await autoHealFromIndexedDB(scopedContextB);
+      assert.equal(healedConflict, true, 'autoHeal must reconcile diverged snapshots for Account B');
+      loadProfileState({ accountScope: 'user_B' });
+      assert.deepEqual(
+        new Set(profileState.progression.completedLevelIds),
+        new Set(['flora_jasmine', 'flora_rose']),
+        'Diverged tiles must merge via set-union for Account B'
+      );
+
+      // (d) Interrupted/partial dual writes: reconcileDualWriteParity heals pending keys
+      const partialRes = await setItemDualWrite('auro_match_user:user_B', { ...profileState, testFlag: true });
+      assert.equal(partialRes.ok, true);
+      const recon = await reconcileDualWriteParity();
+      assert.equal(recon.remaining, 0, 'Dual write parity reconciliation must leave zero pending repairs');
+
+      // (e) Purge active during initialization and recovery fails closed
+      setPurgeLock(true);
+      await nativeAdapter.init(scopedContextB);
+      const blockedHeal = await autoHealFromIndexedDB(scopedContextB);
+      assert.equal(blockedHeal, false, 'autoHeal must fail closed when purge is active');
+      setPurgeLock(false);
+
+      // (f) Guest-to-authenticated migration
+      // Explicit migration from guest_A to user_alice
+      const scopedContextAlice = {
+        getIdentity: () => ({ mode: 'authenticated', account: { userId: 'user_alice' } }),
+        accountScope: 'user_alice'
+      };
+      // Load guest A's data
+      await nativeAdapter.init(scopedContextA);
+      const guestAData = JSON.parse(JSON.stringify(profileState));
+      // Migrate to alice
+      await nativeAdapter.applyEnvelope({
+        gameId: 'auromatch',
+        skipLocalMerge: true,
+        payload: {
+          profileState: {
+            ...guestAData,
+            profile: { ...guestAData.profile, platformGuestId: 'guest_A', ownerId: 'user_alice' },
+            ownerId: 'user_alice'
+          }
+        }
+      }, scopedContextAlice);
+
+      // Verify Alice has adopted Guest A's data
+      await nativeAdapter.init(scopedContextAlice);
+      assert.equal(profileState.profile.lotusPetalCount, 75);
+      assert.equal(profileState.ownerId, 'user_alice');
+
+      // Verify Account B still gets zero data from Alice
+      await nativeAdapter.init(scopedContextB);
+      assert.equal(profileState.profile.lotusPetalCount, 20);
+      assert.deepEqual(profileState.progression.completedLevelIds.sort(), ['flora_jasmine', 'flora_rose'].sort());
+    } finally {
+      setPurgeLock(false);
+      setAccountScope(null);
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
 });
 
 describe('Part 1D — Focused Correction: Remote Save Integrity & Account-Switch Race', () => {
@@ -2117,6 +2297,98 @@ describe('Part 1D — Focused Correction: Remote Save Integrity & Account-Switch
       assert.equal(harness.getState().highScore, tc.expectedScore);
       assert.equal(pushCalls, 1);
       sdk.dispose();
+    }
+  });
+
+  test('Corr-7: Real SDK-to-adapter account transition isolates AuroMatch adapter state and prevents cross-user pollution', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+    setAccountScope(null);
+
+    const { env } = createSdkEnv();
+    const auth = createMockAuthProvider();
+    const cloud = createMockCloudSyncStore();
+
+    try {
+      const sdk = createAuroMindSDK({ env });
+      await sdk.init({
+        gameId: 'portal',
+        capabilities: { authEnabled: true, cloudSyncEnabled: true },
+        providers: { auth, cloudSync: cloud.provider }
+      });
+
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      sdk.adapters.register(nativeAdapter, { mergeStrategy: AuroMatchMergeStrategy });
+
+      // 1. User Alice signs in and initializes AuroMatch adapter
+      await sdk.auth.signIn('email', { email: 'alice@example.com' });
+      await sdk.adapters.init('auromatch');
+      sdk.sync.setConsent(true);
+
+      // Alice plays and earns progression
+      profileState.profile.lotusPetalCount = 100;
+      profileState.profile.consciousnessPoints = 400;
+      profileState.progression.completedLevelIds = ['flora_lotus_blossom'];
+      profileState.progression.completedLevelsCount = 1;
+      profileState.reflections = [{ id: 'alice_refl', text: 'Alice Contemplation' }];
+      saveProfileState({ accountScope: 'user_alice' });
+
+      // Sync Alice's save to cloud
+      const syncAlice = await sdk.sync.syncNow('auromatch');
+      assert.equal(syncAlice.status, 'success');
+      assert.ok(cloud.get('user_alice', 'auromatch'), 'Cloud must hold Alice save');
+
+      // 2. Alice signs out
+      await sdk.auth.signOut();
+      setAccountScope(null);
+
+      // 3. Bob signs in
+      await sdk.auth.signIn('email', { email: 'bob@example.com' });
+      setAccountScope('user_bob');
+      await sdk.adapters.init('auromatch');
+      sdk.sync.setConsent(true);
+
+      // Verify Bob's adapter has ZERO Alice progression
+      assert.equal(profileState.profile.lotusPetalCount, 0, 'Bob must not inherit Alice lotus petals');
+      assert.equal(profileState.progression.completedLevelsCount, 0, 'Bob must have 0 completed levels');
+      assert.deepEqual(profileState.reflections, [], 'Bob must have zero Alice reflections');
+
+      // 4. Bob syncs and saves his own distinct state
+      profileState.profile.lotusPetalCount = 35;
+      profileState.progression.completedLevelIds = ['flora_jasmine_scent'];
+      profileState.progression.completedLevelsCount = 1;
+      profileState.reflections = [{ id: 'bob_refl', text: 'Bob Independent Reflection' }];
+      saveProfileState({ accountScope: 'user_bob' });
+
+      const syncBob = await sdk.sync.syncNow('auromatch');
+      assert.equal(syncBob.status, 'success');
+
+      // 5. Switch back to Alice
+      await sdk.auth.signOut();
+      setAccountScope(null);
+      await sdk.auth.signIn('email', { email: 'alice@example.com' });
+      setAccountScope('user_alice');
+      await sdk.adapters.init('auromatch');
+
+      // Verify Alice's data was completely preserved
+      assert.equal(profileState.profile.lotusPetalCount, 100, 'Alice petals must be restored intact');
+      assert.deepEqual(profileState.progression.completedLevelIds, ['flora_lotus_blossom']);
+      assert.deepEqual(profileState.reflections, [{ id: 'alice_refl', text: 'Alice Contemplation' }]);
+
+      sdk.dispose();
+    } finally {
+      setPurgeLock(false);
+      setAccountScope(null);
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
     }
   });
 });

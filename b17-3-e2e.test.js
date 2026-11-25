@@ -83,13 +83,13 @@ test('E2E Suite A - 2: Main navigation header and controls render correctly', as
   }
 });
 
-test('E2E Suite A - 3: Game catalogue displays exactly 36 unique games and AuroBlocks is unique', async () => {
+test('E2E Suite A - 3: Game catalogue displays exactly 37 unique games and AuroBlocks is unique', async () => {
   const { page, close } = await env.createInstrumentedPage();
   try {
     await page.goto(env.baseUrl, { waitUntil: 'domcontentloaded' });
 
     const totalCards = await page.$$eval('.game-card', cards => cards.length);
-    assert.ok(totalCards === 36 || totalCards === 37, 'Catalogue must display 36 or 37 unique cards');
+    assert.equal(totalCards, 37, 'Catalogue must display exactly 37 unique cards (6 baseline live + MaaBlocs + 30 upcoming)');
 
     // Verify AuroBlocks appears exactly once (zero duplicate card articles)
     const auroBlocksCards = await page.$$eval('.game-card[data-game-id="auroblocks"]', cards => cards.length);
@@ -99,14 +99,14 @@ test('E2E Suite A - 3: Game catalogue displays exactly 36 unique games and AuroB
   }
 });
 
-test('E2E Suite A - 4: Live Now category filter displays exactly 6 unique live games', async () => {
+test('E2E Suite A - 4: Live Now category filter displays exactly 7 unique live games', async () => {
   const { page, close } = await env.createInstrumentedPage();
   try {
     await page.goto(env.baseUrl, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('.sidebar-nav-item[data-category="live"]');
 
     const liveCards = await page.$$eval('.game-card[data-category*="live"]', cards => cards.length);
-    assert.ok(liveCards === 6 || liveCards === 7, 'Live Now filter must match 6 or 7 live game cards');
+    assert.equal(liveCards, 7, 'Live Now filter must match exactly 7 live game cards (VAK, AuroMatch, AuroMandala, Word Riddle, AuroBlocks, VAK Sanctuary, MaaBlocs)');
 
     // Trigger filter click via page.evaluate
     await page.evaluate(() => {
@@ -114,24 +114,23 @@ test('E2E Suite A - 4: Live Now category filter displays exactly 6 unique live g
       if (item) item.click();
     });
 
-    // Wait until cards are filtered to 6 or 7
+    // Wait until cards are filtered to 7
     await page.waitForFunction(() => {
       const cards = Array.from(document.querySelectorAll('.game-card'));
-      const count = cards.filter(c => window.getComputedStyle(c).display !== 'none').length;
-      return count === 6 || count === 7;
+      return cards.filter(c => window.getComputedStyle(c).display !== 'none').length === 7;
     }, { timeout: 5000 });
 
     // Count visible cards
     const visibleLiveCards = await page.$$eval('.game-card', cards => {
       return cards.filter(c => window.getComputedStyle(c).display !== 'none').length;
     });
-    assert.ok(visibleLiveCards === 6 || visibleLiveCards === 7, 'Exactly 6 or 7 cards must be visible when Live Now filter is active');
+    assert.equal(visibleLiveCards, 7, 'Exactly 7 cards must be visible when Live Now filter is active');
   } finally {
     await close();
   }
 });
 
-test('E2E Suite A - 5: Sidebar game count displays All Games (36)', async () => {
+test('E2E Suite A - 5: Sidebar game count displays All Games (37)', async () => {
   const { page, close } = await env.createInstrumentedPage();
   try {
     await page.goto(env.baseUrl, { waitUntil: 'domcontentloaded' });
@@ -140,7 +139,7 @@ test('E2E Suite A - 5: Sidebar game count displays All Games (36)', async () => 
       '.sidebar-nav-item[data-category="all"] span:last-child',
       el => el.textContent.trim()
     );
-    assert.ok(allGamesText === 'All Games (36)' || allGamesText === 'All Games (37)', 'Sidebar all games label must read "All Games (36)" or "All Games (37)"');
+    assert.equal(allGamesText, 'All Games (37)', 'Sidebar all games label must read "All Games (37)" as reconciled by portal.js');
   } finally {
     await close();
   }

@@ -422,23 +422,103 @@ export function isValidAuroMatchState(raw) {
     }
 }
 
-export async function autoHealFromIndexedDB() {
+let _activeScope = null;
+
+export function getActiveScope() {
+    return _activeScope;
+}
+
+export function setAccountScope(scope) {
+    const nextScope = scope ? String(scope) : null;
+    if (_activeScope !== nextScope) {
+        _activeScope = nextScope;
+        if (_activeScope) {
+            loadProfileState({ accountScope: _activeScope });
+        } else {
+            profileState = createFreshProfileState(null);
+        }
+    }
+}
+
+export function resolveAccountScope(context) {
+    if (!context) return null;
+    if (typeof context === 'string') return context;
+    if (typeof context.accountScope === 'string') return context.accountScope;
+    if (typeof context.expectedUserId === 'string') return context.expectedUserId;
+    if (typeof context.userId === 'string') return context.userId;
+    if (typeof context.getIdentity === 'function') {
+        try {
+            const id = context.getIdentity();
+            if (id?.mode === 'authenticated' && id?.account?.userId) return String(id.account.userId);
+            if (id?.account?.accountId) return String(id.account.accountId);
+            if (id?.account?.id) return String(id.account.id);
+            if (id?.guestId) return String(id.guestId);
+        } catch {}
+    }
+    if (typeof context.getGuestId === 'function') {
+        try {
+            const gid = context.getGuestId();
+            if (gid) return String(gid);
+        } catch {}
+    }
+    if (context.guestId) return String(context.guestId);
+    return null;
+}
+
+export function getRecordOwnerId(record) {
+    if (!record || typeof record !== 'object') return null;
+    return record.ownerId || record.profile?.ownerId || record.profile?.platformGuestId || record.userId || null;
+}
+
+export function createFreshProfileState(ownerId = null) {
+    return {
+        profile: {
+            createdTimestamp: Date.now(),
+            lastLaunchTimestamp: Date.now(),
+            sanctuaryMode: "traditional",
+            themePreference: "auto",
+            voiceTonePreference: "french_cadence",
+            lotusPetalCount: 0,
+            consciousnessPoints: 0,
+            ownerId: ownerId || null,
+            platformGuestId: (ownerId && ownerId.startsWith('guest_')) ? ownerId : null
+        },
+        progression: {
+            completedLevelsCount: 0,
+            unlockedThemes: ["flowers", "qualities"],
+            completedLevelIds: []
+        },
+        settings: {
+            volumeRaga: 0.40,
+            volumeGong: 0.60,
+            speechRate: 0.70,
+            speechPitch: 0.95,
+            secularToggle: false,
+            experienceMode: "gk_quest",
+            seniorViewActive: false
+        },
+        reflections: [],
+        dailyDrawDate: "",
+        ownerId: ownerId || null
+    };
+}
+
+export async function autoHealFromIndexedDB(scopedContext = null) {
+    if (isPurgeActive()) {
+        console.warn('[Storage] autoHealFromIndexedDB blocked: Purge is active.');
+        return false;
+    }
     if (typeof localStorage === 'undefined') return false;
     const idb = (typeof window !== 'undefined' && window.indexedDB) ? window.indexedDB : globalThis.indexedDB;
     if (!idb) return false;
 
+    const activeScope = resolveAccountScope(scopedContext) || getActiveScope();
+
     try {
-        const localState = localStorage.getItem('auromatch_player_state');
-        const localUser = localStorage.getItem('auro_match_user');
-
-        const stateHealthy = isValidAuroMatchState(localState);
-        const userHealthy = isValidAuroMatchState(localUser);
-        const hasHealthyLocal = stateHealthy || userHealthy;
-
         const db = await initIndexedDB();
         if (!db) return false;
 
-        const keysToRestore = [
+        const baseKeys = [
             'auromatch_player_state',
             'auromatch_player_profiles',
             'auromatch_standard_theme',
@@ -449,20 +529,101 @@ export async function autoHealFromIndexedDB() {
             'auro_match_teachings'
         ];
 
+        // 1. Resolve local working state & ownership
+        const rawLocalUser = localStorage.getItem('auro_match_user');
+        const parsedLocalUser = tryParseJson(rawLocalUser);
+        const localOwner = getRecordOwnerId(parsedLocalUser.value);
+        const isForeignLocal = Boolean(activeScope && localOwner && localOwner !== activeScope);
+
+        // 2. Query IndexedDB for ownership validation
+        const idbUserVal = await new Promise((resolve) => {
+            try {
+                const tx = db.transaction(STORE_NAME, 'readonly');
+                // Check scoped IDB key first if scope is present
+                const keyToGet = activeScope ? `auro_match_user:${activeScope}` : 'auro_match_user';
+                const req = tx.objectStore(STORE_NAME).get(keyToGet);
+                req.onsuccess = () => {
+                    if (req.result !== undefined && req.result !== null) {
+                        resolve(req.result);
+                    } else if (activeScope) {
+                        // Fallback check to working key in IDB
+                        try {
+                            const tx2 = db.transaction(STORE_NAME, 'readonly');
+                            const req2 = tx2.objectStore(STORE_NAME).get('auro_match_user');
+                            req2.onsuccess = () => resolve(req2.result);
+                            req2.onerror = () => resolve(null);
+                        } catch {
+                            resolve(null);
+                        }
+                    } else {
+                        resolve(null);
+                    }
+                };
+                req.onerror = () => resolve(null);
+            } catch {
+                resolve(null);
+            }
+        });
+
+        const parsedIdbUser = tryParseJson(idbUserVal);
+        const idbOwner = getRecordOwnerId(parsedIdbUser.value);
+
+        // Foreign IDB data check: If IDB record belongs to another account, do NOT restore or merge into activeScope!
+        if (activeScope && idbOwner && idbOwner !== activeScope) {
+            console.warn(`[Storage] autoHealFromIndexedDB: IDB record belongs to "${idbOwner}", not active account "${activeScope}". Rejecting cross-account recovery.`);
+            return false;
+        }
+
+        // Unowned IDB data check: An authenticated account cannot hydrate unowned guest mutations
+        if (activeScope && !activeScope.startsWith('guest_') && !idbOwner && parsedIdbUser.ok) {
+            console.warn(`[Storage] autoHealFromIndexedDB: Authenticated account "${activeScope}" cannot hydrate unowned IDB records.`);
+            return false;
+        }
+
+        // 3. Determine if local state is healthy for the active scope
+        let localState = localStorage.getItem(activeScope ? `auromatch_player_state:${activeScope}` : 'auromatch_player_state');
+        let localUser = localStorage.getItem(activeScope ? `auro_match_user:${activeScope}` : 'auro_match_user');
+
+        if (!localUser && !isForeignLocal && rawLocalUser) {
+            localUser = rawLocalUser;
+        }
+
+        const stateHealthy = isValidAuroMatchState(localState);
+        const userHealthy = isValidAuroMatchState(localUser);
+        const hasHealthyLocal = (stateHealthy || userHealthy) && !isForeignLocal;
+
         if (hasHealthyLocal) {
-            // Bidirectional & divergence-aware healing: verify IndexedDB and localStorage
-            // are in parity without losing Flora unlocks or consecrations from either store.
             let idbHealedCount = 0;
             let localHealedFromIdb = false;
-            for (const key of keysToRestore) {
-                const localVal = localStorage.getItem(key);
+            for (const key of baseKeys) {
+                const scopedKey = activeScope ? `${key}:${activeScope}` : key;
+                let localVal = activeScope ? localStorage.getItem(scopedKey) : localStorage.getItem(key);
+                if (localVal === null && !isForeignLocal) {
+                    localVal = localStorage.getItem(key);
+                }
+
                 const idbVal = await new Promise((resolve) => {
                     try {
                         const tx = db.transaction(STORE_NAME, 'readonly');
-                        const req = tx.objectStore(STORE_NAME).get(key);
-                        req.onsuccess = () => resolve(req.result);
+                        const req = tx.objectStore(STORE_NAME).get(scopedKey);
+                        req.onsuccess = () => {
+                            if (req.result !== undefined && req.result !== null) {
+                                resolve(req.result);
+                            } else if (activeScope && (idbOwner === activeScope || !idbOwner)) {
+                                try {
+                                    const tx2 = db.transaction(STORE_NAME, 'readonly');
+                                    const req2 = tx2.objectStore(STORE_NAME).get(key);
+                                    req2.onsuccess = () => resolve(req2.result);
+                                    req2.onerror = () => resolve(null);
+                                } catch {
+                                    resolve(null);
+                                }
+                            } else {
+                                resolve(null);
+                            }
+                        };
                         req.onerror = () => resolve(null);
-                    } catch (e) {
+                    } catch {
                         resolve(null);
                     }
                 });
@@ -474,6 +635,7 @@ export async function autoHealFromIndexedDB() {
                 if (localVal === null || localVal === undefined) {
                     if (idbStr !== null) {
                         localStorage.setItem(key, idbStr);
+                        if (activeScope) localStorage.setItem(scopedKey, idbStr);
                         localHealedFromIdb = true;
                     }
                     continue;
@@ -481,12 +643,12 @@ export async function autoHealFromIndexedDB() {
 
                 if (idbStr === null) {
                     await setItemDualWrite(key, localVal);
+                    if (activeScope) await setItemDualWrite(scopedKey, localVal);
                     idbHealedCount++;
                     continue;
                 }
 
                 if (idbStr !== localVal) {
-                    // Reconcile diverged canonical Flora records non-destructively via set-union / HWM
                     if (key === 'auro_match_unlocked_tiles' || key === 'auro_match_consecrations') {
                         const pLocal = tryParseJson(localVal);
                         const pIdb = tryParseJson(idbStr);
@@ -495,6 +657,7 @@ export async function autoHealFromIndexedDB() {
                             const mergedStr = JSON.stringify(mergedArr);
                             if (mergedStr !== localVal) localHealedFromIdb = true;
                             await setItemDualWrite(key, mergedArr);
+                            if (activeScope) await setItemDualWrite(scopedKey, mergedArr);
                             idbHealedCount++;
                             continue;
                         }
@@ -504,16 +667,18 @@ export async function autoHealFromIndexedDB() {
                         if (pLocal.ok && pLocal.value && typeof pLocal.value === 'object' &&
                             pIdb.ok && pIdb.value && typeof pIdb.value === 'object') {
                             const mergedUser = mergeAuroMatchUserRecords(pLocal.value, pIdb.value);
+                            if (activeScope) mergedUser.ownerId = activeScope;
                             const mergedStr = JSON.stringify(mergedUser);
                             if (mergedStr !== localVal) localHealedFromIdb = true;
                             await setItemDualWrite(key, mergedUser);
+                            if (activeScope) await setItemDualWrite(scopedKey, mergedUser);
                             idbHealedCount++;
                             continue;
                         }
                     }
 
-                    // For non-union scalar/snapshot keys or pending repairs, localStorage wins and heals IDB
                     await setItemDualWrite(key, localVal);
+                    if (activeScope) await setItemDualWrite(scopedKey, localVal);
                     idbHealedCount++;
                 }
             }
@@ -523,39 +688,47 @@ export async function autoHealFromIndexedDB() {
             return localHealedFromIdb;
         }
 
-        // Local state is corrupt or empty: quarantine corrupt string if present
-        if (localState && !stateHealthy && localState.trim() !== '{}' && localState.trim() !== '') {
-            try {
-                localStorage.setItem(`_corrupt_auromatch_player_state_${Date.now()}`, localState);
-            } catch {}
-        }
-        if (localUser && !userHealthy && localUser.trim() !== '{}' && localUser.trim() !== '') {
-            try {
-                localStorage.setItem(`_corrupt_auro_match_user_${Date.now()}`, localUser);
-            } catch {}
-        }
-
+        // Local state is empty or foreign: restore cleanly from IDB for activeScope
         let restoredCount = 0;
-        for (const key of keysToRestore) {
+        for (const key of baseKeys) {
+            const scopedKey = activeScope ? `${key}:${activeScope}` : key;
             const val = await new Promise((resolve) => {
                 try {
                     const tx = db.transaction(STORE_NAME, 'readonly');
-                    const req = tx.objectStore(STORE_NAME).get(key);
-                    req.onsuccess = () => resolve(req.result);
+                    const req = tx.objectStore(STORE_NAME).get(scopedKey);
+                    req.onsuccess = () => {
+                        if (req.result !== undefined && req.result !== null) {
+                            resolve(req.result);
+                        } else if (activeScope && idbOwner === activeScope) {
+                            try {
+                                const tx2 = db.transaction(STORE_NAME, 'readonly');
+                                const req2 = tx2.objectStore(STORE_NAME).get(key);
+                                req2.onsuccess = () => resolve(req2.result);
+                                req2.onerror = () => resolve(null);
+                            } catch {
+                                resolve(null);
+                            }
+                        } else {
+                            resolve(null);
+                        }
+                    };
                     req.onerror = () => resolve(null);
-                } catch (e) {
+                } catch {
                     resolve(null);
                 }
             });
+
             if (val !== null && val !== undefined) {
                 const strVal = typeof val === 'string' ? val : JSON.stringify(val);
                 localStorage.setItem(key, strVal);
+                if (activeScope) localStorage.setItem(scopedKey, strVal);
                 restoredCount++;
             }
         }
 
         if (restoredCount > 0) {
             console.info(`[Storage] Auto-healed ${restoredCount} records from AuroMatchDB into localStorage.`);
+            loadProfileState({ accountScope: activeScope });
             return true;
         }
     } catch (e) {
@@ -623,60 +796,75 @@ export function saveProfileState(options = {}) {
         return false;
     }
     const skipLocalMerge = options && options.skipLocalMerge === true;
+    const currentScope = (options && options.accountScope) || _activeScope;
+
+    if (currentScope) {
+        profileState.ownerId = currentScope;
+        if (profileState.profile) profileState.profile.ownerId = currentScope;
+    }
+
     if (typeof localStorage !== 'undefined') {
         if (!skipLocalMerge) {
             // Fresh-Read-Before-Merge (Set-Union & High-Water-Mark):
-            // Prevent stale tab or concurrent session from dropping Flora tile unlocks or reflections
+            // Check ownership of local records before merging to prevent cross-account pollution!
             try {
-                const freshConsecrations = localStorage.getItem('auro_match_consecrations');
-                if (freshConsecrations) {
-                    const parsed = JSON.parse(freshConsecrations);
-                    if (Array.isArray(parsed)) {
-                        profileState.reflections = mergeUniqueItems(parsed, profileState.reflections);
-                    }
-                }
-                const freshUnlocked = localStorage.getItem('auro_match_unlocked_tiles');
-                if (freshUnlocked) {
-                    const parsed = JSON.parse(freshUnlocked);
-                    if (Array.isArray(parsed)) {
-                        profileState.progression.completedLevelIds = mergeUniqueItems(
-                            parsed,
-                            profileState.progression.completedLevelIds
-                        );
-                    }
-                }
                 const freshUser = localStorage.getItem('auro_match_user');
+                let localOwner = null;
                 if (freshUser) {
                     const parsed = JSON.parse(freshUser);
-                    if (parsed && typeof parsed === 'object') {
-                        if (parsed.progression) {
-                            if (Array.isArray(parsed.progression.completedLevelIds)) {
-                                profileState.progression.completedLevelIds = mergeUniqueItems(
-                                    parsed.progression.completedLevelIds,
-                                    profileState.progression.completedLevelIds
-                                );
-                            }
-                            profileState.progression.completedLevelsCount = Math.max(
-                                Number(parsed.progression.completedLevelsCount || 0),
-                                Number(profileState.progression.completedLevelsCount || 0),
-                                profileState.progression.completedLevelIds.length
-                            );
-                            if (Array.isArray(parsed.progression.unlockedThemes)) {
-                                profileState.progression.unlockedThemes = mergeUniqueItems(
-                                    profileState.progression.unlockedThemes,
-                                    parsed.progression.unlockedThemes
-                                );
-                            }
+                    localOwner = getRecordOwnerId(parsed);
+                }
+                const isSameOwner = !currentScope || !localOwner || localOwner === currentScope;
+                if (isSameOwner) {
+                    const freshConsecrations = localStorage.getItem('auro_match_consecrations');
+                    if (freshConsecrations) {
+                        const parsed = JSON.parse(freshConsecrations);
+                        if (Array.isArray(parsed)) {
+                            profileState.reflections = mergeUniqueItems(parsed, profileState.reflections);
                         }
-                        if (parsed.profile && profileState.profile) {
-                            profileState.profile.lotusPetalCount = Math.max(
-                                Number(parsed.profile.lotusPetalCount || 0),
-                                Number(profileState.profile.lotusPetalCount || 0)
+                    }
+                    const freshUnlocked = localStorage.getItem('auro_match_unlocked_tiles');
+                    if (freshUnlocked) {
+                        const parsed = JSON.parse(freshUnlocked);
+                        if (Array.isArray(parsed)) {
+                            profileState.progression.completedLevelIds = mergeUniqueItems(
+                                parsed,
+                                profileState.progression.completedLevelIds
                             );
-                            profileState.profile.consciousnessPoints = Math.max(
-                                Number(parsed.profile.consciousnessPoints || 0),
-                                Number(profileState.profile.consciousnessPoints || 0)
-                            );
+                        }
+                    }
+                    if (freshUser) {
+                        const parsed = JSON.parse(freshUser);
+                        if (parsed && typeof parsed === 'object') {
+                            if (parsed.progression) {
+                                if (Array.isArray(parsed.progression.completedLevelIds)) {
+                                    profileState.progression.completedLevelIds = mergeUniqueItems(
+                                        parsed.progression.completedLevelIds,
+                                        profileState.progression.completedLevelIds
+                                    );
+                                }
+                                profileState.progression.completedLevelsCount = Math.max(
+                                    Number(parsed.progression.completedLevelsCount || 0),
+                                    Number(profileState.progression.completedLevelsCount || 0),
+                                    profileState.progression.completedLevelIds.length
+                                );
+                                if (Array.isArray(parsed.progression.unlockedThemes)) {
+                                    profileState.progression.unlockedThemes = mergeUniqueItems(
+                                        profileState.progression.unlockedThemes,
+                                        parsed.progression.unlockedThemes
+                                    );
+                                }
+                            }
+                            if (parsed.profile && profileState.profile) {
+                                profileState.profile.lotusPetalCount = Math.max(
+                                    Number(parsed.profile.lotusPetalCount || 0),
+                                    Number(profileState.profile.lotusPetalCount || 0)
+                                );
+                                profileState.profile.consciousnessPoints = Math.max(
+                                    Number(parsed.profile.consciousnessPoints || 0),
+                                    Number(profileState.profile.consciousnessPoints || 0)
+                                );
+                            }
                         }
                     }
                 }
@@ -695,29 +883,73 @@ export function saveProfileState(options = {}) {
             profile: profileState.profile,
             progression: profileState.progression,
             settings: profileState.settings,
-            dailyDrawDate: profileState.dailyDrawDate
+            dailyDrawDate: profileState.dailyDrawDate,
+            ownerId: currentScope || profileState.profile?.ownerId || null
         };
-        localStorage.setItem('auro_match_user', JSON.stringify(userObj));
-        localStorage.setItem('auro_match_consecrations', JSON.stringify(profileState.reflections));
-        localStorage.setItem('auro_match_unlocked_tiles', JSON.stringify(profileState.progression.completedLevelIds));
+
+        const serializedUser = JSON.stringify(userObj);
+        const serializedCons = JSON.stringify(profileState.reflections);
+        const serializedTiles = JSON.stringify(profileState.progression.completedLevelIds);
+
+        localStorage.setItem('auro_match_user', serializedUser);
+        localStorage.setItem('auro_match_consecrations', serializedCons);
+        localStorage.setItem('auro_match_unlocked_tiles', serializedTiles);
 
         // Asynchronously mirror into durable IndexedDB vault with retry & divergence tracking
         setItemAsync('auro_match_user', userObj);
         setItemAsync('auro_match_consecrations', profileState.reflections);
         setItemAsync('auro_match_unlocked_tiles', profileState.progression.completedLevelIds);
+
+        // If scoped, also persist into account-scoped keys in localStorage and IndexedDB
+        if (currentScope) {
+            localStorage.setItem(`auro_match_user:${currentScope}`, serializedUser);
+            localStorage.setItem(`auro_match_consecrations:${currentScope}`, serializedCons);
+            localStorage.setItem(`auro_match_unlocked_tiles:${currentScope}`, serializedTiles);
+
+            setItemAsync(`auro_match_user:${currentScope}`, userObj);
+            setItemAsync(`auro_match_consecrations:${currentScope}`, profileState.reflections);
+            setItemAsync(`auro_match_unlocked_tiles:${currentScope}`, profileState.progression.completedLevelIds);
+        }
+
         return true;
     }
     return false;
 }
 
-export function loadProfileState() {
-    const userData = localStorage.getItem('auro_match_user');
-    const consecrationsData = localStorage.getItem('auro_match_consecrations');
-    const unlockedData = localStorage.getItem('auro_match_unlocked_tiles');
-    
+export function loadProfileState(options = {}) {
+    const currentScope = (options && options.accountScope) || _activeScope;
+    let userData = null;
+    let consecrationsData = null;
+    let unlockedData = null;
+
+    if (typeof localStorage !== 'undefined') {
+        if (currentScope) {
+            userData = localStorage.getItem(`auro_match_user:${currentScope}`);
+            consecrationsData = localStorage.getItem(`auro_match_consecrations:${currentScope}`);
+            unlockedData = localStorage.getItem(`auro_match_unlocked_tiles:${currentScope}`);
+        }
+        if (!userData) {
+            const rawWorking = localStorage.getItem('auro_match_user');
+            if (rawWorking) {
+                const parsed = tryParseJson(rawWorking);
+                const owner = getRecordOwnerId(parsed.value);
+                if (!currentScope || !owner || owner === currentScope) {
+                    userData = rawWorking;
+                    consecrationsData = consecrationsData || localStorage.getItem('auro_match_consecrations');
+                    unlockedData = unlockedData || localStorage.getItem('auro_match_unlocked_tiles');
+                }
+            }
+        }
+    }
+
+    if (!userData && currentScope) {
+        profileState = createFreshProfileState(currentScope);
+        return profileState;
+    }
+
     // Legacy fallback
-    const legacyData = localStorage.getItem('auro_match_profile');
-    if (legacyData && !userData) {
+    const legacyData = (typeof localStorage !== 'undefined') ? localStorage.getItem('auro_match_profile') : null;
+    if (legacyData && !userData && !currentScope) {
         try {
             const parsedLegacy = JSON.parse(legacyData);
             profileState = parsedLegacy;
@@ -734,6 +966,7 @@ export function loadProfileState() {
             profileState.progression = parsed.progression;
             profileState.settings = { ...profileState.settings, ...(parsed.settings || {}) };
             profileState.dailyDrawDate = parsed.dailyDrawDate || "";
+            if (currentScope) profileState.ownerId = currentScope;
         } catch(e) {
             console.error("Failed to parse auro_match_user");
         }
@@ -1124,13 +1357,23 @@ export function createAuroMatchGameAdapter() {
                 console.warn('[Storage] applyEnvelope blocked: Purge is active.');
                 return false;
             }
+            const targetScope = resolveAccountScope(context) || resolveAccountScope(envelope);
+            if (targetScope && targetScope !== getActiveScope()) {
+                setAccountScope(targetScope);
+            }
+            const skipLocalMerge = Boolean(context?.skipLocalMerge || envelope?.skipLocalMerge || (targetScope && targetScope !== getActiveScope()));
+
             if (envelope.payload.profileState) {
                 profileState = envelope.payload.profileState;
-                saveProfileState({ skipLocalMerge: true });
+                if (targetScope) profileState.ownerId = targetScope;
+                saveProfileState({ skipLocalMerge: true, accountScope: targetScope });
                 return true;
             }
             if (envelope.payload.user || envelope.payload.consecrations || envelope.payload.unlockedTiles) {
                 const { user, consecrations, unlockedTiles } = envelope.payload;
+                if (skipLocalMerge && targetScope) {
+                    profileState = createFreshProfileState(targetScope);
+                }
                 if (user && typeof user === 'object') {
                     profileState.profile = user.profile || profileState.profile;
                     profileState.progression = user.progression || profileState.progression;
@@ -1147,12 +1390,18 @@ export function createAuroMatchGameAdapter() {
                         unlockedTiles.length
                     );
                 }
-                saveProfileState({ skipLocalMerge: true });
+                if (targetScope) profileState.ownerId = targetScope;
+                saveProfileState({ skipLocalMerge: true, accountScope: targetScope });
                 return true;
             }
             return false;
         },
         init: async (scopedContext) => {
+            if (isPurgeActive()) {
+                console.warn('[Storage] init blocked: Purge is active.');
+                return;
+            }
+            const targetScope = resolveAccountScope(scopedContext);
             const guestId = scopedContext?.getGuestId ? scopedContext.getGuestId() : null;
             if (guestId) {
                 if (typeof window !== 'undefined') {
@@ -1162,7 +1411,13 @@ export function createAuroMatchGameAdapter() {
                     profileState.profile.platformGuestId = guestId;
                 }
             }
-            await autoHealFromIndexedDB();
+
+            if (targetScope !== getActiveScope()) {
+                setAccountScope(targetScope);
+                loadProfileState({ accountScope: targetScope });
+            }
+
+            await autoHealFromIndexedDB(scopedContext);
         }
     };
 }

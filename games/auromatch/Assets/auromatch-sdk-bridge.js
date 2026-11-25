@@ -18,11 +18,14 @@ import {
 
 import {
   autoHealFromIndexedDB,
+  getActiveScope,
   isPurgeActive,
   loadProfileState,
   mergeAuroMatchUserRecords,
   mergeUniqueItems,
+  resolveAccountScope,
   saveProfileState,
+  setAccountScope,
   setItemAsync,
   setItemDualWrite
 } from '../src/controllers/storageAdapter.js';
@@ -145,7 +148,11 @@ export function createAuroMatchGameAdapter() {
       }
       try {
         if (typeof localStorage === 'undefined') return false;
-        const skipLocalMerge = Boolean(context?.skipLocalMerge || envelope?.skipLocalMerge);
+        const targetScope = resolveAccountScope(context) || resolveAccountScope(envelope);
+        if (targetScope && targetScope !== getActiveScope()) {
+          setAccountScope(targetScope);
+        }
+        const skipLocalMerge = Boolean(context?.skipLocalMerge || envelope?.skipLocalMerge || (targetScope && targetScope !== getActiveScope()));
         const { user, consecrations, unlockedTiles, profileState: envelopeProfileState } = envelope.payload;
 
         let effectiveUser = user;
@@ -192,6 +199,7 @@ export function createAuroMatchGameAdapter() {
           const mergedUser = skipLocalMerge
             ? JSON.parse(JSON.stringify(effectiveUser))
             : mergeAuroMatchUserRecords(localUser, effectiveUser);
+          if (targetScope) mergedUser.ownerId = targetScope;
           if (mergedUser.progression) {
             mergedUser.progression.completedLevelIds = mergeUniqueItems(
               mergedUser.progression.completedLevelIds || [],
@@ -203,14 +211,17 @@ export function createAuroMatchGameAdapter() {
             );
           }
           await setItemDualWrite('auro_match_user', mergedUser);
+          if (targetScope) await setItemDualWrite(`auro_match_user:${targetScope}`, mergedUser);
         }
         if (Array.isArray(effectiveConsecrations) || skipLocalMerge) {
           await setItemDualWrite('auro_match_consecrations', mergedConsecrations);
+          if (targetScope) await setItemDualWrite(`auro_match_consecrations:${targetScope}`, mergedConsecrations);
         }
         if (Array.isArray(effectiveTiles) || skipLocalMerge) {
           await setItemDualWrite('auro_match_unlocked_tiles', mergedTiles);
+          if (targetScope) await setItemDualWrite(`auro_match_unlocked_tiles:${targetScope}`, mergedTiles);
         }
-        loadProfileState();
+        loadProfileState({ accountScope: targetScope });
         return true;
       } catch (err) {
         console.warn('[AuroMatch Bridge] Failed to apply save envelope:', err);
@@ -218,12 +229,21 @@ export function createAuroMatchGameAdapter() {
       }
     },
     init: async (scopedContext) => {
-      const guestId = scopedContext.getGuestId();
+      if (typeof isPurgeActive === 'function' && isPurgeActive()) {
+        console.warn('[AuroMatch Bridge] init blocked: Purge is active.');
+        return;
+      }
+      const targetScope = resolveAccountScope(scopedContext);
+      const guestId = scopedContext?.getGuestId ? scopedContext.getGuestId() : null;
       if (guestId && typeof window !== 'undefined') {
         window.__AUROMIND_GUEST_ID__ = guestId;
       }
+      if (targetScope && targetScope !== getActiveScope()) {
+        setAccountScope(targetScope);
+        loadProfileState({ accountScope: targetScope });
+      }
       // Execute auto-healing between IndexedDB and localStorage
-      await autoHealFromIndexedDB();
+      await autoHealFromIndexedDB(scopedContext);
     }
   };
 }
