@@ -36,7 +36,8 @@ import {
   validateManifestAndIntegrity,
   checkTransactionCompatibility,
   prepareRestoreSql,
-  executeDatabaseRestore
+  executeDatabaseRestore,
+  parseRestoreCliArgs
 } from './scripts/restore-database.mjs';
 
 const TEST_TMP_DIR = path.join(process.cwd(), '.tmp_test_backup_dr_hardened');
@@ -321,6 +322,142 @@ describe('B19.5-10: Strict Manifest Validation & Restore Atomicity', () => {
     assert.equal(manifest.slaTargets.measurementStatus, 'UNVERIFIED_TARGET');
     assert.equal(manifest.slaTargets.rpoTarget, '24h');
     assert.equal(manifest.slaTargets.rtoTarget, '15m');
+  });
+
+});
+
+describe('B19.5-10: Restore CLI Confirmation & Execution Defenses', () => {
+
+  test('10.11: parseRestoreCliArgs correctly parses flags and isolates unknown arguments', () => {
+    const args = [
+      '--file=backups/test.sql',
+      '--target=disposable_test',
+      '--confirm-disposable-target',
+      '--dry-run',
+      '--force-production',
+      '--malicious-flag',
+      '--another-unknown=true'
+    ];
+    const parsed = parseRestoreCliArgs(args);
+    assert.equal(parsed.backupFile, 'backups/test.sql');
+    assert.equal(parsed.target, 'disposable_test');
+    assert.equal(parsed.confirmDisposableTarget, true);
+    assert.equal(parsed.dryRun, true);
+    assert.equal(parsed.forceProduction, true);
+    assert.deepEqual(parsed.unknownArgs, ['--malicious-flag', '--another-unknown=true']);
+  });
+
+  test('10.12: Unknown CLI arguments cause restore execution to fail closed', async () => {
+    const res = await executeDatabaseRestore({
+      unknownArgs: ['--unexpected-option']
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.errorCode, 'ERR_UNKNOWN_CLI_ARGUMENT');
+    assert.ok(res.message.includes('--unexpected-option'));
+  });
+
+  test('10.13: Missing disposable target confirmation rejects non-dry-run restore', async () => {
+    const res = await executeDatabaseRestore({
+      target: 'disposable_test',
+      backupFile: 'test.sql',
+      confirmDisposableTarget: false,
+      dryRun: false
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.errorCode, 'ERR_DISPOSABLE_TARGET_CONFIRMATION_REQUIRED');
+  });
+
+  test('10.14: Confirmed disposable target with valid manifest and runner succeeds', async () => {
+    if (!fs.existsSync(TEST_TMP_DIR)) fs.mkdirSync(TEST_TMP_DIR, { recursive: true });
+    const backupPath = path.join(TEST_TMP_DIR, 'valid_restore.sql');
+    const content = 'CREATE TABLE public.game_saves (user_id text, game_id text, score integer);';
+    fs.writeFileSync(backupPath, content, 'utf8');
+
+    const manifestData = {
+      manifestVersion: '1.0',
+      backupFile: path.basename(backupPath),
+      fileSize: Buffer.byteLength(content, 'utf8'),
+      checksum: crypto.createHash('sha256').update(content, 'utf8').digest('hex'),
+      checksumAlgorithm: 'SHA-256'
+    };
+    const manifestPath = path.join(TEST_TMP_DIR, 'valid_restore.manifest.json');
+    fs.writeFileSync(manifestPath, JSON.stringify(manifestData), 'utf8');
+
+    let runnerExecuted = false;
+    const res = await executeDatabaseRestore({
+      target: 'disposable_test',
+      backupFile: path.relative(process.cwd(), backupPath),
+      manifestFile: path.relative(process.cwd(), manifestPath),
+      confirmDisposableTarget: true,
+      dryRun: false,
+      runner: async () => {
+        runnerExecuted = true;
+        return { status: 0, stderr: '' };
+      }
+    });
+
+    assert.equal(res.ok, true);
+    assert.equal(runnerExecuted, true);
+    assert.equal(res.checksumVerified, true);
+  });
+
+  test('10.15: Dry run validates manifest and integrity without executing runner', async () => {
+    if (!fs.existsSync(TEST_TMP_DIR)) fs.mkdirSync(TEST_TMP_DIR, { recursive: true });
+    const backupPath = path.join(TEST_TMP_DIR, 'dry_run_test.sql');
+    const content = 'CREATE TABLE public.game_saves (user_id text, game_id text, score integer);';
+    fs.writeFileSync(backupPath, content, 'utf8');
+
+    const manifestData = {
+      manifestVersion: '1.0',
+      backupFile: path.basename(backupPath),
+      fileSize: Buffer.byteLength(content, 'utf8'),
+      checksum: crypto.createHash('sha256').update(content, 'utf8').digest('hex'),
+      checksumAlgorithm: 'SHA-256'
+    };
+    const manifestPath = path.join(TEST_TMP_DIR, 'dry_run_test.manifest.json');
+    fs.writeFileSync(manifestPath, JSON.stringify(manifestData), 'utf8');
+
+    let runnerExecuted = false;
+    const res = await executeDatabaseRestore({
+      target: 'disposable_test',
+      backupFile: path.relative(process.cwd(), backupPath),
+      manifestFile: path.relative(process.cwd(), manifestPath),
+      confirmDisposableTarget: false, // Not required for dry-run
+      dryRun: true,
+      runner: async () => {
+        runnerExecuted = true;
+        return { status: 0 };
+      }
+    });
+
+    assert.equal(res.ok, true);
+    assert.equal(res.dryRun, true);
+    assert.equal(runnerExecuted, false, 'Dry run must never execute the restore runner');
+  });
+
+  test('10.16: Force production flag never authorizes production restore', async () => {
+    const res = await executeDatabaseRestore({
+      target: 'production',
+      backupFile: 'backup.sql',
+      forceProduction: true,
+      confirmDisposableTarget: true
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.errorCode, 'ERR_PRODUCTION_RESTORE_FORBIDDEN');
+  });
+
+  test('10.17: Manifest and backup path traversal escapes approved workspace and fails closed', () => {
+    const resBackupTraverse = validateRestoreConfiguration({
+      target: 'development',
+      backupFile: '../../etc/passwd.sql',
+      confirmDisposableTarget: true
+    });
+    assert.equal(resBackupTraverse.allowed, false);
+    assert.equal(resBackupTraverse.errorCode, 'ERR_PATH_TRAVERSAL_DETECTED');
+
+    const resManifestTraverse = validateManifestAndIntegrity('valid.sql', '../../etc/passwd.manifest.json');
+    assert.equal(resManifestTraverse.valid, false);
+    assert.equal(resManifestTraverse.errorCode, 'ERR_PATH_TRAVERSAL_DETECTED');
   });
 
   test.after(() => {

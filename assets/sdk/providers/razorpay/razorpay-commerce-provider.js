@@ -170,6 +170,29 @@ export function createRazorpayServerVerifier({
   if (isProduction && persistenceStore.isInMemory) {
     throw new Error('IN_MEMORY_STORE_FORBIDDEN: In-memory persistence store is strictly forbidden in production.');
   }
+  if (isProduction && typeof persistenceStore.settleAndGrantEntitlement !== 'function') {
+    throw new Error('ATOMIC_STORE_REQUIRED: Production verifier requires persistenceStore to implement atomic settleAndGrantEntitlement.');
+  }
+
+  // Simulation can NEVER be activated in production
+  const effectiveAllowSimulated = (!isProduction) && (allowSimulatedOrders === true);
+
+  /**
+   * Sanitizes error messages to prevent leakage of secrets, auth headers, and credentials.
+   */
+  function sanitizeErrorMessage(msg) {
+    if (typeof msg !== 'string') return '';
+    let sanitized = msg;
+    if (keySecret) {
+      sanitized = sanitized.split(keySecret).join('[REDACTED_SECRET]');
+    }
+    if (keyId) {
+      sanitized = sanitized.split(keyId).join('[REDACTED_KEY_ID]');
+    }
+    return sanitized
+      .replace(/Basic\s+[A-Za-z0-9+/=]+/gi, 'Basic [REDACTED]')
+      .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [REDACTED]');
+  }
 
   /**
    * Creates an authoritative Razorpay order bound to an authenticated user and SKU.
@@ -216,9 +239,13 @@ export function createRazorpayServerVerifier({
         orderId = apiRes.id;
         orderEntity = apiRes;
       } catch (err) {
-        return { ok: false, errorCode: 'RAZORPAY_API_ORDER_CREATION_FAILED', message: err.message };
+        return {
+          ok: false,
+          errorCode: 'RAZORPAY_API_ORDER_CREATION_FAILED',
+          message: sanitizeErrorMessage(err.message || 'Order creation failed')
+        };
       }
-    } else if (fetchFn && keyId && !allowSimulatedOrders) {
+    } else if (fetchFn && keyId && !effectiveAllowSimulated) {
       try {
         const basicAuth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
         const resp = await fetchFn('https://api.razorpay.com/v1/orders', {
@@ -236,15 +263,23 @@ export function createRazorpayServerVerifier({
         });
         if (!resp.ok) {
           const errBody = await resp.text().catch(() => '');
-          return { ok: false, errorCode: 'RAZORPAY_API_ORDER_CREATION_FAILED', message: `Razorpay API error: ${resp.status} ${errBody}` };
+          return {
+            ok: false,
+            errorCode: 'RAZORPAY_API_ORDER_CREATION_FAILED',
+            message: sanitizeErrorMessage(`Razorpay API error: ${resp.status} ${errBody}`)
+          };
         }
         const data = await resp.json();
         orderId = data.id;
         orderEntity = data;
       } catch (err) {
-        return { ok: false, errorCode: 'RAZORPAY_API_NETWORK_ERROR', message: err.message };
+        return {
+          ok: false,
+          errorCode: 'RAZORPAY_API_NETWORK_ERROR',
+          message: sanitizeErrorMessage(err.message || 'Network error reaching Razorpay API')
+        };
       }
-    } else if (allowSimulatedOrders) {
+    } else if (effectiveAllowSimulated) {
       orderId = `order_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
     } else {
       return {
@@ -277,13 +312,14 @@ export function createRazorpayServerVerifier({
 
   /**
    * Verifies payment and activates entitlement with durable replay protection.
+   * Strictly enforces provider-authoritative payment evidence. Caller-supplied
+   * paymentEntity is NEVER accepted as proof.
    */
   async function verifyAuthoritativePayment({
     userId,
     orderId,
     paymentId,
-    signature,
-    paymentEntity = null
+    signature
   }) {
     if (!userId || !orderId || !paymentId || !signature) {
       return { ok: false, errorCode: 'MISSING_PAYMENT_CREDENTIALS', message: 'userId, orderId, paymentId, and signature are required' };
@@ -329,49 +365,68 @@ export function createRazorpayServerVerifier({
       };
     }
 
-    // 5. Authoritative verification of payment status against trusted Razorpay API or payment entity
-    let authoritativePayment = paymentEntity;
-    if (!authoritativePayment) {
-      if (razorpayApiClient && razorpayApiClient.payments && typeof razorpayApiClient.payments.fetch === 'function') {
-        try {
-          authoritativePayment = await razorpayApiClient.payments.fetch(paymentId);
-        } catch (err) {
-          return { ok: false, errorCode: 'RAZORPAY_PAYMENT_FETCH_FAILED', message: err.message };
-        }
-      } else if (fetchFn && keyId && !allowSimulatedOrders) {
-        try {
-          const basicAuth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
-          const resp = await fetchFn(`https://api.razorpay.com/v1/payments/${encodeURIComponent(paymentId)}`, {
-            method: 'GET',
-            headers: { 'Authorization': `Basic ${basicAuth}` }
-          });
-          if (!resp.ok) {
-            return { ok: false, errorCode: 'RAZORPAY_PAYMENT_FETCH_FAILED', message: `Razorpay payment API returned ${resp.status}` };
-          }
-          authoritativePayment = await resp.json();
-        } catch (err) {
-          return { ok: false, errorCode: 'RAZORPAY_API_NETWORK_ERROR', message: err.message };
-        }
-      } else if (allowSimulatedOrders) {
-        authoritativePayment = {
-          id: paymentId,
-          order_id: orderId,
-          status: 'captured',
-          amount: order.amount,
-          currency: order.currency
-        };
-      } else {
+    // 5. Always retrieve payment status from trusted Razorpay server API or trusted injected API client
+    let authoritativePayment = null;
+
+    if (razorpayApiClient && razorpayApiClient.payments && typeof razorpayApiClient.payments.fetch === 'function') {
+      try {
+        authoritativePayment = await razorpayApiClient.payments.fetch(paymentId);
+      } catch (err) {
         return {
           ok: false,
-          errorCode: 'RAZORPAY_API_NOT_CONFIGURED',
-          message: 'Authoritative payment verification requires razorpayApiClient or fetchFn with keyId.'
+          errorCode: 'RAZORPAY_PAYMENT_FETCH_FAILED',
+          message: sanitizeErrorMessage(err.message || 'Failed to fetch payment from Razorpay API')
         };
       }
+    } else if (fetchFn && keyId && !effectiveAllowSimulated) {
+      try {
+        const basicAuth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+        const resp = await fetchFn(`https://api.razorpay.com/v1/payments/${encodeURIComponent(paymentId)}`, {
+          method: 'GET',
+          headers: { 'Authorization': `Basic ${basicAuth}` }
+        });
+        if (!resp.ok) {
+          return {
+            ok: false,
+            errorCode: 'RAZORPAY_PAYMENT_FETCH_FAILED',
+            message: `Razorpay payment API returned ${resp.status}`
+          };
+        }
+        authoritativePayment = await resp.json();
+      } catch (err) {
+        return {
+          ok: false,
+          errorCode: 'RAZORPAY_API_NETWORK_ERROR',
+          message: sanitizeErrorMessage(err.message || 'Network error reaching Razorpay API')
+        };
+      }
+    } else if (effectiveAllowSimulated) {
+      // Test-only simulation permitted strictly when allowSimulatedOrders=true and not in production
+      authoritativePayment = {
+        id: paymentId,
+        order_id: orderId,
+        status: 'captured',
+        amount: order.amount,
+        currency: order.currency
+      };
+    } else {
+      return {
+        ok: false,
+        errorCode: 'RAZORPAY_API_NOT_CONFIGURED',
+        message: 'Authoritative payment verification requires razorpayApiClient or fetchFn with keyId.'
+      };
     }
 
-    // 6. Enforce payment status, amount, currency, and order association
+    // 6. Enforce payment status, ID, amount, currency, and order association
     if (!authoritativePayment || typeof authoritativePayment !== 'object') {
       return { ok: false, errorCode: 'INVALID_PAYMENT_RECORD', message: 'Authoritative payment record is invalid' };
+    }
+    if (authoritativePayment.id !== paymentId) {
+      return {
+        ok: false,
+        errorCode: 'PAYMENT_ID_MISMATCH',
+        message: 'Provider payment ID does not match requested payment ID'
+      };
     }
     if (authoritativePayment.status !== 'captured') {
       return {
@@ -433,6 +488,13 @@ export function createRazorpayServerVerifier({
           };
         }
       } else {
+        if (isProduction) {
+          return {
+            ok: false,
+            errorCode: 'NON_ATOMIC_PERSISTENCE_FORBIDDEN',
+            message: 'Production requires an atomic settlement store.'
+          };
+        }
         const recorded = await persistenceStore.recordSettlement(settlementRecord);
         if (!recorded) {
           return { ok: false, errorCode: 'SETTLEMENT_RECORDING_FAILED' };
@@ -611,18 +673,44 @@ export function createRazorpayClientProvider({
 export function createMockRazorpayTestFixture(initialEntitlements = []) {
   const store = createInMemoryDurableStore();
   const testKeySecret = 'test_secret_for_mock_only_12345';
+  const testKeyId = 'rzp_mock_key';
+  const paymentsRegistry = new Map();
+
+  const mockApiClient = {
+    orders: {
+      async create({ amount, currency, receipt, notes }) {
+        const id = `order_mock_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        return { id, amount, currency, receipt, status: 'created', notes };
+      }
+    },
+    payments: {
+      async fetch(paymentId) {
+        if (paymentsRegistry.has(paymentId)) {
+          const p = paymentsRegistry.get(paymentId);
+          if (p instanceof Error) throw p;
+          return p;
+        }
+        throw new Error(`Razorpay payment ${paymentId} not found in provider API`);
+      }
+    }
+  };
+
   const verifier = createRazorpayServerVerifier({
-    keyId: 'rzp_mock_key',
+    keyId: testKeyId,
     keySecret: testKeySecret,
     webhookSecret: 'test_webhook_secret_67890',
     persistenceStore: store,
     isProduction: false,
+    razorpayApiClient: mockApiClient,
     allowSimulatedOrders: true
   });
 
   return {
     verifier,
     store,
-    testKeySecret
+    testKeySecret,
+    testKeyId,
+    paymentsRegistry,
+    mockApiClient
   };
 }

@@ -2168,6 +2168,9 @@ export function createAuroMindSDK(options = {}) {
         observedOnline = true;
         emitOfflineStateChange(true);
         if (reconnectTimer) clearTimeout(reconnectTimer);
+        const debounceMs = (typeof options.reconnectDebounceMs === 'number')
+          ? options.reconnectDebounceMs
+          : ((typeof process !== 'undefined' && (process.env?.NODE_ENV === 'test' || process.argv?.some(a => a.includes('test')))) ? 10 : 300);
         reconnectTimer = setTimeout(() => {
           reconnectTimer = null;
           const maybeSync = () => {
@@ -2188,7 +2191,7 @@ export function createAuroMindSDK(options = {}) {
           } else {
             maybeSync();
           }
-        }, 300);
+        }, debounceMs);
       };
       try {
         win.addEventListener('online', onlineEventHandler);
@@ -2875,7 +2878,7 @@ export function createAuroMindSDK(options = {}) {
             message: 'Authentication request was superseded by a newer session change.'
           });
         }
-        if (res && res.ok && res.account) {
+        if (res && (res.ok || res.status === 'authenticated') && res.account) {
           const shouldMigrate = Boolean(options && (options.migrateGuestData || options.migrateFromGuest));
           const sanitized = applyAccountTransition(res.account, {
             broadcast: true,

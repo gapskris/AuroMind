@@ -312,7 +312,7 @@ function createMockAuthProvider(initialAccount = null) {
         expiresAt: new Date(Date.now() + 3600_000).toISOString()
       };
       for (const cb of authListeners) cb({ ...currentAccount });
-      return { status: 'authenticated', account: { ...currentAccount } };
+      return { ok: true, status: 'authenticated', account: { ...currentAccount } };
     },
     async linkGuestIdentity(_guestId) {
       return { linked: true };
@@ -742,7 +742,7 @@ describe('Part 1A — Scope A: Game Save Synchronization & Guest-Save Merging', 
 
     assert.equal(sdk2.sync.getPendingOutboxCount(), 1, 'Restarted SDK must hydrate pending mutation from IDB outbox');
 
-    await sdk2.auth.signIn('email', { email: 'retry@example.com' });
+    await sdk2.auth.signIn('email', { email: 'retry@example.com' }, { migrateFromGuest: true });
     sdk2.sync.setConsent(true);
 
     // First flush fails transiently -> outbox MUST retain item
@@ -1322,7 +1322,7 @@ describe('Part 1D — Focused Correction: Remote Save Integrity & Account-Switch
     await sdk.adapters.init('auroblocks');
 
     await sdk.sync.queueLocalChange('auroblocks');
-    await sdk.auth.signIn('email', { email: 'tamper@example.com' });
+    await sdk.auth.signIn('email', { email: 'tamper@example.com' }, { migrateFromGuest: true });
     sdk.sync.setConsent(true);
 
     const res = await sdk.sync.syncNow('auroblocks');
@@ -1372,7 +1372,7 @@ describe('Part 1D — Focused Correction: Remote Save Integrity & Account-Switch
       await sdk.adapters.init('auroblocks');
 
       await sdk.sync.queueLocalChange('auroblocks');
-      await sdk.auth.signIn('email', { email: 'gid@example.com' });
+      await sdk.auth.signIn('email', { email: 'gid@example.com' }, { migrateFromGuest: true });
       sdk.sync.setConsent(true);
 
       const res = await sdk.sync.syncNow('auroblocks');
@@ -1422,7 +1422,7 @@ describe('Part 1D — Focused Correction: Remote Save Integrity & Account-Switch
       await sdk.adapters.init('auroblocks');
 
       await sdk.sync.queueLocalChange('auroblocks');
-      await sdk.auth.signIn('email', { email: 'chk@example.com' });
+      await sdk.auth.signIn('email', { email: 'chk@example.com' }, { migrateFromGuest: true });
       sdk.sync.setConsent(true);
 
       const res = await sdk.sync.syncNow('auroblocks');
@@ -1603,7 +1603,7 @@ describe('Part 1D — Focused Correction: Remote Save Integrity & Account-Switch
       await sdk.adapters.init('auroblocks');
 
       await sdk.sync.queueLocalChange('auroblocks');
-      await sdk.auth.signIn('email', { email: 'a@example.com' });
+      await sdk.auth.signIn('email', { email: 'a@example.com' }, { migrateFromGuest: true });
       sdk.sync.setConsent(true);
 
       const syncPromise = sdk.sync.syncNow('auroblocks');
@@ -1617,6 +1617,8 @@ describe('Part 1D — Focused Correction: Remote Save Integrity & Account-Switch
       assert.equal(res.reason, 'account_changed_mid_sync');
       assert.equal(sawActiveBefore, true);
       assert.equal(sawActiveAfter, false);
+      assert.equal(sdk.sync.getPendingOutboxCount(), 0, 'Account B must not see Account A outbox');
+      auth._emitSwitch('user_a', 'a@example.com');
       assert.equal(sdk.sync.getPendingOutboxCount(), 1, 'use_remote abort must NOT clear pending outbox');
       assert.equal(sdk.sync.getSyncStatus().lastSyncAt, null, 'Account B must receive zero sync metadata');
       assert.equal(cloud.getStats().pushCount, 0);
@@ -1658,7 +1660,7 @@ describe('Part 1D — Focused Correction: Remote Save Integrity & Account-Switch
       await sdk.adapters.init('auroblocks');
 
       await sdk.sync.queueLocalChange('auroblocks');
-      await sdk.auth.signIn('email', { email: 'a@example.com' });
+      await sdk.auth.signIn('email', { email: 'a@example.com' }, { migrateFromGuest: true });
       sdk.sync.setConsent(true);
 
       const syncPromise = sdk.sync.syncNow('auroblocks');
@@ -1670,6 +1672,8 @@ describe('Part 1D — Focused Correction: Remote Save Integrity & Account-Switch
       assert.equal(res.status, 'aborted', 'auto_merged must abort immediately after delayed applyRemoteEnvelope');
       assert.equal(res.reason, 'account_changed_mid_sync');
       assert.equal(cloud.getStats().pushCount, 0, 'auto_merged abort MUST prevent follow-on cloud push');
+      assert.equal(sdk.sync.getPendingOutboxCount(), 0, 'Account B must not see Account A outbox');
+      auth._emitSwitch('user_a', 'a@example.com');
       assert.equal(sdk.sync.getPendingOutboxCount(), 1, 'auto_merged abort MUST NOT delete outbox');
       assert.equal(sdk.sync.getSyncStatus().lastSyncAt, null, 'Account B must receive zero sync metadata');
       assert.equal(cloud.get('user_b', 'auroblocks'), null);
@@ -1729,7 +1733,7 @@ describe('Part 1D — Focused Correction: Remote Save Integrity & Account-Switch
       await sdk.adapters.init('auroblocks');
 
       await sdk.sync.queueLocalChange('auroblocks');
-      await sdk.auth.signIn('email', { email: 'a@example.com' });
+      await sdk.auth.signIn('email', { email: 'a@example.com' }, { migrateFromGuest: true });
       sdk.sync.setConsent(true);
 
       const syncPromise = sdk.sync.syncNow('auroblocks');
@@ -1742,6 +1746,8 @@ describe('Part 1D — Focused Correction: Remote Save Integrity & Account-Switch
       assert.equal(res.status, 'aborted', 'conflict recovery must abort immediately after delayed applyRemoteEnvelope');
       assert.equal(res.reason, 'account_changed_mid_sync');
       assert.equal(cloud.getStats().pushCount, 1, 'conflict recovery abort MUST prevent retry push (only initial push ran)');
+      assert.equal(sdk.sync.getPendingOutboxCount(), 0, 'Account B must not see Account A outbox');
+      auth._emitSwitch('user_a', 'a@example.com');
       assert.equal(sdk.sync.getPendingOutboxCount(), 1, 'conflict recovery abort MUST NOT delete outbox');
       assert.equal(sdk.sync.getSyncStatus().lastSyncAt, null, 'Account B must receive zero sync metadata');
       assert.equal(cloud.get('user_b', 'auroblocks'), null);
@@ -1824,7 +1830,7 @@ describe('Part 1D — Focused Correction: Remote Save Integrity & Account-Switch
       await sdk.adapters.init('auroblocks');
 
       await sdk.sync.queueLocalChange('auroblocks');
-      await sdk.auth.signIn('email', { email: 'plaincheck@example.com' });
+      await sdk.auth.signIn('email', { email: 'plaincheck@example.com' }, { migrateFromGuest: true });
       sdk.sync.setConsent(true);
 
       const res = await sdk.sync.syncNow('auroblocks');
@@ -2185,13 +2191,14 @@ describe('Part 2 — Real Browser Verification (Chromium/Edge)', () => {
         const sdkMod = await import('/assets/sdk/auromind-sdk.js');
         const adpMod = await import('/assets/sdk/auromind-adapters.js');
 
-        let activeAcct = {
+        const acctA = {
           userId: 'browser_user_a',
           email: 'a@browser.test',
           displayName: 'A',
           provider: 'email',
           expiresAt: new Date(Date.now() + 3600_000).toISOString()
         };
+        let activeAcct = acctA;
         const listeners = new Set();
         const mockAuth = {
           providerName: 'browser-mock-auth',
@@ -2201,7 +2208,7 @@ describe('Part 2 — Real Browser Verification (Chromium/Edge)', () => {
           async signIn() {
             const acct = { ...activeAcct };
             listeners.forEach((cb) => cb(acct));
-            return { status: 'authenticated', account: acct };
+            return { ok: true, status: 'authenticated', account: acct };
           },
           async signOut() { activeAcct = null; listeners.forEach((cb) => cb(null)); },
           onAuthStateChange(cb) { listeners.add(cb); return () => listeners.delete(cb); },
@@ -2309,6 +2316,8 @@ describe('Part 2 — Real Browser Verification (Chromium/Edge)', () => {
 
         const userBStatus = sdk.sync.getSyncStatus();
         const userBStoredMeta = localStorage.getItem('auromind.platform.v1.sync.meta.browser_user_b');
+        const userBOutbox = sdk.sync.getPendingOutboxCount();
+        mockAuth.switchTo(acctA);
         const outboxAfterRace = sdk.sync.getPendingOutboxCount();
         sdk.dispose();
 
@@ -2320,6 +2329,7 @@ describe('Part 2 — Real Browser Verification (Chromium/Edge)', () => {
           pushCalls,
           userBLastSyncAt: userBStatus.lastSyncAt,
           userBStoredMeta,
+          userBOutbox,
           outboxAfterRace
         };
       });
@@ -2331,7 +2341,8 @@ describe('Part 2 — Real Browser Verification (Chromium/Edge)', () => {
       assert.equal(browserResult.pushCalls, 0, 'Zero cloud pushes after mid-apply account switch in browser');
       assert.equal(browserResult.userBLastSyncAt, null);
       assert.equal(browserResult.userBStoredMeta, null);
-      assert.equal(browserResult.outboxAfterRace, 1);
+      assert.equal(browserResult.userBOutbox, 0, 'Account B must have isolated outbox');
+      assert.equal(browserResult.outboxAfterRace, 1, 'Account A outbox must be preserved');
 
       const fatalErrors = inst.consoleErrors.filter((e) => e.type === 'pageerror' || !/504 \(Offline\)|Failed to load resource/i.test(e.text));
       assert.equal(fatalErrors.length, 0, `Unexpected browser console errors: ${JSON.stringify(fatalErrors)}`);

@@ -39,11 +39,11 @@ export function validateRestoreConfiguration({
 
   // Prevent path traversal
   const normalizedBackupFile = path.normalize(backupFile);
-  if (normalizedBackupFile.includes('..')) {
+  if (normalizedBackupFile.includes('..') || !path.resolve(backupFile).startsWith(process.cwd())) {
     return {
       allowed: false,
       errorCode: 'ERR_PATH_TRAVERSAL_DETECTED',
-      message: 'backupFile path cannot contain path traversal sequences (..).'
+      message: 'backupFile path cannot contain path traversal sequences (..) or escape the workspace.'
     };
   }
 
@@ -88,6 +88,16 @@ export function validateRestoreConfiguration({
  * Validates the backup manifest and verifies SHA-256 integrity against the backup file.
  */
 export function validateManifestAndIntegrity(backupFile, manifestFile = null) {
+  // Resolve manifest path and check path traversal first
+  const resolvedManifestPath = manifestFile || `${backupFile.replace(/\.sql$/, '')}.manifest.json`;
+  if (resolvedManifestPath.includes('..') || !path.resolve(resolvedManifestPath).startsWith(process.cwd())) {
+    return {
+      valid: false,
+      errorCode: 'ERR_PATH_TRAVERSAL_DETECTED',
+      message: 'manifestFile path cannot contain path traversal sequences or escape the workspace.'
+    };
+  }
+
   if (!fs.existsSync(backupFile)) {
     return {
       valid: false,
@@ -105,8 +115,6 @@ export function validateManifestAndIntegrity(backupFile, manifestFile = null) {
     };
   }
 
-  // Resolve manifest path
-  const resolvedManifestPath = manifestFile || `${backupFile.replace(/\.sql$/, '')}.manifest.json`;
   if (!fs.existsSync(resolvedManifestPath)) {
     return {
       valid: false,
@@ -248,8 +256,17 @@ export async function executeDatabaseRestore(options = {}) {
     backupFile = '',
     manifestFile = '',
     dryRun = false,
-    runner = null
+    runner = null,
+    unknownArgs = []
   } = options;
+
+  if (unknownArgs && unknownArgs.length > 0) {
+    return {
+      ok: false,
+      errorCode: 'ERR_UNKNOWN_CLI_ARGUMENT',
+      message: `Unknown CLI argument(s): ${unknownArgs.join(', ')}`
+    };
+  }
 
   // 1. Validate safety configuration
   const configCheck = validateRestoreConfiguration({
@@ -284,7 +301,20 @@ export async function executeDatabaseRestore(options = {}) {
   const rawSql = fs.readFileSync(resolvedBackupFile, 'utf8');
   const prep = prepareRestoreSql(rawSql);
 
-  // 3. Execute Restore
+  // 3. Dry-run preflight returns before executing any restore runner
+  if (dryRun) {
+    return {
+      ok: true,
+      dryRun: true,
+      targetEnvironment: target,
+      backupFile: resolvedBackupFile,
+      checksumVerified: true,
+      checksum: integrity.actualChecksum,
+      wrappedInTransaction: prep.wrappedInTransaction
+    };
+  }
+
+  // 4. Execute Restore
   if (runner) {
     const runResult = await runner({
       target,
@@ -293,24 +323,15 @@ export async function executeDatabaseRestore(options = {}) {
       wrappedInTransaction: prep.wrappedInTransaction,
       options
     });
-    if (!runResult.ok) {
+    const isSuccess = runResult && runResult.ok !== false && (runResult.status === undefined || runResult.status === 0);
+    if (!isSuccess) {
       return {
         ok: false,
-        errorCode: runResult.errorCode || 'ERR_RESTORE_EXECUTION_FAILED',
-        message: runResult.message || 'Custom runner restore failed'
+        errorCode: runResult?.errorCode || 'ERR_RESTORE_EXECUTION_FAILED',
+        message: runResult?.message || runResult?.stderr || 'Custom runner restore failed'
       };
     }
   } else {
-    if (dryRun) {
-      return {
-        ok: true,
-        dryRun: true,
-        targetEnvironment: target,
-        backupFile: resolvedBackupFile,
-        checksum: integrity.actualChecksum,
-        wrappedInTransaction: prep.wrappedInTransaction
-      };
-    }
 
     // Check psql availability
     try {
@@ -370,20 +391,56 @@ export async function executeDatabaseRestore(options = {}) {
   };
 }
 
+/**
+ * Parses and validates command line arguments for the restore script.
+ */
+export function parseRestoreCliArgs(rawArgs = process.argv.slice(2)) {
+  const options = {
+    backupFile: '',
+    target: 'development',
+    forceProduction: false,
+    confirmDisposableTarget: false,
+    dryRun: false,
+    unknownArgs: []
+  };
+
+  for (let i = 0; i < rawArgs.length; i++) {
+    const arg = rawArgs[i];
+    if (arg === '--confirm-disposable-target') {
+      options.confirmDisposableTarget = true;
+    } else if (arg === '--dry-run') {
+      options.dryRun = true;
+    } else if (arg === '--force-production') {
+      options.forceProduction = true;
+    } else if (arg.startsWith('--file=')) {
+      options.backupFile = arg.slice('--file='.length);
+    } else if (arg === '--file' && i + 1 < rawArgs.length) {
+      options.backupFile = rawArgs[++i];
+    } else if (arg.startsWith('--backup-file=')) {
+      options.backupFile = arg.slice('--backup-file='.length);
+    } else if (arg === '--backup-file' && i + 1 < rawArgs.length) {
+      options.backupFile = rawArgs[++i];
+    } else if (arg.startsWith('--target=')) {
+      options.target = arg.slice('--target='.length);
+    } else if (arg === '--target' && i + 1 < rawArgs.length) {
+      options.target = rawArgs[++i];
+    } else {
+      options.unknownArgs.push(arg);
+    }
+  }
+
+  return options;
+}
+
 // CLI Execution entrypoint
 if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}`) {
-  const args = process.argv.slice(2);
-  const backupFile = args.find(a => a.startsWith('--file='))?.split('=')[1] || '';
-  const target = args.find(a => a.startsWith('--target='))?.split('=')[1] || 'development';
-  const forceProd = args.includes('--force-production');
-  const dryRun = args.includes('--dry-run');
+  const parsed = parseRestoreCliArgs();
+  if (parsed.unknownArgs.length > 0) {
+    console.error(`Restore failed [ERR_UNKNOWN_CLI_ARGUMENT]: Unknown CLI argument(s): ${parsed.unknownArgs.join(', ')}`);
+    process.exit(1);
+  }
 
-  executeDatabaseRestore({
-    backupFile,
-    target,
-    forceProduction: forceProd,
-    dryRun
-  }).then(result => {
+  executeDatabaseRestore(parsed).then(result => {
     if (!result.ok) {
       console.error(`Restore failed [${result.errorCode}]: ${result.message}`);
       process.exit(1);

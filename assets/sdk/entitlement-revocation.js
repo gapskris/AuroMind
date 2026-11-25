@@ -50,7 +50,8 @@ export async function verifyVersionedEntitlement({
   currentTimestamp = Date.now(),
   anchorTimestamp = null,
   requireLastValidatedAt = true,
-  expectedSubject = null
+  expectedSubject = null,
+  allowUnboundSubject = false
 }) {
   if (!token || typeof token !== 'string') {
     return { valid: false, reason: 'TOKEN_MISSING' };
@@ -94,14 +95,29 @@ export async function verifyVersionedEntitlement({
     return { valid: false, reason: 'KEY_ID_MISSING' };
   }
 
-  // 2. Validate Payload Structure & Subject Binding (Lifetime cannot bypass)
+  // 2. Validate Payload Structure & Mandatory Account Binding (Lifetime cannot bypass)
   if (!payload || typeof payload !== 'object') {
     return { valid: false, reason: 'PAYLOAD_INVALID' };
   }
   if (!payload.sub || typeof payload.sub !== 'string' || payload.sub.trim() === '') {
-    return { valid: false, reason: 'SUBJECT_REQUIRED' };
+    return { valid: false, reason: 'TOKEN_SUBJECT_MISSING' };
   }
-  if (expectedSubject) {
+
+  // Production path strictly enforces verified expectedSubject
+  const isProduction = process.env.NODE_ENV === 'production';
+  const effectiveAllowUnbound = (!isProduction) && (allowUnboundSubject === true);
+
+  if (!effectiveAllowUnbound) {
+    if (expectedSubject === undefined || expectedSubject === null) {
+      return { valid: false, reason: 'EXPECTED_SUBJECT_REQUIRED' };
+    }
+    if (typeof expectedSubject !== 'string' || expectedSubject.trim() === '') {
+      return { valid: false, reason: 'INVALID_EXPECTED_SUBJECT' };
+    }
+    if (payload.sub !== expectedSubject) {
+      return { valid: false, reason: 'SUBJECT_MISMATCH', expected: expectedSubject, actual: payload.sub };
+    }
+  } else if (expectedSubject !== null && expectedSubject !== undefined) {
     if (typeof expectedSubject !== 'string' || expectedSubject.trim() === '') {
       return { valid: false, reason: 'INVALID_EXPECTED_SUBJECT' };
     }

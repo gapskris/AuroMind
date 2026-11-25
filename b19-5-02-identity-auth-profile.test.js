@@ -13,6 +13,7 @@ import {
   LS_GUEST_KEY,
   LS_PROFILE_KEY,
   LS_SYNC_META_KEY,
+  LS_OUTBOX_KEY,
   AVATAR_MAX_BYTES,
   sanitizeDisplayName,
   validateAvatarInput
@@ -851,7 +852,8 @@ describe('B19.5-02 Part 1 — Identity, Auth, Profile & Security (Unit/Integrati
     const bobDirectStatus = sdk.sync.getSyncStatus();
     assert.equal(bobDirectStatus.lastSyncAt, null, 'Bob must NOT see Alice lastSyncAt after direct switch');
     assert.deepEqual(bobDirectStatus.metadata, {}, 'Bob must NOT see Alice per-game sync metadata');
-    assert.ok(bobDirectStatus.pendingGames.includes('auroblocks'), 'Pending outbox entries must remain intact');
+    assert.deepEqual(bobDirectStatus.pendingGames, [], 'Bob must NOT inherit guest outbox without explicit migration');
+    assert.ok(JSON.parse(storage.getItem(LS_OUTBOX_KEY) || '[]').includes('auroblocks'), 'Guest outbox entries must remain intact');
     assert.equal(JSON.parse(storage.getItem('auromatch_test_save')).level, 12, 'Guest save data must remain intact');
 
     // Also test direct switch via provider onAuthStateChange (Alice -> Bob)

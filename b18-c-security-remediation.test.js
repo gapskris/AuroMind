@@ -492,7 +492,7 @@ test('BATCH-F: Entitlement verification supports Key IDs, dual-key rotation, and
     privateKey: key2026.privateKey,
     kid: 'auromasti-ed25519-2026-v1'
   });
-  const resV1 = await verifyVersionedEntitlement({ token: tokenV1, keyStore, currentTimestamp: now });
+  const resV1 = await verifyVersionedEntitlement({ token: tokenV1, keyStore, currentTimestamp: now, expectedSubject: 'guest_test_seeker' });
   assert.equal(resV1.valid, true);
   assert.equal(resV1.kid, 'auromasti-ed25519-2026-v1');
 
@@ -502,7 +502,7 @@ test('BATCH-F: Entitlement verification supports Key IDs, dual-key rotation, and
     privateKey: key2025.privateKey,
     kid: 'auromasti-ed25519-2025-v0'
   });
-  const resV0 = await verifyVersionedEntitlement({ token: tokenV0, keyStore, currentTimestamp: now });
+  const resV0 = await verifyVersionedEntitlement({ token: tokenV0, keyStore, currentTimestamp: now, expectedSubject: 'guest_test_seeker' });
   assert.equal(resV0.valid, true);
 
   // Case 3: Emergency revocation of compromised key via signed remote config
@@ -525,7 +525,8 @@ test('BATCH-F: Entitlement verification supports Key IDs, dual-key rotation, and
     keyStore,
     signedRevocationConfig,
     configRootPublicKey: rootKey.publicKey,
-    currentTimestamp: now
+    currentTimestamp: now,
+    expectedSubject: 'guest_test_seeker'
   });
   assert.equal(resRevoked.valid, false);
   assert.equal(resRevoked.reason, 'KEY_REVOKED');
@@ -537,7 +538,8 @@ test('BATCH-F: Entitlement verification supports Key IDs, dual-key rotation, and
     keyStore,
     signedRevocationConfig: tamperedConfig,
     configRootPublicKey: rootKey.publicKey,
-    currentTimestamp: now
+    currentTimestamp: now,
+    expectedSubject: 'guest_test_seeker'
   });
   assert.equal(resTampered.valid, false);
   assert.equal(resTampered.reason, 'REMOTE_CONFIG_SIGNATURE_INVALID');
