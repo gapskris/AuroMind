@@ -3775,6 +3775,272 @@ describe('Part 1E — AuroMatch Legacy Storage & Account-Isolation Hardening (Ad
       else globalThis.indexedDB = prevIDB;
     }
   });
+
+  test('Adv-27: Native export and hasLocalProgress() when scoped user record is missing fail closed', async () => {
+    const prevLS = globalThis.localStorage;
+    const storage = createMemoryStorage();
+    globalThis.localStorage = storage;
+    setAccountScope('user_auth');
+
+    try {
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      // No auro_match_user:user_auth exists
+      assert.equal(nativeAdapter.hasLocalProgress(), false, 'hasLocalProgress must be false when scoped record is missing');
+
+      const env = await nativeAdapter.exportEnvelope('guest_test');
+      assert.equal(env.isEmpty, true, 'Export must be empty when scoped record is missing');
+      assert.equal(env.persistenceValid, false, 'persistenceValid must be false');
+      assert.equal(env.payload.profileState.profile.lotusPetalCount, 0);
+    } finally {
+      setAccountScope(null);
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+    }
+  });
+
+  test('Adv-28: Native export and hasLocalProgress() when localStorage access throws fail closed', async () => {
+    const prevLS = globalThis.localStorage;
+    const storage = createMemoryStorage();
+    // Simulate storage throwing on getItem
+    const throwingStorage = {
+      ...storage,
+      getItem: (key) => {
+        if (key.includes('auro_match_user')) throw new Error('Simulated QuotaExceededError or security sandbox block');
+        return storage.getItem(key);
+      }
+    };
+    globalThis.localStorage = throwingStorage;
+    setAccountScope('user_auth');
+
+    try {
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      assert.equal(nativeAdapter.hasLocalProgress(), false, 'hasLocalProgress must fail closed when localStorage throws');
+
+      const env = await nativeAdapter.exportEnvelope('guest_test');
+      assert.equal(env.isEmpty, true, 'Export must fail safe with isEmpty: true when storage throws');
+      assert.equal(env.persistenceValid, false);
+      assert.equal(env.persistenceError, 'STORAGE_ACCESS_ERROR');
+    } finally {
+      setAccountScope(null);
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+    }
+  });
+
+  test('Adv-29: Native export and hasLocalProgress() with malformed scoped record fail closed', async () => {
+    const prevLS = globalThis.localStorage;
+    const storage = createMemoryStorage();
+    globalThis.localStorage = storage;
+    setAccountScope('user_auth');
+
+    try {
+      storage.setItem('auro_match_user:user_auth', '{ malformed json: true, ');
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      assert.equal(nativeAdapter.hasLocalProgress(), false);
+
+      const env = await nativeAdapter.exportEnvelope('guest_test');
+      assert.equal(env.isEmpty, true);
+      assert.equal(env.persistenceValid, false);
+      assert.equal(env.persistenceError, 'MALFORMED_SCOPED_RECORD');
+    } finally {
+      setAccountScope(null);
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+    }
+  });
+
+  test('Adv-30: Native export and hasLocalProgress() with foreign-owned scoped record fail closed', async () => {
+    const prevLS = globalThis.localStorage;
+    const storage = createMemoryStorage();
+    globalThis.localStorage = storage;
+    setAccountScope('user_auth');
+
+    try {
+      storage.setItem('auro_match_user:user_auth', JSON.stringify({
+        profile: { lotusPetalCount: 50, ownerId: 'user_foreign' },
+        progression: { completedLevelsCount: 2, completedLevelIds: ['f1'] },
+        ownerId: 'user_foreign'
+      }));
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      assert.equal(nativeAdapter.hasLocalProgress(), false);
+
+      const env = await nativeAdapter.exportEnvelope('guest_test');
+      assert.equal(env.isEmpty, true);
+      assert.equal(env.persistenceValid, false);
+      assert.equal(env.persistenceError, 'FOREIGN_OR_INVALID_OWNER');
+    } finally {
+      setAccountScope(null);
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+    }
+  });
+
+  test('Adv-31: Bridge export and hasLocalProgress() when scoped user record is missing fail closed', async () => {
+    const prevLS = globalThis.localStorage;
+    const storage = createMemoryStorage();
+    globalThis.localStorage = storage;
+    setAccountScope('user_auth');
+
+    try {
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+      assert.equal(bridgeAdapter.hasLocalProgress(), false);
+
+      const env = await bridgeAdapter.exportEnvelope('guest_test');
+      assert.equal(env.isEmpty, true);
+      assert.equal(env.persistenceValid, false);
+      assert.equal(env.payload.user, null);
+    } finally {
+      setAccountScope(null);
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+    }
+  });
+
+  test('Adv-32: Bridge export and hasLocalProgress() when scoped user record is malformed fail closed', async () => {
+    const prevLS = globalThis.localStorage;
+    const storage = createMemoryStorage();
+    globalThis.localStorage = storage;
+    setAccountScope('user_auth');
+
+    try {
+      storage.setItem('auro_match_user:user_auth', '{{bad-json]]');
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+      assert.equal(bridgeAdapter.hasLocalProgress(), false);
+
+      const env = await bridgeAdapter.exportEnvelope('guest_test');
+      assert.equal(env.isEmpty, true);
+      assert.equal(env.persistenceValid, false);
+      assert.equal(env.payload.user, null);
+    } finally {
+      setAccountScope(null);
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+    }
+  });
+
+  test('Adv-33: Bridge export and hasLocalProgress() with foreign-owned scoped record fail closed', async () => {
+    const prevLS = globalThis.localStorage;
+    const storage = createMemoryStorage();
+    globalThis.localStorage = storage;
+    setAccountScope('user_auth');
+
+    try {
+      storage.setItem('auro_match_user:user_auth', JSON.stringify({
+        profile: { lotusPetalCount: 99, ownerId: 'user_attacker' },
+        progression: { completedLevelsCount: 1, completedLevelIds: ['att_1'] },
+        ownerId: 'user_attacker'
+      }));
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+      assert.equal(bridgeAdapter.hasLocalProgress(), false);
+
+      const env = await bridgeAdapter.exportEnvelope('guest_test');
+      assert.equal(env.isEmpty, true);
+      assert.equal(env.persistenceValid, false);
+      assert.equal(env.payload.user, null);
+    } finally {
+      setAccountScope(null);
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+    }
+  });
+
+  test('Adv-34: Bridge export with unscoped reflections/tiles but no valid scoped user exports empty arrays', async () => {
+    const prevLS = globalThis.localStorage;
+    const storage = createMemoryStorage();
+    globalThis.localStorage = storage;
+    setAccountScope('user_auth');
+
+    try {
+      storage.setItem('auro_match_consecrations', JSON.stringify([{ id: 'c1', text: 'Unscoped Reflection' }]));
+      storage.setItem('auro_match_unlocked_tiles', JSON.stringify(['tile_1', 'tile_2']));
+      // No auro_match_user:user_auth exists
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+      const env = await bridgeAdapter.exportEnvelope('guest_test');
+      assert.equal(env.isEmpty, true);
+      assert.deepEqual(env.payload.consecrations, [], 'Consecrations must not leak from unscoped cache');
+      assert.deepEqual(env.payload.unlockedTiles, [], 'Tiles must not leak from unscoped cache');
+      assert.equal(env.payload.user, null);
+    } finally {
+      setAccountScope(null);
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+    }
+  });
+
+  test('Adv-35: Valid authenticated account with intact scoped records continues to export progress normally', async () => {
+    const prevLS = globalThis.localStorage;
+    const storage = createMemoryStorage();
+    globalThis.localStorage = storage;
+    setAccountScope('user_legit');
+
+    try {
+      storage.setItem('auro_match_user:user_legit', JSON.stringify({
+        profile: { lotusPetalCount: 45, consciousnessPoints: 180, ownerId: 'user_legit' },
+        progression: { completedLevelsCount: 2, completedLevelIds: ['lvl_l1', 'lvl_l2'] },
+        settings: { volumeRaga: 0.6 },
+        ownerId: 'user_legit'
+      }));
+      storage.setItem('auro_match_consecrations:user_legit', JSON.stringify([{ id: 'leg_c', text: 'Legit Refl' }]));
+      storage.setItem('auro_match_unlocked_tiles:user_legit', JSON.stringify(['lvl_l1', 'lvl_l2']));
+
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+
+      assert.equal(nativeAdapter.hasLocalProgress(), true, 'Native hasLocalProgress must be true for valid scoped progress');
+      assert.equal(bridgeAdapter.hasLocalProgress(), true, 'Bridge hasLocalProgress must be true for valid scoped progress');
+
+      const nativeEnv = await nativeAdapter.exportEnvelope('guest_test');
+      assert.equal(nativeEnv.isEmpty, false, 'Native export must not be empty');
+      assert.equal(nativeEnv.persistenceValid, true);
+      assert.equal(nativeEnv.payload.profileState.profile.lotusPetalCount, 45);
+      assert.deepEqual(nativeEnv.payload.profileState.progression.completedLevelIds, ['lvl_l1', 'lvl_l2']);
+
+      const bridgeEnv = await bridgeAdapter.exportEnvelope('guest_test');
+      assert.equal(bridgeEnv.isEmpty, false, 'Bridge export must not be empty');
+      assert.equal(bridgeEnv.persistenceValid, true);
+      assert.equal(bridgeEnv.payload.user.profile.lotusPetalCount, 45);
+      assert.deepEqual(bridgeEnv.payload.consecrations, [{ id: 'leg_c', text: 'Legit Refl' }]);
+      assert.deepEqual(bridgeEnv.payload.unlockedTiles, ['lvl_l1', 'lvl_l2']);
+    } finally {
+      setAccountScope(null);
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+    }
+  });
+
+  test('Adv-36: Guest mode export and hasLocalProgress() remain fully functional without authenticated scoped persistence requirements', async () => {
+    const prevLS = globalThis.localStorage;
+    const storage = createMemoryStorage();
+    globalThis.localStorage = storage;
+    setAccountScope('guest_abc123');
+
+    try {
+      profileState.profile.lotusPetalCount = 30;
+      profileState.profile.ownerId = 'guest_abc123';
+      profileState.ownerId = 'guest_abc123';
+      profileState.progression.completedLevelsCount = 1;
+      profileState.progression.completedLevelIds = ['guest_lvl_1'];
+      saveProfileState({ accountScope: 'guest_abc123' });
+
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+
+      assert.equal(nativeAdapter.hasLocalProgress(), true, 'Guest hasLocalProgress must be true');
+      assert.equal(bridgeAdapter.hasLocalProgress(), true, 'Bridge guest hasLocalProgress must be true');
+
+      const nativeEnv = await nativeAdapter.exportEnvelope('guest_abc123');
+      assert.equal(nativeEnv.isEmpty, false, 'Guest native export must not be empty');
+      assert.equal(nativeEnv.payload.profileState.profile.lotusPetalCount, 30);
+
+      const bridgeEnv = await bridgeAdapter.exportEnvelope('guest_abc123');
+      assert.equal(bridgeEnv.isEmpty, false, 'Guest bridge export must not be empty');
+      assert.equal(bridgeEnv.payload.user.profile.lotusPetalCount, 30);
+    } finally {
+      setAccountScope(null);
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+    }
+  });
 });
 
 // =============================================================================
