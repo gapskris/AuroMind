@@ -158,8 +158,7 @@ export function createRazorpayServerVerifier({
   currency = 'INR',
   isProduction = process.env.NODE_ENV === 'production',
   razorpayApiClient = null,
-  fetchFn = globalThis.fetch,
-  allowSimulatedOrders = false
+  fetchFn = globalThis.fetch
 } = {}) {
   if (!keySecret) {
     throw new Error('KEY_SECRET_REQUIRED: Server verifier requires a valid keySecret.');
@@ -173,9 +172,6 @@ export function createRazorpayServerVerifier({
   if (isProduction && typeof persistenceStore.settleAndGrantEntitlement !== 'function') {
     throw new Error('ATOMIC_STORE_REQUIRED: Production verifier requires persistenceStore to implement atomic settleAndGrantEntitlement.');
   }
-
-  // Simulation can NEVER be activated in production
-  const effectiveAllowSimulated = (!isProduction) && (allowSimulatedOrders === true);
 
   /**
    * Sanitizes error messages to prevent leakage of secrets, auth headers, and credentials.
@@ -196,6 +192,7 @@ export function createRazorpayServerVerifier({
 
   /**
    * Creates an authoritative Razorpay order bound to an authenticated user and SKU.
+   * Validates provider order response before persistence. Fails closed on mismatch or failure.
    */
   async function createAuthoritativeOrder({
     userId,
@@ -236,7 +233,6 @@ export function createRazorpayServerVerifier({
           receipt: receipt || `rcpt_${Date.now()}`,
           notes: { userId, sku, ...notes }
         });
-        orderId = apiRes.id;
         orderEntity = apiRes;
       } catch (err) {
         return {
@@ -245,7 +241,7 @@ export function createRazorpayServerVerifier({
           message: sanitizeErrorMessage(err.message || 'Order creation failed')
         };
       }
-    } else if (fetchFn && keyId && !effectiveAllowSimulated) {
+    } else if (fetchFn && keyId) {
       try {
         const basicAuth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
         const resp = await fetchFn('https://api.razorpay.com/v1/orders', {
@@ -269,9 +265,7 @@ export function createRazorpayServerVerifier({
             message: sanitizeErrorMessage(`Razorpay API error: ${resp.status} ${errBody}`)
           };
         }
-        const data = await resp.json();
-        orderId = data.id;
-        orderEntity = data;
+        orderEntity = await resp.json();
       } catch (err) {
         return {
           ok: false,
@@ -279,8 +273,6 @@ export function createRazorpayServerVerifier({
           message: sanitizeErrorMessage(err.message || 'Network error reaching Razorpay API')
         };
       }
-    } else if (effectiveAllowSimulated) {
-      orderId = `order_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
     } else {
       return {
         ok: false,
@@ -288,6 +280,22 @@ export function createRazorpayServerVerifier({
         message: 'Authoritative Razorpay order creation requires razorpayApiClient or fetchFn with keyId.'
       };
     }
+
+    // 1. Validate provider-created order response before persistence
+    if (!orderEntity || typeof orderEntity !== 'object') {
+      return { ok: false, errorCode: 'PROVIDER_ORDER_INVALID', message: 'Provider returned an invalid order payload' };
+    }
+    if (typeof orderEntity.id !== 'string' || orderEntity.id.trim() === '') {
+      return { ok: false, errorCode: 'PROVIDER_ORDER_ID_MISSING', message: 'Provider order ID is missing or empty' };
+    }
+    if (Math.floor(Number(orderEntity.amount)) !== amountInPaise) {
+      return { ok: false, errorCode: 'PROVIDER_ORDER_AMOUNT_MISMATCH', message: 'Provider order amount does not match requested amount' };
+    }
+    if (typeof orderEntity.currency !== 'string' || orderEntity.currency.toUpperCase() !== currency.toUpperCase()) {
+      return { ok: false, errorCode: 'PROVIDER_ORDER_CURRENCY_MISMATCH', message: 'Provider order currency does not match requested currency' };
+    }
+
+    orderId = orderEntity.id;
 
     const orderRecord = Object.freeze({
       id: orderId,
@@ -301,7 +309,18 @@ export function createRazorpayServerVerifier({
       notes: Object.freeze({ ...notes })
     });
 
-    await persistenceStore.saveOrder(orderRecord, idempotencyKey);
+    try {
+      const saved = await persistenceStore.saveOrder(orderRecord, idempotencyKey);
+      if (!saved) {
+        return { ok: false, errorCode: 'ORDER_PERSISTENCE_FAILED', message: 'Failed to persist authoritative order' };
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        errorCode: 'ORDER_PERSISTENCE_FAILED',
+        message: sanitizeErrorMessage(err.message || 'Order persistence error')
+      };
+    }
 
     return {
       ok: true,
@@ -378,7 +397,7 @@ export function createRazorpayServerVerifier({
           message: sanitizeErrorMessage(err.message || 'Failed to fetch payment from Razorpay API')
         };
       }
-    } else if (fetchFn && keyId && !effectiveAllowSimulated) {
+    } else if (fetchFn && keyId) {
       try {
         const basicAuth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
         const resp = await fetchFn(`https://api.razorpay.com/v1/payments/${encodeURIComponent(paymentId)}`, {
@@ -400,15 +419,6 @@ export function createRazorpayServerVerifier({
           message: sanitizeErrorMessage(err.message || 'Network error reaching Razorpay API')
         };
       }
-    } else if (effectiveAllowSimulated) {
-      // Test-only simulation permitted strictly when allowSimulatedOrders=true and not in production
-      authoritativePayment = {
-        id: paymentId,
-        order_id: orderId,
-        status: 'captured',
-        amount: order.amount,
-        currency: order.currency
-      };
     } else {
       return {
         ok: false,
@@ -518,56 +528,120 @@ export function createRazorpayServerVerifier({
 
   /**
    * Processes server webhook with signature, order ownership, and user isolation.
+   * Treats signature as proof of origin, then authoritatively verifies payment details
+   * from the trusted Razorpay API before settlement and entitlement grant.
    */
   async function processAuthoritativeWebhook({ rawBody, signature }) {
     if (!webhookSecret) {
-      return { ok: false, errorCode: 'WEBHOOK_SECRET_NOT_CONFIGURED' };
+      return { ok: false, errorCode: 'WEBHOOK_SECRET_NOT_CONFIGURED', message: 'Webhook secret is not configured' };
     }
 
     const isValid = validateRazorpayWebhookSignature({ rawBody, signature, webhookSecret });
     if (!isValid) {
-      return { ok: false, errorCode: 'INVALID_WEBHOOK_SIGNATURE' };
+      return { ok: false, errorCode: 'INVALID_WEBHOOK_SIGNATURE', message: 'Webhook signature validation failed' };
     }
 
     let payload;
     try {
       payload = typeof rawBody === 'string' ? JSON.parse(rawBody) : JSON.parse(rawBody.toString('utf8'));
     } catch {
-      return { ok: false, errorCode: 'MALFORMED_WEBHOOK_PAYLOAD' };
+      return { ok: false, errorCode: 'MALFORMED_WEBHOOK_PAYLOAD', message: 'Webhook payload could not be parsed as JSON' };
     }
 
     const eventType = payload.event || null;
 
     if (eventType === 'payment.captured') {
-      const payment = payload.payload?.payment?.entity;
-      const paymentId = payment?.id;
-      const orderId = payment?.order_id;
+      const paymentEntity = payload.payload?.payment?.entity;
+      const paymentId = paymentEntity?.id;
+      const orderId = paymentEntity?.order_id;
+      const webhookStatus = paymentEntity?.status;
 
-      if (!paymentId || !orderId) {
-        return { ok: false, errorCode: 'INVALID_WEBHOOK_ENTITIES' };
+      // 1. Validate webhook entities (fail closed on missing fields)
+      if (!paymentId || typeof paymentId !== 'string' || !orderId || typeof orderId !== 'string') {
+        return { ok: false, errorCode: 'INVALID_WEBHOOK_ENTITIES', message: 'Webhook payment entity missing id or order_id' };
+      }
+      if (!webhookStatus || webhookStatus !== 'captured') {
+        return { ok: false, errorCode: 'PAYMENT_NOT_CAPTURED', message: `Webhook payment status is '${webhookStatus}', expected 'captured'` };
       }
 
+      // 2. Duplicate webhook replay defense (idempotent ignore)
       const alreadySettled = await persistenceStore.isPaymentSettled(paymentId);
       if (alreadySettled) {
         return { ok: true, ignored: true, reason: 'ALREADY_SETTLED' };
       }
 
+      // 3. Validate persisted order ownership & binding
       const order = await persistenceStore.getOrderById(orderId);
       if (!order) {
-        return { ok: false, errorCode: 'WEBHOOK_ORDER_NOT_FOUND' };
+        return { ok: false, errorCode: 'WEBHOOK_ORDER_NOT_FOUND', message: 'Order referenced in webhook not found' };
+      }
+      if (!order.userId || typeof order.userId !== 'string' || !order.sku || typeof order.sku !== 'string') {
+        return { ok: false, errorCode: 'INVALID_ORDER_RECORD', message: 'Persisted order is missing userId or sku' };
       }
 
-      // Validate currency and amount match
-      if (payment.amount !== order.amount) {
-        return { ok: false, errorCode: 'AMOUNT_MISMATCH' };
-      }
-      if (payment.currency !== order.currency) {
-        return { ok: false, errorCode: 'CURRENCY_MISMATCH' };
-      }
-      if (payment.status && payment.status !== 'captured') {
-        return { ok: false, errorCode: 'PAYMENT_NOT_CAPTURED' };
+      // 4. Authoritative payment verification from trusted Razorpay API
+      let authoritativePayment = null;
+      if (razorpayApiClient && razorpayApiClient.payments && typeof razorpayApiClient.payments.fetch === 'function') {
+        try {
+          authoritativePayment = await razorpayApiClient.payments.fetch(paymentId);
+        } catch (err) {
+          return {
+            ok: false,
+            errorCode: 'RAZORPAY_PAYMENT_FETCH_FAILED',
+            message: sanitizeErrorMessage(err.message || 'Failed to fetch payment from Razorpay API')
+          };
+        }
+      } else if (fetchFn && keyId) {
+        try {
+          const basicAuth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+          const resp = await fetchFn(`https://api.razorpay.com/v1/payments/${encodeURIComponent(paymentId)}`, {
+            method: 'GET',
+            headers: { 'Authorization': `Basic ${basicAuth}` }
+          });
+          if (!resp.ok) {
+            return {
+              ok: false,
+              errorCode: 'RAZORPAY_PAYMENT_FETCH_FAILED',
+              message: `Razorpay payment API returned ${resp.status}`
+            };
+          }
+          authoritativePayment = await resp.json();
+        } catch (err) {
+          return {
+            ok: false,
+            errorCode: 'RAZORPAY_API_NETWORK_ERROR',
+            message: sanitizeErrorMessage(err.message || 'Network error reaching Razorpay API')
+          };
+        }
+      } else {
+        return {
+          ok: false,
+          errorCode: 'RAZORPAY_API_NOT_CONFIGURED',
+          message: 'Authoritative webhook verification requires razorpayApiClient or fetchFn with keyId.'
+        };
       }
 
+      // 5. Enforce fetched payment details match persisted order
+      if (!authoritativePayment || typeof authoritativePayment !== 'object') {
+        return { ok: false, errorCode: 'INVALID_PAYMENT_RECORD', message: 'Authoritative payment record is invalid' };
+      }
+      if (authoritativePayment.id !== paymentId) {
+        return { ok: false, errorCode: 'PAYMENT_ID_MISMATCH', message: 'Provider payment ID does not match webhook payment ID' };
+      }
+      if (authoritativePayment.order_id !== orderId) {
+        return { ok: false, errorCode: 'ORDER_PAYMENT_MISMATCH', message: 'Payment is not associated with the requested order' };
+      }
+      if (authoritativePayment.status !== 'captured') {
+        return { ok: false, errorCode: 'PAYMENT_NOT_CAPTURED', message: `Authoritative payment status is '${authoritativePayment.status}', expected 'captured'` };
+      }
+      if (authoritativePayment.amount !== order.amount) {
+        return { ok: false, errorCode: 'AMOUNT_MISMATCH', message: `Payment amount (${authoritativePayment.amount}) does not match order amount (${order.amount})` };
+      }
+      if (authoritativePayment.currency !== order.currency) {
+        return { ok: false, errorCode: 'CURRENCY_MISMATCH', message: `Payment currency (${authoritativePayment.currency}) does not match order currency (${order.currency})` };
+      }
+
+      // 6. Atomic settlement and entitlement granting
       const settlementRecord = Object.freeze({
         orderId,
         paymentId,
@@ -587,14 +661,36 @@ export function createRazorpayServerVerifier({
         grantedAt: new Date().toISOString()
       });
 
-      if (typeof persistenceStore.settleAndGrantEntitlement === 'function') {
-        const sRes = await persistenceStore.settleAndGrantEntitlement({ settlementRecord, entitlementRecord });
-        if (!sRes || !sRes.ok) {
-          return { ok: false, errorCode: sRes?.errorCode || 'SETTLEMENT_RECORDING_FAILED' };
+      try {
+        if (typeof persistenceStore.settleAndGrantEntitlement === 'function') {
+          const sRes = await persistenceStore.settleAndGrantEntitlement({ settlementRecord, entitlementRecord });
+          if (!sRes || !sRes.ok) {
+            return {
+              ok: false,
+              errorCode: sRes?.errorCode || 'SETTLEMENT_RECORDING_FAILED',
+              message: sRes?.message || 'Atomic settlement and entitlement grant failed'
+            };
+          }
+        } else {
+          if (isProduction) {
+            return {
+              ok: false,
+              errorCode: 'NON_ATOMIC_PERSISTENCE_FORBIDDEN',
+              message: 'Production requires an atomic settlement store.'
+            };
+          }
+          const recorded = await persistenceStore.recordSettlement(settlementRecord);
+          if (!recorded) {
+            return { ok: false, errorCode: 'SETTLEMENT_RECORDING_FAILED', message: 'Failed to record settlement' };
+          }
+          await persistenceStore.grantEntitlement(entitlementRecord);
         }
-      } else {
-        await persistenceStore.recordSettlement(settlementRecord);
-        await persistenceStore.grantEntitlement(entitlementRecord);
+      } catch (err) {
+        return {
+          ok: false,
+          errorCode: 'DURABLE_PERSISTENCE_FAILURE',
+          message: sanitizeErrorMessage(err.message || 'Durable persistence failure')
+        };
       }
 
       return { ok: true, eventType, processed: true, userId: order.userId, sku: order.sku };
@@ -603,20 +699,27 @@ export function createRazorpayServerVerifier({
     if (eventType === 'refund.processed') {
       const refund = payload.payload?.refund?.entity;
       const paymentId = refund?.payment_id;
-
-      if (!paymentId) {
-        return { ok: false, errorCode: 'INVALID_REFUND_ENTITY' };
-      }
-
-      // Find the specific settled payment to target ONLY the affected user and SKU
       const orderId = refund?.order_id;
-      const order = orderId ? await persistenceStore.getOrderById(orderId) : null;
-      if (order) {
-        await persistenceStore.revokeEntitlement(order.userId, order.sku);
-        return { ok: true, eventType, revoked: true, userId: order.userId, sku: order.sku };
+
+      if (!paymentId || typeof paymentId !== 'string') {
+        return { ok: false, errorCode: 'INVALID_REFUND_ENTITY', message: 'Refund entity missing valid payment_id' };
       }
 
-      return { ok: true, eventType, ignored: true, reason: 'NO_MATCHING_ORDER' };
+      try {
+        // Enforce ownership: find order and strictly revoke ONLY the affected user and SKU
+        const order = orderId ? await persistenceStore.getOrderById(orderId) : null;
+        if (order && order.userId && order.sku) {
+          await persistenceStore.revokeEntitlement(order.userId, order.sku);
+          return { ok: true, eventType, revoked: true, userId: order.userId, sku: order.sku };
+        }
+        return { ok: true, eventType, ignored: true, reason: 'NO_MATCHING_ORDER' };
+      } catch (err) {
+        return {
+          ok: false,
+          errorCode: 'REFUND_REVOCATION_FAILURE',
+          message: sanitizeErrorMessage(err.message || 'Refund revocation failure')
+        };
+      }
     }
 
     return { ok: true, eventType, ignored: true, reason: 'UNHANDLED_EVENT_TYPE' };
@@ -701,8 +804,7 @@ export function createMockRazorpayTestFixture(initialEntitlements = []) {
     webhookSecret: 'test_webhook_secret_67890',
     persistenceStore: store,
     isProduction: false,
-    razorpayApiClient: mockApiClient,
-    allowSimulatedOrders: true
+    razorpayApiClient: mockApiClient
   });
 
   return {

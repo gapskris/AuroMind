@@ -50,8 +50,7 @@ export async function verifyVersionedEntitlement({
   currentTimestamp = Date.now(),
   anchorTimestamp = null,
   requireLastValidatedAt = true,
-  expectedSubject = null,
-  allowUnboundSubject = false
+  expectedSubject = null
 }) {
   if (!token || typeof token !== 'string') {
     return { valid: false, reason: 'TOKEN_MISSING' };
@@ -103,27 +102,15 @@ export async function verifyVersionedEntitlement({
     return { valid: false, reason: 'TOKEN_SUBJECT_MISSING' };
   }
 
-  // Production path strictly enforces verified expectedSubject
-  const isProduction = process.env.NODE_ENV === 'production';
-  const effectiveAllowUnbound = (!isProduction) && (allowUnboundSubject === true);
-
-  if (!effectiveAllowUnbound) {
-    if (expectedSubject === undefined || expectedSubject === null) {
-      return { valid: false, reason: 'EXPECTED_SUBJECT_REQUIRED' };
-    }
-    if (typeof expectedSubject !== 'string' || expectedSubject.trim() === '') {
-      return { valid: false, reason: 'INVALID_EXPECTED_SUBJECT' };
-    }
-    if (payload.sub !== expectedSubject) {
-      return { valid: false, reason: 'SUBJECT_MISMATCH', expected: expectedSubject, actual: payload.sub };
-    }
-  } else if (expectedSubject !== null && expectedSubject !== undefined) {
-    if (typeof expectedSubject !== 'string' || expectedSubject.trim() === '') {
-      return { valid: false, reason: 'INVALID_EXPECTED_SUBJECT' };
-    }
-    if (payload.sub !== expectedSubject) {
-      return { valid: false, reason: 'SUBJECT_MISMATCH', expected: expectedSubject, actual: payload.sub };
-    }
+  // Mandatory account subject binding: required unconditionally across all environments and tiers
+  if (expectedSubject === undefined || expectedSubject === null) {
+    return { valid: false, reason: 'EXPECTED_SUBJECT_REQUIRED' };
+  }
+  if (typeof expectedSubject !== 'string' || expectedSubject.trim() === '') {
+    return { valid: false, reason: 'INVALID_EXPECTED_SUBJECT' };
+  }
+  if (payload.sub !== expectedSubject) {
+    return { valid: false, reason: 'SUBJECT_MISMATCH', expected: expectedSubject, actual: payload.sub };
   }
 
   // 3. Process emergency revocation list if signed remote config is supplied (Fail-Closed)
@@ -271,4 +258,30 @@ export async function verifySignedRemoteConfig({ payloadJson, signatureB64Url },
   } catch {
     return false;
   }
+}
+
+/**
+ * Separately named test-only fixture verifier.
+ * Not imported by production code. Forbidden in production environments.
+ */
+export async function __testOnlyUnboundEntitlementVerifier(options) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('TEST_ONLY_FIXTURE_FORBIDDEN: Unbound entitlement verifier is strictly forbidden in production.');
+  }
+  let resolvedSubject = options.expectedSubject;
+  if (!resolvedSubject && options.token && typeof options.token === 'string') {
+    const parts = options.token.split('.');
+    if (parts.length === 3) {
+      try {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+        if (payload && typeof payload.sub === 'string') {
+          resolvedSubject = payload.sub;
+        }
+      } catch {}
+    }
+  }
+  return verifyVersionedEntitlement({
+    ...options,
+    expectedSubject: resolvedSubject
+  });
 }

@@ -52,7 +52,10 @@ import {
   autoHealFromIndexedDB,
   saveProfileState,
   loadProfileState,
-  profileState
+  profileState,
+  createAuroMatchGameAdapter as createAuroMatchNativeAdapter,
+  isPurgeActive,
+  setPurgeLock
 } from './games/auromatch/src/controllers/storageAdapter.js';
 import { createAuroMatchGameAdapter as createAuroMatchBridgeAdapter } from './games/auromatch/Assets/auromatch-sdk-bridge.js';
 import { createTestEnvironment } from './e2e/browser-harness.js';
@@ -1283,6 +1286,75 @@ describe('Part 1C — Scope C: Flora Database Dual-Write Parity & Consistency', 
       const floraSha = crypto.createHash('sha256').update(floraBuf).digest('hex');
       assert.equal(floraBuf.length, 2002176);
       assert.equal(floraSha, '689d035cd52abd8d342528d8c5f61f298916b8052b8287450be4931cf8ae1a3a');
+    } finally {
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
+
+  test('Flora-7: AuroMatch storageAdapter checksum covers entire envelope, purge blocks writes, and applyEnvelope isolates accounts', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+
+    try {
+      const adapter = createAuroMatchNativeAdapter();
+
+      // 1. Checksum represents entire envelope, not merely selected counters
+      profileState.progression.completedLevelsCount = 5;
+      profileState.profile.lotusPetalCount = 100;
+      profileState.reflections = [{ id: 'refl_1', text: 'Peace' }];
+      profileState.settings.volumeRaga = 0.5;
+
+      const env1 = await adapter.exportEnvelope('guest_test');
+      assert.ok(env1.checksum && typeof env1.checksum === 'string');
+
+      // Keep counters identical (completedLevelsCount=5, lotusPetalCount=100) but change reflections
+      profileState.reflections = [{ id: 'refl_2', text: 'Joy' }];
+      const env2 = await adapter.exportEnvelope('guest_test');
+      assert.notEqual(env1.checksum, env2.checksum, 'Changing reflections must change envelope checksum even if counters are identical');
+
+      // Change settings only
+      profileState.settings.volumeRaga = 0.9;
+      const env3 = await adapter.exportEnvelope('guest_test');
+      assert.notEqual(env2.checksum, env3.checksum, 'Changing settings must change envelope checksum even if counters are identical');
+
+      // 2. Purge lock blocks pending writes and repopulation
+      setPurgeLock(true);
+      assert.equal(isPurgeActive(), true);
+      assert.equal(saveProfileState(), false, 'saveProfileState must return false when purge is active');
+      const dualWriteRes = await setItemDualWrite('test_key', 'test_value');
+      assert.equal(dualWriteRes.ok, false);
+      assert.equal(dualWriteRes.blockedByPurge, true, 'setItemDualWrite must be blocked by active purge');
+      setPurgeLock(false);
+      assert.equal(isPurgeActive(), false);
+
+      // 3. applyEnvelope isolates accounts and avoids hydrating previous account local data
+      storage.setItem('auro_match_consecrations', JSON.stringify([{ id: 'acct_a_refl', text: 'User A Secret' }]));
+      const userBEnvelope = {
+        gameId: 'auromatch',
+        payload: {
+          profileState: {
+            profile: { lotusPetalCount: 2, consciousnessPoints: 50 },
+            progression: { completedLevelsCount: 1, completedLevelIds: ['flora_b'], unlockedThemes: ['flowers'] },
+            settings: { volumeRaga: 0.3 },
+            reflections: [{ id: 'acct_b_refl', text: 'User B Reflection' }],
+            dailyDrawDate: '2026-11-25'
+          }
+        }
+      };
+
+      const applied = await adapter.applyEnvelope(userBEnvelope);
+      assert.equal(applied, true);
+      const consecrationsAfterApply = JSON.parse(storage.getItem('auro_match_consecrations'));
+      assert.deepEqual(consecrationsAfterApply, [{ id: 'acct_b_refl', text: 'User B Reflection' }], 'applyEnvelope must isolate User B reflections without leaking User A data');
     } finally {
       resetIndexedDBConnection();
       if (prevLS === undefined) delete globalThis.localStorage;

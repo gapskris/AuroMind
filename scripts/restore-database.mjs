@@ -19,6 +19,69 @@ import { spawnSync } from 'node:child_process';
 import { isProductionTarget } from './backup-database.mjs';
 
 /**
+ * Sanitizes connection strings to prevent credential exposure in logs and errors.
+ */
+export function sanitizeConnectionString(connStr) {
+  if (typeof connStr !== 'string') return '';
+  return connStr.replace(/(postgres(?:ql)?:\/\/[^:]+:)[^@]+(@.+)/i, '$1[REDACTED]$2');
+}
+
+/**
+ * Safely validates that candidatePath is canonically contained within baseDir
+ * and does not escape via parent traversal, sibling prefix, or symlink dereferencing.
+ *
+ * @param {string} baseDir
+ * @param {string} candidatePath
+ * @returns {boolean}
+ */
+export function isPathContained(baseDir, candidatePath) {
+  if (!candidatePath || typeof candidatePath !== 'string') return false;
+
+  const normalized = path.normalize(candidatePath);
+  if (normalized.split(path.sep).includes('..')) {
+    return false;
+  }
+
+  const resolvedBase = path.resolve(baseDir);
+  const resolvedCandidate = path.resolve(baseDir, candidatePath);
+
+  // 1. Check relative containment (prevents escaping and sibling-prefix e.g. /app vs /app_evil)
+  const rel = path.relative(resolvedBase, resolvedCandidate);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    return false;
+  }
+
+  // 2. Real path validation: resolve symlinks to ensure they do not escape the workspace
+  try {
+    const realBase = fs.existsSync(resolvedBase) ? fs.realpathSync(resolvedBase) : resolvedBase;
+
+    if (fs.existsSync(resolvedCandidate)) {
+      const realCandidate = fs.realpathSync(resolvedCandidate);
+      const realRel = path.relative(realBase, realCandidate);
+      if (realRel.startsWith('..') || path.isAbsolute(realRel)) {
+        return false;
+      }
+    } else {
+      let ancestor = path.dirname(resolvedCandidate);
+      while (!fs.existsSync(ancestor) && ancestor !== path.dirname(ancestor)) {
+        ancestor = path.dirname(ancestor);
+      }
+      if (fs.existsSync(ancestor)) {
+        const realAncestor = fs.realpathSync(ancestor);
+        const realRel = path.relative(realBase, realAncestor);
+        if (realRel.startsWith('..') || path.isAbsolute(realRel)) {
+          return false;
+        }
+      }
+    }
+  } catch {
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Validates whether the restore operation is safe for the targeted environment.
  */
 export function validateRestoreConfiguration({
@@ -37,13 +100,12 @@ export function validateRestoreConfiguration({
     };
   }
 
-  // Prevent path traversal
-  const normalizedBackupFile = path.normalize(backupFile);
-  if (normalizedBackupFile.includes('..') || !path.resolve(backupFile).startsWith(process.cwd())) {
+  // Prevent path traversal, sibling-prefix escapes, and symlink breakouts
+  if (!isPathContained(process.cwd(), backupFile)) {
     return {
       allowed: false,
       errorCode: 'ERR_PATH_TRAVERSAL_DETECTED',
-      message: 'backupFile path cannot contain path traversal sequences (..) or escape the workspace.'
+      message: 'backupFile path cannot contain path traversal sequences or escape the approved workspace.'
     };
   }
 
@@ -67,13 +129,23 @@ export function validateRestoreConfiguration({
     };
   }
 
-  // Require explicit confirmation for non-dry-run restores against disposable/local targets
-  if (!confirmDisposableTarget && !dryRun) {
-    return {
-      allowed: false,
-      errorCode: 'ERR_DISPOSABLE_TARGET_CONFIRMATION_REQUIRED',
-      message: 'Restoration overwrites database data. Explicit confirmation (--confirm-disposable-target) is required.'
-    };
+  // Require explicit confirmation matching target identity for non-dry-run restores against disposable/local targets
+  if (!dryRun) {
+    if (!confirmDisposableTarget) {
+      return {
+        allowed: false,
+        errorCode: 'ERR_DISPOSABLE_TARGET_CONFIRMATION_REQUIRED',
+        message: 'Restoration overwrites database data. Explicit confirmation matching target identity (--confirm-disposable-target=<target>) is required.'
+      };
+    }
+    // Generic booleans or mismatched target confirmations are strictly forbidden
+    if (confirmDisposableTarget === true || typeof confirmDisposableTarget !== 'string' || confirmDisposableTarget.toLowerCase().trim() !== normTarget) {
+      return {
+        allowed: false,
+        errorCode: 'ERR_TARGET_CONFIRMATION_MISMATCH',
+        message: `Disposable target confirmation must explicitly match target identity '${normTarget}'. Generic booleans or mismatched targets are rejected.`
+      };
+    }
   }
 
   return {
@@ -88,13 +160,21 @@ export function validateRestoreConfiguration({
  * Validates the backup manifest and verifies SHA-256 integrity against the backup file.
  */
 export function validateManifestAndIntegrity(backupFile, manifestFile = null) {
-  // Resolve manifest path and check path traversal first
-  const resolvedManifestPath = manifestFile || `${backupFile.replace(/\.sql$/, '')}.manifest.json`;
-  if (resolvedManifestPath.includes('..') || !path.resolve(resolvedManifestPath).startsWith(process.cwd())) {
+  // Path traversal & containment validation must occur strictly before reading files
+  if (!isPathContained(process.cwd(), backupFile)) {
     return {
       valid: false,
       errorCode: 'ERR_PATH_TRAVERSAL_DETECTED',
-      message: 'manifestFile path cannot contain path traversal sequences or escape the workspace.'
+      message: 'backupFile path cannot contain path traversal sequences or escape the approved workspace.'
+    };
+  }
+
+  const resolvedManifestPath = manifestFile || `${backupFile.replace(/\.sql$/, '')}.manifest.json`;
+  if (!isPathContained(process.cwd(), resolvedManifestPath)) {
+    return {
+      valid: false,
+      errorCode: 'ERR_PATH_TRAVERSAL_DETECTED',
+      message: 'manifestFile path cannot contain path traversal sequences or escape the approved workspace.'
     };
   }
 
@@ -257,7 +337,8 @@ export async function executeDatabaseRestore(options = {}) {
     manifestFile = '',
     dryRun = false,
     runner = null,
-    unknownArgs = []
+    unknownArgs = [],
+    conflictingArgs = []
   } = options;
 
   if (unknownArgs && unknownArgs.length > 0) {
@@ -265,6 +346,14 @@ export async function executeDatabaseRestore(options = {}) {
       ok: false,
       errorCode: 'ERR_UNKNOWN_CLI_ARGUMENT',
       message: `Unknown CLI argument(s): ${unknownArgs.join(', ')}`
+    };
+  }
+
+  if (conflictingArgs && conflictingArgs.length > 0) {
+    return {
+      ok: false,
+      errorCode: 'ERR_CONFLICTING_CLI_ARGUMENTS',
+      message: `Conflicting or duplicate CLI argument(s): ${conflictingArgs.join('; ')}`
     };
   }
 
@@ -318,7 +407,7 @@ export async function executeDatabaseRestore(options = {}) {
   if (runner) {
     const runResult = await runner({
       target,
-      connectionString,
+      connectionString: sanitizeConnectionString(connectionString),
       sql: prep.sql,
       wrappedInTransaction: prep.wrappedInTransaction,
       options
@@ -328,7 +417,7 @@ export async function executeDatabaseRestore(options = {}) {
       return {
         ok: false,
         errorCode: runResult?.errorCode || 'ERR_RESTORE_EXECUTION_FAILED',
-        message: runResult?.message || runResult?.stderr || 'Custom runner restore failed'
+        message: sanitizeConnectionString(runResult?.message || runResult?.stderr || 'Custom runner restore failed')
       };
     }
   } else {
@@ -375,7 +464,7 @@ export async function executeDatabaseRestore(options = {}) {
         ok: false,
         errorCode: 'ERR_RESTORE_EXECUTION_FAILED',
         exitCode: restoreProcess.status,
-        message: restoreProcess.stderr || 'psql process exited with non-zero code.'
+        message: sanitizeConnectionString(restoreProcess.stderr || 'psql process exited with non-zero code.')
       };
     }
   }
@@ -393,37 +482,111 @@ export async function executeDatabaseRestore(options = {}) {
 
 /**
  * Parses and validates command line arguments for the restore script.
+ * Rejects unknown arguments and duplicate/conflicting configurations.
  */
 export function parseRestoreCliArgs(rawArgs = process.argv.slice(2)) {
   const options = {
     backupFile: '',
+    manifestFile: '',
     target: 'development',
+    connectionString: '',
     forceProduction: false,
     confirmDisposableTarget: false,
     dryRun: false,
-    unknownArgs: []
+    unknownArgs: [],
+    conflictingArgs: []
   };
+
+  const seen = new Map();
+
+  function recordArg(type, value) {
+    if (seen.has(type)) {
+      const existing = seen.get(type);
+      if (existing !== value) {
+        options.conflictingArgs.push(`Conflicting values for ${type}: '${existing}' vs '${value}'`);
+      } else {
+        options.conflictingArgs.push(`Duplicate argument specified for ${type}: '${value}'`);
+      }
+    } else {
+      seen.set(type, value);
+    }
+  }
 
   for (let i = 0; i < rawArgs.length; i++) {
     const arg = rawArgs[i];
-    if (arg === '--confirm-disposable-target') {
-      options.confirmDisposableTarget = true;
+    if (arg.startsWith('--confirm-disposable-target=')) {
+      const val = arg.slice('--confirm-disposable-target='.length).trim();
+      options.confirmDisposableTarget = val || true;
+      recordArg('confirmDisposableTarget', options.confirmDisposableTarget);
+    } else if (arg === '--confirm-disposable-target') {
+      if (i + 1 < rawArgs.length && !rawArgs[i + 1].startsWith('--')) {
+        options.confirmDisposableTarget = rawArgs[++i].trim();
+      } else {
+        options.confirmDisposableTarget = true;
+      }
+      recordArg('confirmDisposableTarget', options.confirmDisposableTarget);
     } else if (arg === '--dry-run') {
+      recordArg('dryRun', true);
       options.dryRun = true;
     } else if (arg === '--force-production') {
+      recordArg('forceProduction', true);
       options.forceProduction = true;
     } else if (arg.startsWith('--file=')) {
-      options.backupFile = arg.slice('--file='.length);
+      const val = arg.slice('--file='.length);
+      recordArg('backupFile', val);
+      options.backupFile = val;
     } else if (arg === '--file' && i + 1 < rawArgs.length) {
-      options.backupFile = rawArgs[++i];
+      const val = rawArgs[++i];
+      recordArg('backupFile', val);
+      options.backupFile = val;
     } else if (arg.startsWith('--backup-file=')) {
-      options.backupFile = arg.slice('--backup-file='.length);
+      const val = arg.slice('--backup-file='.length);
+      recordArg('backupFile', val);
+      options.backupFile = val;
     } else if (arg === '--backup-file' && i + 1 < rawArgs.length) {
-      options.backupFile = rawArgs[++i];
+      const val = rawArgs[++i];
+      recordArg('backupFile', val);
+      options.backupFile = val;
+    } else if (arg.startsWith('--manifest=')) {
+      const val = arg.slice('--manifest='.length);
+      recordArg('manifestFile', val);
+      options.manifestFile = val;
+    } else if (arg === '--manifest' && i + 1 < rawArgs.length) {
+      const val = rawArgs[++i];
+      recordArg('manifestFile', val);
+      options.manifestFile = val;
+    } else if (arg.startsWith('--manifest-file=')) {
+      const val = arg.slice('--manifest-file='.length);
+      recordArg('manifestFile', val);
+      options.manifestFile = val;
+    } else if (arg === '--manifest-file' && i + 1 < rawArgs.length) {
+      const val = rawArgs[++i];
+      recordArg('manifestFile', val);
+      options.manifestFile = val;
     } else if (arg.startsWith('--target=')) {
-      options.target = arg.slice('--target='.length);
+      const val = arg.slice('--target='.length);
+      recordArg('target', val);
+      options.target = val;
     } else if (arg === '--target' && i + 1 < rawArgs.length) {
-      options.target = rawArgs[++i];
+      const val = rawArgs[++i];
+      recordArg('target', val);
+      options.target = val;
+    } else if (arg.startsWith('--connection-string=')) {
+      const val = arg.slice('--connection-string='.length);
+      recordArg('connectionString', val);
+      options.connectionString = val;
+    } else if (arg === '--connection-string' && i + 1 < rawArgs.length) {
+      const val = rawArgs[++i];
+      recordArg('connectionString', val);
+      options.connectionString = val;
+    } else if (arg.startsWith('--dbname=')) {
+      const val = arg.slice('--dbname='.length);
+      recordArg('connectionString', val);
+      options.connectionString = val;
+    } else if (arg === '--dbname' && i + 1 < rawArgs.length) {
+      const val = rawArgs[++i];
+      recordArg('connectionString', val);
+      options.connectionString = val;
     } else {
       options.unknownArgs.push(arg);
     }
@@ -437,6 +600,10 @@ if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}`) {
   const parsed = parseRestoreCliArgs();
   if (parsed.unknownArgs.length > 0) {
     console.error(`Restore failed [ERR_UNKNOWN_CLI_ARGUMENT]: Unknown CLI argument(s): ${parsed.unknownArgs.join(', ')}`);
+    process.exit(1);
+  }
+  if (parsed.conflictingArgs.length > 0) {
+    console.error(`Restore failed [ERR_CONFLICTING_CLI_ARGUMENTS]: ${parsed.conflictingArgs.join('; ')}`);
     process.exit(1);
   }
 

@@ -122,11 +122,20 @@ describe('B19.5-10: Production Safety Guards & Target Detection', () => {
     });
     assert.equal(resDryRun.allowed, true);
 
-    // 4. Confirmed disposable target allowed
-    const resConfirmed = validateRestoreConfiguration({
+    // 4. Generic boolean rejected as unverified confirmation
+    const resBoolConfirm = validateRestoreConfiguration({
       target: 'development',
       backupFile: 'backup.sql',
       confirmDisposableTarget: true
+    });
+    assert.equal(resBoolConfirm.allowed, false);
+    assert.equal(resBoolConfirm.errorCode, 'ERR_TARGET_CONFIRMATION_MISMATCH');
+
+    // 5. Explicitly confirmed matching disposable target allowed
+    const resConfirmed = validateRestoreConfiguration({
+      target: 'development',
+      backupFile: 'backup.sql',
+      confirmDisposableTarget: 'development'
     });
     assert.equal(resConfirmed.allowed, true);
   });
@@ -331,8 +340,9 @@ describe('B19.5-10: Restore CLI Confirmation & Execution Defenses', () => {
   test('10.11: parseRestoreCliArgs correctly parses flags and isolates unknown arguments', () => {
     const args = [
       '--file=backups/test.sql',
+      '--manifest=backups/test.manifest.json',
       '--target=disposable_test',
-      '--confirm-disposable-target',
+      '--confirm-disposable-target=disposable_test',
       '--dry-run',
       '--force-production',
       '--malicious-flag',
@@ -340,8 +350,9 @@ describe('B19.5-10: Restore CLI Confirmation & Execution Defenses', () => {
     ];
     const parsed = parseRestoreCliArgs(args);
     assert.equal(parsed.backupFile, 'backups/test.sql');
+    assert.equal(parsed.manifestFile, 'backups/test.manifest.json');
     assert.equal(parsed.target, 'disposable_test');
-    assert.equal(parsed.confirmDisposableTarget, true);
+    assert.equal(parsed.confirmDisposableTarget, 'disposable_test');
     assert.equal(parsed.dryRun, true);
     assert.equal(parsed.forceProduction, true);
     assert.deepEqual(parsed.unknownArgs, ['--malicious-flag', '--another-unknown=true']);
@@ -388,7 +399,7 @@ describe('B19.5-10: Restore CLI Confirmation & Execution Defenses', () => {
       target: 'disposable_test',
       backupFile: path.relative(process.cwd(), backupPath),
       manifestFile: path.relative(process.cwd(), manifestPath),
-      confirmDisposableTarget: true,
+      confirmDisposableTarget: 'disposable_test',
       dryRun: false,
       runner: async () => {
         runnerExecuted = true;
@@ -399,6 +410,50 @@ describe('B19.5-10: Restore CLI Confirmation & Execution Defenses', () => {
     assert.equal(res.ok, true);
     assert.equal(runnerExecuted, true);
     assert.equal(res.checksumVerified, true);
+  });
+
+  test('10.14b: Generic boolean and mismatched target confirmations fail closed without invoking runner', async () => {
+    let runnerExecuted = false;
+    const dummyRunner = async () => {
+      runnerExecuted = true;
+      return { status: 0 };
+    };
+
+    // 1. Generic boolean confirmation fails closed
+    const resBool = await executeDatabaseRestore({
+      target: 'disposable_test',
+      backupFile: 'test.sql',
+      confirmDisposableTarget: true,
+      runner: dummyRunner
+    });
+    assert.equal(resBool.ok, false);
+    assert.equal(resBool.errorCode, 'ERR_TARGET_CONFIRMATION_MISMATCH');
+    assert.equal(runnerExecuted, false);
+
+    // 2. Mismatched target name fails closed
+    const resMismatch = await executeDatabaseRestore({
+      target: 'disposable_test',
+      backupFile: 'test.sql',
+      confirmDisposableTarget: 'staging_db',
+      runner: dummyRunner
+    });
+    assert.equal(resMismatch.ok, false);
+    assert.equal(resMismatch.errorCode, 'ERR_TARGET_CONFIRMATION_MISMATCH');
+    assert.equal(runnerExecuted, false);
+
+    // 3. Conflicting CLI arguments fail closed
+    const conflictingParsed = parseRestoreCliArgs([
+      '--file=backup_a.sql',
+      '--file=backup_b.sql'
+    ]);
+    assert.ok(conflictingParsed.conflictingArgs.length > 0);
+    const resConflict = await executeDatabaseRestore({
+      ...conflictingParsed,
+      runner: dummyRunner
+    });
+    assert.equal(resConflict.ok, false);
+    assert.equal(resConflict.errorCode, 'ERR_CONFLICTING_CLI_ARGUMENTS');
+    assert.equal(runnerExecuted, false);
   });
 
   test('10.15: Dry run validates manifest and integrity without executing runner', async () => {
@@ -447,10 +502,11 @@ describe('B19.5-10: Restore CLI Confirmation & Execution Defenses', () => {
   });
 
   test('10.17: Manifest and backup path traversal escapes approved workspace and fails closed', () => {
+    // 1. Parent path traversal
     const resBackupTraverse = validateRestoreConfiguration({
       target: 'development',
       backupFile: '../../etc/passwd.sql',
-      confirmDisposableTarget: true
+      confirmDisposableTarget: 'development'
     });
     assert.equal(resBackupTraverse.allowed, false);
     assert.equal(resBackupTraverse.errorCode, 'ERR_PATH_TRAVERSAL_DETECTED');
@@ -458,6 +514,17 @@ describe('B19.5-10: Restore CLI Confirmation & Execution Defenses', () => {
     const resManifestTraverse = validateManifestAndIntegrity('valid.sql', '../../etc/passwd.manifest.json');
     assert.equal(resManifestTraverse.valid, false);
     assert.equal(resManifestTraverse.errorCode, 'ERR_PATH_TRAVERSAL_DETECTED');
+
+    // 2. Sibling directory prefix breakout
+    const cwd = process.cwd();
+    const siblingDirBreakout = path.join(path.dirname(cwd), path.basename(cwd) + '_evil', 'backup.sql');
+    const resSibling = validateRestoreConfiguration({
+      target: 'development',
+      backupFile: siblingDirBreakout,
+      confirmDisposableTarget: 'development'
+    });
+    assert.equal(resSibling.allowed, false);
+    assert.equal(resSibling.errorCode, 'ERR_PATH_TRAVERSAL_DETECTED');
   });
 
   test.after(() => {

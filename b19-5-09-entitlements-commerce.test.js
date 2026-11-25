@@ -35,6 +35,7 @@ import {
   mintVersionedEntitlementToken,
   verifyVersionedEntitlement,
   verifySignedRemoteConfig,
+  __testOnlyUnboundEntitlementVerifier,
   OFFLINE_GRACE_MS
 } from './assets/sdk/entitlement-revocation.js';
 
@@ -454,6 +455,13 @@ describe('B19.5-09: Razorpay Client & Server Security Boundary', () => {
     assert.equal(duplicateRes.errorCode, 'ERR_PAYMENT_ALREADY_SETTLED');
 
     // 5. Duplicate webhook replay defense
+    fixture.paymentsRegistry.set('pay_hook_1', {
+      id: 'pay_hook_1',
+      order_id: orderId,
+      amount: 50000,
+      currency: 'INR',
+      status: 'captured'
+    });
     const webhookPayload = JSON.stringify({
       event: 'payment.captured',
       payload: {
@@ -509,7 +517,11 @@ describe('B19.5-09: Razorpay Client & Server Security Boundary', () => {
       keySecret: 'rzp_secret',
       persistenceStore: failingStore,
       isProduction: false,
-      allowSimulatedOrders: true
+      razorpayApiClient: {
+        payments: {
+          fetch: async (id) => ({ id, order_id: 'ord_1', status: 'captured', amount: 1000, currency: 'INR' })
+        }
+      }
     });
 
     const hmac = crypto.createHmac('sha256', 'rzp_secret');
@@ -522,6 +534,83 @@ describe('B19.5-09: Razorpay Client & Server Security Boundary', () => {
     });
     assert.equal(res.ok, false);
     assert.equal(res.errorCode, 'DURABLE_PERSISTENCE_FAILURE');
+
+    // 4. allowSimulatedOrders cannot create a production entitlement through any path
+    const unconfiguredVerifier = createRazorpayServerVerifier({
+      keySecret: 'rzp_secret',
+      persistenceStore: failingStore,
+      isProduction: true,
+      fetchFn: null,
+      allowSimulatedOrders: true
+    });
+    const unconfOrderRes = await unconfiguredVerifier.createAuthoritativeOrder({
+      userId: 'u_prod',
+      sku: 'sku_prod',
+      amount: 1000
+    });
+    assert.equal(unconfOrderRes.ok, false);
+    assert.equal(unconfOrderRes.errorCode, 'RAZORPAY_API_NOT_CONFIGURED');
+
+    const unconfPayRes = await unconfiguredVerifier.verifyAuthoritativePayment({
+      userId: 'u_prod',
+      orderId: 'ord_1',
+      paymentId: 'pay_sim_1',
+      signature: 'dummy_sig'
+    });
+    assert.equal(unconfPayRes.ok, false);
+    assert.equal(unconfPayRes.errorCode, 'ORDER_OWNERSHIP_MISMATCH');
+
+    // 5. Provider order response validation: empty ID, mismatched amount, mismatched currency
+    const storeForOrders = createInMemoryDurableStore();
+    let mockOrderResponse = { id: '', amount: 1000, currency: 'INR' };
+    const validatingVerifier = createRazorpayServerVerifier({
+      keyId: 'rzp_val',
+      keySecret: 'rzp_secret',
+      persistenceStore: storeForOrders,
+      isProduction: false,
+      razorpayApiClient: {
+        orders: { create: async () => mockOrderResponse }
+      }
+    });
+
+    // 5a. Missing order ID fails closed
+    const emptyIdRes = await validatingVerifier.createAuthoritativeOrder({ userId: 'u1', sku: 's1', amount: 1000 });
+    assert.equal(emptyIdRes.ok, false);
+    assert.equal(emptyIdRes.errorCode, 'PROVIDER_ORDER_ID_MISSING');
+    assert.equal(await storeForOrders.getOrderById(''), null);
+
+    // 5b. Amount mismatch fails closed
+    mockOrderResponse = { id: 'ord_mismatch', amount: 999, currency: 'INR' };
+    const amtMismatchRes = await validatingVerifier.createAuthoritativeOrder({ userId: 'u1', sku: 's1', amount: 1000 });
+    assert.equal(amtMismatchRes.ok, false);
+    assert.equal(amtMismatchRes.errorCode, 'PROVIDER_ORDER_AMOUNT_MISMATCH');
+    assert.equal(await storeForOrders.getOrderById('ord_mismatch'), null);
+
+    // 5c. Currency mismatch fails closed
+    mockOrderResponse = { id: 'ord_curr_mismatch', amount: 1000, currency: 'USD' };
+    const currMismatchRes = await validatingVerifier.createAuthoritativeOrder({ userId: 'u1', sku: 's1', amount: 1000 });
+    assert.equal(currMismatchRes.ok, false);
+    assert.equal(currMismatchRes.errorCode, 'PROVIDER_ORDER_CURRENCY_MISMATCH');
+    assert.equal(await storeForOrders.getOrderById('ord_curr_mismatch'), null);
+
+    // 5d. Persistence store failure fails closed
+    const brokenStore = {
+      isInMemory: false,
+      getOrderByKey: async () => null,
+      saveOrder: async () => false
+    };
+    const persistFailVerifier = createRazorpayServerVerifier({
+      keyId: 'rzp_val',
+      keySecret: 'rzp_secret',
+      persistenceStore: brokenStore,
+      isProduction: false,
+      razorpayApiClient: {
+        orders: { create: async () => ({ id: 'ord_valid_provider', amount: 1000, currency: 'INR' }) }
+      }
+    });
+    const persistFailRes = await persistFailVerifier.createAuthoritativeOrder({ userId: 'u1', sku: 's1', amount: 1000 });
+    assert.equal(persistFailRes.ok, false);
+    assert.equal(persistFailRes.errorCode, 'ORDER_PERSISTENCE_FAILED');
   });
 
 });
@@ -720,7 +809,16 @@ describe('B19.5-09: Ed25519 Entitlement Verification Hardening', () => {
     assert.equal(rLifetimeMissingSub.valid, false);
     assert.equal(rLifetimeMissingSub.reason, 'TOKEN_SUBJECT_MISSING');
 
-    // 7. Production mode strictly blocks allowUnboundSubject
+    // 7. Normal verifier unconditionally rejects allowUnboundSubject in all environments
+    const rDevUnbound = await verifyVersionedEntitlement({
+      token,
+      keyStore,
+      currentTimestamp: now,
+      allowUnboundSubject: true
+    });
+    assert.equal(rDevUnbound.valid, false);
+    assert.equal(rDevUnbound.reason, 'EXPECTED_SUBJECT_REQUIRED');
+
     const prevEnv = process.env.NODE_ENV;
     try {
       process.env.NODE_ENV = 'production';
@@ -732,6 +830,15 @@ describe('B19.5-09: Ed25519 Entitlement Verification Hardening', () => {
       });
       assert.equal(rProdUnbound.valid, false);
       assert.equal(rProdUnbound.reason, 'EXPECTED_SUBJECT_REQUIRED');
+
+      // 8. Test-only fixture verifier cannot be executed in production
+      await assert.rejects(async () => {
+        await __testOnlyUnboundEntitlementVerifier({
+          token,
+          keyStore,
+          currentTimestamp: now
+        });
+      }, /TEST_ONLY_FIXTURE_FORBIDDEN/);
     } finally {
       process.env.NODE_ENV = prevEnv;
     }

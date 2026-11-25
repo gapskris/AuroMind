@@ -617,68 +617,71 @@ export let profileState = {
     dailyDrawDate: ""
 };
 
-export function saveProfileState() {
+export function saveProfileState(options = {}) {
     if (isPurgeActive()) {
         console.warn('[Storage] saveProfileState blocked: Purge is active.');
         return false;
     }
+    const skipLocalMerge = options && options.skipLocalMerge === true;
     if (typeof localStorage !== 'undefined') {
-        // Fresh-Read-Before-Merge (Set-Union & High-Water-Mark):
-        // Prevent stale tab or concurrent session from dropping Flora tile unlocks or reflections
-        try {
-            const freshConsecrations = localStorage.getItem('auro_match_consecrations');
-            if (freshConsecrations) {
-                const parsed = JSON.parse(freshConsecrations);
-                if (Array.isArray(parsed)) {
-                    profileState.reflections = mergeUniqueItems(parsed, profileState.reflections);
-                }
-            }
-            const freshUnlocked = localStorage.getItem('auro_match_unlocked_tiles');
-            if (freshUnlocked) {
-                const parsed = JSON.parse(freshUnlocked);
-                if (Array.isArray(parsed)) {
-                    profileState.progression.completedLevelIds = mergeUniqueItems(
-                        parsed,
-                        profileState.progression.completedLevelIds
-                    );
-                }
-            }
-            const freshUser = localStorage.getItem('auro_match_user');
-            if (freshUser) {
-                const parsed = JSON.parse(freshUser);
-                if (parsed && typeof parsed === 'object') {
-                    if (parsed.progression) {
-                        if (Array.isArray(parsed.progression.completedLevelIds)) {
-                            profileState.progression.completedLevelIds = mergeUniqueItems(
-                                parsed.progression.completedLevelIds,
-                                profileState.progression.completedLevelIds
-                            );
-                        }
-                        profileState.progression.completedLevelsCount = Math.max(
-                            Number(parsed.progression.completedLevelsCount || 0),
-                            Number(profileState.progression.completedLevelsCount || 0),
-                            profileState.progression.completedLevelIds.length
-                        );
-                        if (Array.isArray(parsed.progression.unlockedThemes)) {
-                            profileState.progression.unlockedThemes = mergeUniqueItems(
-                                profileState.progression.unlockedThemes,
-                                parsed.progression.unlockedThemes
-                            );
-                        }
+        if (!skipLocalMerge) {
+            // Fresh-Read-Before-Merge (Set-Union & High-Water-Mark):
+            // Prevent stale tab or concurrent session from dropping Flora tile unlocks or reflections
+            try {
+                const freshConsecrations = localStorage.getItem('auro_match_consecrations');
+                if (freshConsecrations) {
+                    const parsed = JSON.parse(freshConsecrations);
+                    if (Array.isArray(parsed)) {
+                        profileState.reflections = mergeUniqueItems(parsed, profileState.reflections);
                     }
-                    if (parsed.profile && profileState.profile) {
-                        profileState.profile.lotusPetalCount = Math.max(
-                            Number(parsed.profile.lotusPetalCount || 0),
-                            Number(profileState.profile.lotusPetalCount || 0)
-                        );
-                        profileState.profile.consciousnessPoints = Math.max(
-                            Number(parsed.profile.consciousnessPoints || 0),
-                            Number(profileState.profile.consciousnessPoints || 0)
+                }
+                const freshUnlocked = localStorage.getItem('auro_match_unlocked_tiles');
+                if (freshUnlocked) {
+                    const parsed = JSON.parse(freshUnlocked);
+                    if (Array.isArray(parsed)) {
+                        profileState.progression.completedLevelIds = mergeUniqueItems(
+                            parsed,
+                            profileState.progression.completedLevelIds
                         );
                     }
                 }
-            }
-        } catch (e) {}
+                const freshUser = localStorage.getItem('auro_match_user');
+                if (freshUser) {
+                    const parsed = JSON.parse(freshUser);
+                    if (parsed && typeof parsed === 'object') {
+                        if (parsed.progression) {
+                            if (Array.isArray(parsed.progression.completedLevelIds)) {
+                                profileState.progression.completedLevelIds = mergeUniqueItems(
+                                    parsed.progression.completedLevelIds,
+                                    profileState.progression.completedLevelIds
+                                );
+                            }
+                            profileState.progression.completedLevelsCount = Math.max(
+                                Number(parsed.progression.completedLevelsCount || 0),
+                                Number(profileState.progression.completedLevelsCount || 0),
+                                profileState.progression.completedLevelIds.length
+                            );
+                            if (Array.isArray(parsed.progression.unlockedThemes)) {
+                                profileState.progression.unlockedThemes = mergeUniqueItems(
+                                    profileState.progression.unlockedThemes,
+                                    parsed.progression.unlockedThemes
+                                );
+                            }
+                        }
+                        if (parsed.profile && profileState.profile) {
+                            profileState.profile.lotusPetalCount = Math.max(
+                                Number(parsed.profile.lotusPetalCount || 0),
+                                Number(profileState.profile.lotusPetalCount || 0)
+                            );
+                            profileState.profile.consciousnessPoints = Math.max(
+                                Number(parsed.profile.consciousnessPoints || 0),
+                                Number(profileState.profile.consciousnessPoints || 0)
+                            );
+                        }
+                    }
+                }
+            } catch (e) {}
+        }
 
         // Deduplicate own arrays even on cold writes
         profileState.reflections = mergeUniqueItems(profileState.reflections, []);
@@ -882,12 +885,12 @@ export async function decryptAndImportBackup(password, jsonString) {
     const dec = new TextDecoder();
     const restoredState = JSON.parse(dec.decode(decrypted));
     
-    // Decoupled Merge
+    // Decoupled Merge: restored backup replaces state cleanly without merging stale local data
     if (isPurgeActive()) {
         throw new Error("Cannot restore backup while purge is active.");
     }
     profileState = restoredState;
-    saveProfileState();
+    saveProfileState({ skipLocalMerge: true });
     return profileState;
 }
 
@@ -1018,6 +1021,34 @@ export async function executeAbsolutePurge(targetGm = null) {
 }
 
 /**
+ * Computes deterministic cryptographic checksum for the entire exported save envelope.
+ */
+export async function computeAuroMatchEnvelopeChecksum(payload) {
+    try {
+        const toHash = { ...payload };
+        delete toHash.exportedAt;
+        const serialized = JSON.stringify(toHash);
+
+        if (typeof globalThis.crypto !== 'undefined' && globalThis.crypto.subtle && typeof globalThis.crypto.subtle.digest === 'function') {
+            const encoder = new TextEncoder();
+            const dataBuffer = encoder.encode(serialized);
+            const hashBuffer = await globalThis.crypto.subtle.digest('SHA-256', dataBuffer);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return 'match_sha256_' + hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        let h1 = 0x811c9dc5;
+        for (let i = 0; i < serialized.length; i++) {
+            h1 ^= serialized.charCodeAt(i);
+            h1 = Math.imul(h1, 0x01000193);
+        }
+        return 'match_fnv_' + (h1 >>> 0).toString(16);
+    } catch {
+        return 'match_' + Date.now();
+    }
+}
+
+/**
  * Creates the AuroMind Platform Game Adapter for AuroMatch.
  * Bridges AuroMatch's native storage to the shared SDK identity and sync lifecycle
  * while strictly preserving game ownership of AuroMatchDB and player state.
@@ -1073,6 +1104,7 @@ export function createAuroMatchGameAdapter() {
                 profileState: JSON.parse(JSON.stringify(profileState)),
                 exportedAt: new Date().toISOString()
             };
+            const checksum = await computeAuroMatchEnvelopeChecksum(payload);
             return {
                 envelopeVersion: 1,
                 gameId: 'auromatch',
@@ -1081,7 +1113,7 @@ export function createAuroMatchGameAdapter() {
                 baseRevision: 0,
                 clientUpdatedAt: new Date().toISOString(),
                 isEmpty: !hasProgress,
-                checksum: 'match_' + (profileState?.progression?.completedLevelsCount || 0) + '_' + (profileState?.profile?.lotusPetalCount || 0),
+                checksum,
                 payload
             };
         },
@@ -1089,7 +1121,7 @@ export function createAuroMatchGameAdapter() {
             if (!envelope || !envelope.payload) return false;
             if (envelope.payload.profileState) {
                 profileState = envelope.payload.profileState;
-                saveProfileState();
+                saveProfileState({ skipLocalMerge: true });
                 return true;
             }
             return false;
