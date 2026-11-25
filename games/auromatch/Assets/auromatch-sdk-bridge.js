@@ -140,11 +140,37 @@ export function createAuroMatchGameAdapter() {
         if (userRaw) {
           try {
             const parsed = JSON.parse(userRaw);
-            if (parsed && (parsed.progression?.completedLevelsCount > 0 || (parsed.progression?.completedLevelIds?.length || 0) > 0)) {
+            if (
+              parsed &&
+              ((parsed.progression &&
+                (Number(parsed.progression.completedLevelsCount || 0) > 0 ||
+                 (Array.isArray(parsed.progression.completedLevelIds) && parsed.progression.completedLevelIds.length > 0))) ||
+               (Array.isArray(parsed.reflections) && parsed.reflections.length > 0) ||
+               (parsed.profile &&
+                (Number(parsed.profile.lotusPetalCount || 0) > 0 ||
+                 Number(parsed.profile.consciousnessPoints || 0) > 0)))
+            ) {
               return true;
             }
           } catch {}
         }
+        // Check guest tiles
+        try {
+          const rawTiles = active ? (localStorage.getItem(`auro_match_unlocked_tiles:${active}`) || localStorage.getItem('auro_match_unlocked_tiles')) : localStorage.getItem('auro_match_unlocked_tiles');
+          if (rawTiles) {
+            const parsed = JSON.parse(rawTiles);
+            if (Array.isArray(parsed) && parsed.length > 0) return true;
+          }
+        } catch {}
+        // Check guest consecrations
+        try {
+          const rawCons = active ? (localStorage.getItem(`auro_match_consecrations:${active}`) || localStorage.getItem('auro_match_consecrations')) : localStorage.getItem('auro_match_consecrations');
+          if (rawCons) {
+            const parsed = JSON.parse(rawCons);
+            if (Array.isArray(parsed) && parsed.length > 0) return true;
+          }
+        } catch {}
+        // Check legacy state
         try {
           const stateRaw = localStorage.getItem('auromatch_player_state');
           if (stateRaw) {
@@ -406,10 +432,11 @@ export function createAuroMatchGameAdapter() {
       try {
         if (typeof localStorage === 'undefined') return false;
 
-        const currentScope = getActiveScope();
+        const entryScope = getActiveScope();
+        const entryGen = getScopeGeneration();
         const targetScope = resolveAccountScope(context) || resolveAccountScope(envelope);
         const isAuthenticatedTarget = Boolean(targetScope && !targetScope.startsWith('guest_'));
-        const isScopeTransition = Boolean(targetScope && targetScope !== currentScope);
+        const isScopeTransition = Boolean(targetScope && targetScope !== entryScope);
         const skipLocalMerge = Boolean(context?.skipLocalMerge || envelope?.skipLocalMerge || isScopeTransition);
 
         // Resolve candidate owner from envelope metadata
@@ -473,6 +500,15 @@ export function createAuroMatchGameAdapter() {
           setAccountScope(targetScope);
         }
 
+        const expectedScope = targetScope !== null && targetScope !== undefined ? targetScope : entryScope;
+        const expectedGen = getScopeGeneration();
+        const isScopeConsistent = () => (getActiveScope() === expectedScope && getScopeGeneration() === expectedGen);
+
+        if (!isScopeConsistent()) {
+          console.warn('[AuroMatch Bridge] applyEnvelope: Scope transition detected before write execution. Failing closed.');
+          return false;
+        }
+
         const { user, consecrations, unlockedTiles, profileState: envelopeProfileState } = envelope.payload;
 
         let effectiveUser = user;
@@ -519,6 +555,7 @@ export function createAuroMatchGameAdapter() {
           : (skipLocalMerge ? [] : mergeUniqueItems(localConsecrations, []));
 
         if (effectiveUser && typeof effectiveUser === 'object') {
+          if (!isScopeConsistent()) return false;
           const mergedUser = skipLocalMerge
             ? JSON.parse(JSON.stringify(effectiveUser))
             : mergeAuroMatchUserRecords(localUser, effectiveUser);
@@ -534,35 +571,50 @@ export function createAuroMatchGameAdapter() {
             );
           }
           if (targetScope) {
+            if (!isScopeConsistent()) return false;
             await setItemDualWrite(`auro_match_user:${targetScope}`, mergedUser, { accountScope: targetScope });
+            if (!isScopeConsistent()) return false;
           }
           if (!isAuthenticatedTarget) {
+            if (!isScopeConsistent()) return false;
             await setItemDualWrite('auro_match_user', mergedUser);
+            if (!isScopeConsistent()) return false;
           } else if (getActiveScope() === targetScope && typeof localStorage !== 'undefined') {
+            if (!isScopeConsistent()) return false;
             localStorage.setItem('auro_match_user', JSON.stringify(mergedUser));
           }
         }
         if (Array.isArray(effectiveConsecrations) || skipLocalMerge) {
+          if (!isScopeConsistent()) return false;
           if (targetScope) {
             await setItemDualWrite(`auro_match_consecrations:${targetScope}`, mergedConsecrations, { accountScope: targetScope });
+            if (!isScopeConsistent()) return false;
           }
           if (!isAuthenticatedTarget) {
             await setItemDualWrite('auro_match_consecrations', mergedConsecrations);
+            if (!isScopeConsistent()) return false;
           } else if (getActiveScope() === targetScope && typeof localStorage !== 'undefined') {
+            if (!isScopeConsistent()) return false;
             localStorage.setItem('auro_match_consecrations', JSON.stringify(mergedConsecrations));
           }
         }
         if (Array.isArray(effectiveTiles) || skipLocalMerge) {
+          if (!isScopeConsistent()) return false;
           if (targetScope) {
             await setItemDualWrite(`auro_match_unlocked_tiles:${targetScope}`, mergedTiles, { accountScope: targetScope });
+            if (!isScopeConsistent()) return false;
           }
           if (!isAuthenticatedTarget) {
             await setItemDualWrite('auro_match_unlocked_tiles', mergedTiles);
+            if (!isScopeConsistent()) return false;
           } else if (getActiveScope() === targetScope && typeof localStorage !== 'undefined') {
+            if (!isScopeConsistent()) return false;
             localStorage.setItem('auro_match_unlocked_tiles', JSON.stringify(mergedTiles));
           }
         }
+        if (!isScopeConsistent()) return false;
         loadProfileState({ accountScope: targetScope });
+        if (!isScopeConsistent()) return false;
         return true;
       } catch (err) {
         console.warn('[AuroMatch Bridge] Failed to apply save envelope:', err);

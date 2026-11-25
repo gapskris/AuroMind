@@ -1079,13 +1079,6 @@ export function loadProfileState(options = {}) {
         }
     }
 
-    if (!isValidUserRecord && currentScope) {
-        // Scoped user record failed validation or not found: return fresh profile state!
-        // Do NOT load foreign/unowned reflections or unlocked tiles!
-        profileState = createFreshProfileState(currentScope);
-        return profileState;
-    }
-
     // Legacy fallback (only for unauthenticated guest mode)
     const legacyData = (typeof localStorage !== 'undefined') ? localStorage.getItem('auro_match_profile') : null;
     if (legacyData && !isValidUserRecord && !currentScope && !isAuthenticated) {
@@ -1098,11 +1091,21 @@ export function loadProfileState(options = {}) {
         } catch(e) {}
     }
 
+    if (!isValidUserRecord) {
+        // Scoped or shared user record failed validation or not found: reset to fresh profile state!
+        // Do NOT retain stale in-memory state or load foreign reflections / unlocked tiles!
+        profileState = createFreshProfileState(currentScope);
+        return profileState;
+    }
+
     if (userData && isValidUserRecord) {
         profileState.profile = userData.profile || createFreshProfileState(currentScope).profile;
         profileState.progression = userData.progression || createFreshProfileState(currentScope).progression;
         profileState.settings = { ...profileState.settings, ...(userData.settings || {}) };
         profileState.dailyDrawDate = userData.dailyDrawDate || "";
+        if (Array.isArray(userData.reflections)) {
+            profileState.reflections = userData.reflections;
+        }
         if (currentScope) {
             profileState.ownerId = currentScope;
             if (profileState.profile) profileState.profile.ownerId = currentScope;
@@ -1114,14 +1117,14 @@ export function loadProfileState(options = {}) {
             const parsed = JSON.parse(consecrationsData);
             if (Array.isArray(parsed)) {
                 profileState.reflections = parsed;
-            } else {
+            } else if (!Array.isArray(profileState.reflections)) {
                 profileState.reflections = [];
             }
         } catch(e) {
-            profileState.reflections = [];
+            if (!Array.isArray(profileState.reflections)) profileState.reflections = [];
             console.error("Failed to parse auro_match_consecrations");
         }
-    } else {
+    } else if (!Array.isArray(profileState.reflections)) {
         profileState.reflections = [];
     }
     
@@ -1134,16 +1137,21 @@ export function loadProfileState(options = {}) {
                     Number(profileState.progression.completedLevelsCount || 0),
                     parsed.length
                 );
-            } else {
+            } else if (!Array.isArray(profileState.progression.completedLevelIds)) {
                 profileState.progression.completedLevelIds = [];
             }
         } catch(e) {
-            profileState.progression.completedLevelIds = [];
+            if (!Array.isArray(profileState.progression.completedLevelIds)) profileState.progression.completedLevelIds = [];
             console.error("Failed to parse auro_match_unlocked_tiles");
         }
     } else {
-        profileState.progression.completedLevelIds = [];
-        profileState.progression.completedLevelsCount = 0;
+        if (!Array.isArray(profileState.progression.completedLevelIds)) {
+            profileState.progression.completedLevelIds = [];
+        }
+        profileState.progression.completedLevelsCount = Math.max(
+            Number(profileState.progression.completedLevelsCount || 0),
+            profileState.progression.completedLevelIds.length
+        );
     }
 
     if (currentScope) {
@@ -1534,7 +1542,8 @@ export function createAuroMatchGameAdapter() {
                     }
                     return true;
                 }
-                return Boolean(
+                // Guest / unauthenticated mode
+                let hasGuestProgress = Boolean(
                     profileState &&
                     ((profileState.progression &&
                       (Number(profileState.progression.completedLevelsCount || 0) > 0 ||
@@ -1544,6 +1553,47 @@ export function createAuroMatchGameAdapter() {
                       (Number(profileState.profile.lotusPetalCount || 0) > 0 ||
                        Number(profileState.profile.consciousnessPoints || 0) > 0)))
                 );
+                if (!hasGuestProgress && typeof localStorage !== 'undefined') {
+                    try {
+                        const rawGuestUser = active ? (localStorage.getItem(`auro_match_user:${active}`) || localStorage.getItem('auro_match_user')) : localStorage.getItem('auro_match_user');
+                        if (rawGuestUser) {
+                            const parsed = tryParseJson(rawGuestUser);
+                            if (parsed.ok && parsed.value && typeof parsed.value === 'object') {
+                                const u = parsed.value;
+                                if (
+                                    (u.progression &&
+                                     (Number(u.progression.completedLevelsCount || 0) > 0 ||
+                                      (Array.isArray(u.progression.completedLevelIds) && u.progression.completedLevelIds.length > 0))) ||
+                                    (Array.isArray(u.reflections) && u.reflections.length > 0) ||
+                                    (u.profile &&
+                                     (Number(u.profile.lotusPetalCount || 0) > 0 ||
+                                      Number(u.profile.consciousnessPoints || 0) > 0))
+                                ) {
+                                    hasGuestProgress = true;
+                                }
+                            }
+                        }
+                    } catch {}
+                    if (!hasGuestProgress) {
+                        try {
+                            const rawTiles = active ? (localStorage.getItem(`auro_match_unlocked_tiles:${active}`) || localStorage.getItem('auro_match_unlocked_tiles')) : localStorage.getItem('auro_match_unlocked_tiles');
+                            if (rawTiles) {
+                                const pt = JSON.parse(rawTiles);
+                                if (Array.isArray(pt) && pt.length > 0) hasGuestProgress = true;
+                            }
+                        } catch {}
+                    }
+                    if (!hasGuestProgress) {
+                        try {
+                            const rawCons = active ? (localStorage.getItem(`auro_match_consecrations:${active}`) || localStorage.getItem('auro_match_consecrations')) : localStorage.getItem('auro_match_consecrations');
+                            if (rawCons) {
+                                const pc = JSON.parse(rawCons);
+                                if (Array.isArray(pc) && pc.length > 0) hasGuestProgress = true;
+                            }
+                        } catch {}
+                    }
+                }
+                return hasGuestProgress;
             } catch {
                 return false;
             }
@@ -1616,8 +1666,10 @@ export function createAuroMatchGameAdapter() {
                 }
             } else {
                 // Guest / unauthenticated mode
-                if (active && profileState && profileState.ownerId !== active) {
+                if (active) {
                     loadProfileState({ accountScope: active });
+                } else if (!profileState || (profileState.progression?.completedLevelsCount === 0 && profileState.profile?.lotusPetalCount === 0)) {
+                    loadProfileState();
                 }
                 const isGuestOwnerValid = !active || !profileState?.ownerId || profileState.ownerId.startsWith('guest_');
                 isAuthoritativeValid = Boolean(isGuestOwnerValid);
@@ -1718,10 +1770,11 @@ export function createAuroMatchGameAdapter() {
                 return false;
             }
 
-            const currentScope = getActiveScope();
+            const entryScope = getActiveScope();
+            const entryGen = getScopeGeneration();
             const targetScope = resolveAccountScope(context) || resolveAccountScope(envelope);
             const isAuthenticatedTarget = Boolean(targetScope && !targetScope.startsWith('guest_'));
-            const isScopeTransition = Boolean(targetScope && targetScope !== currentScope);
+            const isScopeTransition = Boolean(targetScope && targetScope !== entryScope);
             const skipLocalMerge = Boolean(context?.skipLocalMerge || envelope?.skipLocalMerge || isScopeTransition);
 
             // Resolve candidate owner from envelope metadata
@@ -1784,41 +1837,127 @@ export function createAuroMatchGameAdapter() {
                 setAccountScope(targetScope);
             }
 
+            const expectedScope = targetScope !== null && targetScope !== undefined ? targetScope : entryScope;
+            const expectedGen = getScopeGeneration();
+            const isScopeConsistent = () => (getActiveScope() === expectedScope && getScopeGeneration() === expectedGen);
+
+            if (!isScopeConsistent()) {
+                console.warn('[Storage] applyEnvelope: Scope transition detected before write execution. Failing closed.');
+                return false;
+            }
+
+            let nextProfileState = null;
             if (envelope.payload.profileState) {
                 if (skipLocalMerge) {
-                    profileState = createFreshProfileState(targetScope);
+                    nextProfileState = createFreshProfileState(targetScope);
+                } else {
+                    nextProfileState = JSON.parse(JSON.stringify(profileState));
                 }
-                profileState = JSON.parse(JSON.stringify(envelope.payload.profileState));
-                if (targetScope) profileState.ownerId = targetScope;
-                saveProfileState({ skipLocalMerge: true, accountScope: targetScope });
-                return true;
-            }
-            if (envelope.payload.user || envelope.payload.consecrations || envelope.payload.unlockedTiles) {
+                const incoming = JSON.parse(JSON.stringify(envelope.payload.profileState));
+                nextProfileState = { ...nextProfileState, ...incoming };
+                if (targetScope) nextProfileState.ownerId = targetScope;
+            } else if (envelope.payload.user || envelope.payload.consecrations || envelope.payload.unlockedTiles) {
                 const { user, consecrations, unlockedTiles } = envelope.payload;
                 if (skipLocalMerge) {
-                    profileState = createFreshProfileState(targetScope);
+                    nextProfileState = createFreshProfileState(targetScope);
+                } else {
+                    nextProfileState = JSON.parse(JSON.stringify(profileState));
                 }
                 if (user && typeof user === 'object') {
-                    profileState.profile = user.profile || profileState.profile;
-                    profileState.progression = user.progression || profileState.progression;
-                    profileState.settings = { ...profileState.settings, ...(user.settings || {}) };
-                    profileState.dailyDrawDate = user.dailyDrawDate || profileState.dailyDrawDate;
+                    nextProfileState.profile = user.profile || nextProfileState.profile;
+                    nextProfileState.progression = user.progression || nextProfileState.progression;
+                    nextProfileState.settings = { ...nextProfileState.settings, ...(user.settings || {}) };
+                    nextProfileState.dailyDrawDate = user.dailyDrawDate || nextProfileState.dailyDrawDate;
                 }
                 if (Array.isArray(consecrations)) {
-                    profileState.reflections = consecrations;
+                    nextProfileState.reflections = consecrations;
                 }
                 if (Array.isArray(unlockedTiles)) {
-                    profileState.progression.completedLevelIds = unlockedTiles;
-                    profileState.progression.completedLevelsCount = Math.max(
-                        Number(profileState.progression.completedLevelsCount || 0),
+                    nextProfileState.progression.completedLevelIds = unlockedTiles;
+                    nextProfileState.progression.completedLevelsCount = Math.max(
+                        Number(nextProfileState.progression.completedLevelsCount || 0),
                         unlockedTiles.length
                     );
                 }
-                if (targetScope) profileState.ownerId = targetScope;
-                saveProfileState({ skipLocalMerge: true, accountScope: targetScope });
-                return true;
+                if (targetScope) nextProfileState.ownerId = targetScope;
+            } else {
+                return false;
             }
-            return false;
+
+            // Deduplicate reflections and tiles
+            nextProfileState.reflections = mergeUniqueItems(nextProfileState.reflections || [], []);
+            nextProfileState.progression.completedLevelIds = mergeUniqueItems(nextProfileState.progression?.completedLevelIds || [], []);
+            nextProfileState.progression.completedLevelsCount = Math.max(
+                Number(nextProfileState.progression?.completedLevelsCount || 0),
+                nextProfileState.progression.completedLevelIds.length
+            );
+
+            const userObj = {
+                profile: nextProfileState.profile,
+                progression: nextProfileState.progression,
+                settings: nextProfileState.settings,
+                dailyDrawDate: nextProfileState.dailyDrawDate,
+                ownerId: targetScope || nextProfileState.profile?.ownerId || null
+            };
+            const reflections = nextProfileState.reflections;
+            const completedLevelIds = nextProfileState.progression.completedLevelIds;
+
+            // Sequential asynchronous dual-write persistence with revalidation across every boundary
+            if (targetScope) {
+                if (!isScopeConsistent()) return false;
+                if (typeof localStorage !== 'undefined') {
+                    localStorage.setItem(`auro_match_user:${targetScope}`, JSON.stringify(userObj));
+                }
+                await setItemDualWrite(`auro_match_user:${targetScope}`, userObj, { accountScope: targetScope });
+                if (!isScopeConsistent()) return false;
+
+                if (typeof localStorage !== 'undefined') {
+                    localStorage.setItem(`auro_match_consecrations:${targetScope}`, JSON.stringify(reflections));
+                }
+                await setItemDualWrite(`auro_match_consecrations:${targetScope}`, reflections, { accountScope: targetScope });
+                if (!isScopeConsistent()) return false;
+
+                if (typeof localStorage !== 'undefined') {
+                    localStorage.setItem(`auro_match_unlocked_tiles:${targetScope}`, JSON.stringify(completedLevelIds));
+                }
+                await setItemDualWrite(`auro_match_unlocked_tiles:${targetScope}`, completedLevelIds, { accountScope: targetScope });
+                if (!isScopeConsistent()) return false;
+            } else if (!isAuthenticatedTarget) {
+                if (!isScopeConsistent()) return false;
+                if (typeof localStorage !== 'undefined') {
+                    localStorage.setItem('auro_match_user', JSON.stringify(userObj));
+                }
+                await setItemDualWrite('auro_match_user', userObj);
+                if (!isScopeConsistent()) return false;
+
+                if (typeof localStorage !== 'undefined') {
+                    localStorage.setItem('auro_match_consecrations', JSON.stringify(reflections));
+                }
+                await setItemDualWrite('auro_match_consecrations', reflections);
+                if (!isScopeConsistent()) return false;
+
+                if (typeof localStorage !== 'undefined') {
+                    localStorage.setItem('auro_match_unlocked_tiles', JSON.stringify(completedLevelIds));
+                }
+                await setItemDualWrite('auro_match_unlocked_tiles', completedLevelIds);
+                if (!isScopeConsistent()) return false;
+            }
+
+            // Update in-memory profileState and active working cache ONLY if scope and generation remain strictly consistent
+            if (!isScopeConsistent()) return false;
+            profileState = nextProfileState;
+
+            if (getActiveScope() === targetScope && typeof localStorage !== 'undefined') {
+                if (!isScopeConsistent()) return false;
+                syncWorkingCacheFromProfileState(targetScope);
+            }
+
+            if (!isScopeConsistent()) {
+                console.warn('[Storage] applyEnvelope: Mid-flight account transition detected at completion boundary. Failing closed.');
+                return false;
+            }
+
+            return true;
         },
         init: async (scopedContext) => {
             if (isPurgeActive()) {

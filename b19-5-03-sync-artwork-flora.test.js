@@ -4546,6 +4546,292 @@ describe('Part 1E — AuroMatch Legacy Storage & Account-Isolation Hardening (Ad
       else globalThis.localStorage = prevLS;
     }
   });
+
+  test('Adv-47: Asynchronous applyEnvelope protects against mid-flight A -> B account transition race in both adapters', async () => {
+    const prevLS = globalThis.localStorage;
+    const storage = createMemoryStorage();
+    globalThis.localStorage = storage;
+    setAccountScope('user_apply_a');
+
+    try {
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+
+      const envelopeA = {
+        gameId: 'auromatch',
+        ownerId: 'user_apply_a',
+        payload: {
+          profileState: {
+            profile: { lotusPetalCount: 42, ownerId: 'user_apply_a' },
+            progression: { completedLevelsCount: 1, completedLevelIds: ['lvl_a'] },
+            reflections: [{ id: 'ref_a', text: 'Ref A' }],
+            ownerId: 'user_apply_a'
+          }
+        }
+      };
+
+      // 1. Native adapter: mid-flight switch to B while applying A
+      const nativePromise = nativeAdapter.applyEnvelope(envelopeA, { accountScope: 'user_apply_a' });
+      setAccountScope('user_apply_b'); // Switch to B while apply is in flight
+      const nativeResult = await nativePromise;
+
+      assert.equal(nativeResult, false, 'Native applyEnvelope must fail closed on mid-flight A -> B transition');
+      assert.equal(getActiveScope(), 'user_apply_b');
+      assert.equal(storage.getItem('auro_match_user:user_apply_b'), null, 'User B storage must not be contaminated');
+
+      // 2. Bridge adapter: mid-flight switch to B while applying A
+      setAccountScope('user_apply_a');
+      const bridgePromise = bridgeAdapter.applyEnvelope(envelopeA, { accountScope: 'user_apply_a' });
+      setAccountScope('user_apply_b'); // Switch to B while apply is in flight
+      const bridgeResult = await bridgePromise;
+
+      assert.equal(bridgeResult, false, 'Bridge applyEnvelope must fail closed on mid-flight A -> B transition');
+      assert.equal(getActiveScope(), 'user_apply_b');
+      assert.equal(storage.getItem('auro_match_user:user_apply_b'), null, 'User B storage must not be contaminated');
+    } finally {
+      setAccountScope(null);
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+    }
+  });
+
+  test('Adv-48: Asynchronous applyEnvelope protects against mid-flight A -> B -> A account transition race via monotonic generation counter in both adapters', async () => {
+    const prevLS = globalThis.localStorage;
+    const storage = createMemoryStorage();
+    globalThis.localStorage = storage;
+    setAccountScope('user_apply_aba');
+
+    try {
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+
+      const envelopeABA = {
+        gameId: 'auromatch',
+        ownerId: 'user_apply_aba',
+        payload: {
+          profileState: {
+            profile: { lotusPetalCount: 99, ownerId: 'user_apply_aba' },
+            progression: { completedLevelsCount: 2, completedLevelIds: ['aba_1', 'aba_2'] },
+            ownerId: 'user_apply_aba'
+          }
+        }
+      };
+
+      // 1. Native adapter A -> B -> A race
+      const nativePromise = nativeAdapter.applyEnvelope(envelopeABA, { accountScope: 'user_apply_aba' });
+      setAccountScope('user_intervening_b');
+      setAccountScope('user_apply_aba');
+      const nativeResult = await nativePromise;
+
+      assert.equal(nativeResult, false, 'Native applyEnvelope must fail closed on A -> B -> A race via generation check');
+
+      // 2. Bridge adapter A -> B -> A race
+      setAccountScope('user_apply_aba');
+      const bridgePromise = bridgeAdapter.applyEnvelope(envelopeABA, { accountScope: 'user_apply_aba' });
+      setAccountScope('user_intervening_b');
+      setAccountScope('user_apply_aba');
+      const bridgeResult = await bridgePromise;
+
+      assert.equal(bridgeResult, false, 'Bridge applyEnvelope must fail closed on A -> B -> A race via generation check');
+    } finally {
+      setAccountScope(null);
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+    }
+  });
+
+  test('Adv-49: Asynchronous applyEnvelope protects against mid-flight A -> null -> A and logout (A -> null) races in both adapters', async () => {
+    const prevLS = globalThis.localStorage;
+    const storage = createMemoryStorage();
+    globalThis.localStorage = storage;
+    setAccountScope('user_apply_ana');
+
+    try {
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+
+      const envelopeANA = {
+        gameId: 'auromatch',
+        ownerId: 'user_apply_ana',
+        payload: {
+          profileState: {
+            profile: { lotusPetalCount: 55, ownerId: 'user_apply_ana' },
+            progression: { completedLevelsCount: 3, completedLevelIds: ['ana_1'] },
+            ownerId: 'user_apply_ana'
+          }
+        }
+      };
+
+      // 1. Native adapter A -> null -> A race
+      const nativePromise = nativeAdapter.applyEnvelope(envelopeANA, { accountScope: 'user_apply_ana' });
+      setAccountScope(null); // Logout
+      setAccountScope('user_apply_ana'); // Re-login
+      const nativeResult = await nativePromise;
+      assert.equal(nativeResult, false, 'Native applyEnvelope must fail closed on A -> null -> A race');
+
+      // 2. Bridge adapter A -> null -> A race
+      setAccountScope('user_apply_ana');
+      const bridgePromise = bridgeAdapter.applyEnvelope(envelopeANA, { accountScope: 'user_apply_ana' });
+      setAccountScope(null);
+      setAccountScope('user_apply_ana');
+      const bridgeResult = await bridgePromise;
+      assert.equal(bridgeResult, false, 'Bridge applyEnvelope must fail closed on A -> null -> A race');
+
+      // 3. Native adapter mid-flight logout (A -> null)
+      setAccountScope('user_apply_ana');
+      const nativeLogoutPromise = nativeAdapter.applyEnvelope(envelopeANA, { accountScope: 'user_apply_ana' });
+      setAccountScope(null); // Logout during flight
+      const nativeLogoutResult = await nativeLogoutPromise;
+      assert.equal(nativeLogoutResult, false, 'Native applyEnvelope must fail closed on mid-flight logout');
+
+      // 4. Bridge adapter mid-flight logout (A -> null)
+      setAccountScope('user_apply_ana');
+      const bridgeLogoutPromise = bridgeAdapter.applyEnvelope(envelopeANA, { accountScope: 'user_apply_ana' });
+      setAccountScope(null); // Logout during flight
+      const bridgeLogoutResult = await bridgeLogoutPromise;
+      assert.equal(bridgeLogoutResult, false, 'Bridge applyEnvelope must fail closed on mid-flight logout');
+    } finally {
+      setAccountScope(null);
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+    }
+  });
+
+  test('Adv-50: Asynchronous applyEnvelope sequential write integrity and completion boundary in both adapters', async () => {
+    const prevLS = globalThis.localStorage;
+    const storage = createMemoryStorage();
+    globalThis.localStorage = storage;
+    setAccountScope('user_stable_apply');
+
+    try {
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+
+      const validEnvelope = {
+        gameId: 'auromatch',
+        ownerId: 'user_stable_apply',
+        payload: {
+          profileState: {
+            profile: { lotusPetalCount: 77, consciousnessPoints: 33, ownerId: 'user_stable_apply' },
+            progression: { completedLevelsCount: 2, completedLevelIds: ['s1', 's2'] },
+            reflections: [{ id: 'ref_stable', text: 'Stable' }],
+            ownerId: 'user_stable_apply'
+          }
+        }
+      };
+
+      // Native application succeeds under stable scope
+      const nativeSuccess = await nativeAdapter.applyEnvelope(validEnvelope, { accountScope: 'user_stable_apply' });
+      assert.equal(nativeSuccess, true, 'Native applyEnvelope must succeed under stable scope');
+      assert.equal(getActiveScope(), 'user_stable_apply');
+      assert.ok(storage.getItem('auro_match_user:user_stable_apply'), 'Scoped user record must exist');
+      assert.ok(storage.getItem('auro_match_consecrations:user_stable_apply'), 'Scoped reflections must exist');
+      assert.ok(storage.getItem('auro_match_unlocked_tiles:user_stable_apply'), 'Scoped tiles must exist');
+
+      // Bridge application succeeds under stable scope
+      const bridgeSuccess = await bridgeAdapter.applyEnvelope(validEnvelope, { accountScope: 'user_stable_apply' });
+      assert.equal(bridgeSuccess, true, 'Bridge applyEnvelope must succeed under stable scope');
+      assert.equal(getActiveScope(), 'user_stable_apply');
+    } finally {
+      setAccountScope(null);
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+    }
+  });
+
+  test('Adv-51: Unified guest progress category isolation: each of the 6 dimensions individually produces hasLocalProgress() === true and isEmpty === false across Native and Bridge', async () => {
+    const prevLS = globalThis.localStorage;
+    const storage = createMemoryStorage();
+    globalThis.localStorage = storage;
+
+    const dimensions = [
+      {
+        name: 'Dimension 1: completedLevelsCount > 0',
+        user: { progression: { completedLevelsCount: 1, completedLevelIds: [] }, profile: { lotusPetalCount: 0, consciousnessPoints: 0 }, reflections: [] }
+      },
+      {
+        name: 'Dimension 2: completedLevelIds.length > 0',
+        user: { progression: { completedLevelsCount: 0, completedLevelIds: ['dim_tile_1'] }, profile: { lotusPetalCount: 0, consciousnessPoints: 0 }, reflections: [] }
+      },
+      {
+        name: 'Dimension 3: reflections / consecrations > 0',
+        user: { progression: { completedLevelsCount: 0, completedLevelIds: [] }, profile: { lotusPetalCount: 0, consciousnessPoints: 0 }, reflections: [{ id: 'dim_refl_1' }] }
+      },
+      {
+        name: 'Dimension 4: unlocked tiles > 0 in storage',
+        user: { progression: { completedLevelsCount: 0, completedLevelIds: [] }, profile: { lotusPetalCount: 0, consciousnessPoints: 0 }, reflections: [] },
+        extraTileKey: true
+      },
+      {
+        name: 'Dimension 5: lotusPetalCount > 0',
+        user: { progression: { completedLevelsCount: 0, completedLevelIds: [] }, profile: { lotusPetalCount: 5, consciousnessPoints: 0 }, reflections: [] }
+      },
+      {
+        name: 'Dimension 6: consciousnessPoints > 0',
+        user: { progression: { completedLevelsCount: 0, completedLevelIds: [] }, profile: { lotusPetalCount: 0, consciousnessPoints: 12 }, reflections: [] }
+      }
+    ];
+
+    try {
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+
+      for (const dim of dimensions) {
+        setAccountScope(null);
+        storage.clear();
+
+        storage.setItem('auro_match_user', JSON.stringify(dim.user));
+        if (dim.extraTileKey) {
+          storage.setItem('auro_match_unlocked_tiles', JSON.stringify(['tile_extra']));
+        }
+
+        // Native adapter check
+        loadProfileState();
+        assert.equal(nativeAdapter.hasLocalProgress(), true, `Native hasLocalProgress must be true for ${dim.name}`);
+        const nativeEnv = await nativeAdapter.exportEnvelope('guest_dim_test');
+        assert.equal(nativeEnv.isEmpty, false, `Native exportEnvelope isEmpty must be false for ${dim.name}`);
+
+        // Bridge adapter check
+        assert.equal(bridgeAdapter.hasLocalProgress(), true, `Bridge hasLocalProgress must be true for ${dim.name}`);
+        const bridgeEnv = await bridgeAdapter.exportEnvelope('guest_dim_test');
+        assert.equal(bridgeEnv.isEmpty, false, `Bridge exportEnvelope isEmpty must be false for ${dim.name}`);
+      }
+    } finally {
+      setAccountScope(null);
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+    }
+  });
+
+  test('Adv-52: Truly empty guest account produces hasLocalProgress() === false and exportEnvelope().isEmpty === true across Native and Bridge', async () => {
+    const prevLS = globalThis.localStorage;
+    const storage = createMemoryStorage();
+    globalThis.localStorage = storage;
+    setAccountScope(null);
+
+    try {
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+
+      // Clean storage with no keys
+      storage.clear();
+      loadProfileState();
+
+      // Native adapter
+      assert.equal(nativeAdapter.hasLocalProgress(), false, 'Native hasLocalProgress must be false for empty guest');
+      const nativeEnv = await nativeAdapter.exportEnvelope('guest_empty');
+      assert.equal(nativeEnv.isEmpty, true, 'Native exportEnvelope isEmpty must be true for empty guest');
+
+      // Bridge adapter
+      assert.equal(bridgeAdapter.hasLocalProgress(), false, 'Bridge hasLocalProgress must be false for empty guest');
+      const bridgeEnv = await bridgeAdapter.exportEnvelope('guest_empty');
+      assert.equal(bridgeEnv.isEmpty, true, 'Bridge exportEnvelope isEmpty must be true for empty guest');
+    } finally {
+      setAccountScope(null);
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+    }
+  });
 });
 
 // =============================================================================
