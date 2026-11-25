@@ -89,7 +89,10 @@ export function mergeAuroMatchUserRecords(localUser = null, incomingUser = null)
 }
 
 function tryParseJson(raw) {
-    if (typeof raw !== 'string') return { ok: false, value: null };
+    if (typeof raw !== 'string') {
+        if (raw && typeof raw === 'object') return { ok: true, value: raw };
+        return { ok: false, value: null };
+    }
     try {
         return { ok: true, value: JSON.parse(raw) };
     } catch {
@@ -209,12 +212,15 @@ export async function setItemDualWrite(key, value, options = {}) {
     const partialFailure = lsOk !== idbOk || (!lsOk && !idbOk);
     const error = idbRes.error || lsError || 'DUAL_WRITE_INCOMPLETE';
 
+    const activeOwner = options?.accountScope || _activeScope || null;
+
     // Track divergence so getItemAsync() never serves stale secondary data and reconcileDualWriteParity() can heal it
     if (lsOk || idbOk) {
         pendingDualWriteKeys.set(key, {
             serialized,
             lsOk,
             idbOk,
+            ownerId: activeOwner,
             lastError: error,
             attempts: idbRes.attempts,
             updatedAt: Date.now()
@@ -224,6 +230,7 @@ export async function setItemDualWrite(key, value, options = {}) {
             serialized,
             lsOk: false,
             idbOk: false,
+            ownerId: activeOwner,
             lastError: error,
             attempts: idbRes.attempts,
             updatedAt: Date.now()
@@ -251,10 +258,14 @@ export async function reconcileDualWriteParity(options = {}) {
     }
     const maxRetries = typeof options.maxRetries === 'number' ? options.maxRetries : 2;
     const retryDelayMs = typeof options.retryDelayMs === 'number' ? options.retryDelayMs : 5;
+    const targetScope = options?.accountScope || _activeScope || null;
     let reconciled = 0;
     const details = [];
 
     for (const [key, entry] of Array.from(pendingDualWriteKeys.entries())) {
+        if (entry.ownerId && targetScope && entry.ownerId !== targetScope) {
+            continue;
+        }
         let lsOk = entry.lsOk;
         let idbOk = entry.idbOk;
         let payloadToWrite = entry.serialized;
@@ -432,12 +443,62 @@ export function setAccountScope(scope) {
     const nextScope = scope ? String(scope) : null;
     if (_activeScope !== nextScope) {
         _activeScope = nextScope;
+
+        // Isolate pending dual-write entries from foreign scopes
+        if (typeof pendingDualWriteKeys !== 'undefined') {
+            for (const [k, v] of Array.from(pendingDualWriteKeys.entries())) {
+                if (v && v.ownerId && v.ownerId !== _activeScope) {
+                    pendingDualWriteKeys.delete(k);
+                }
+            }
+        }
+
         if (_activeScope) {
             loadProfileState({ accountScope: _activeScope });
+            if (profileState && profileState.ownerId === _activeScope && (profileState.progression?.completedLevelsCount > 0 || profileState.profile?.lotusPetalCount > 0)) {
+                syncWorkingCacheFromProfileState(_activeScope);
+            }
         } else {
             profileState = createFreshProfileState(null);
+            clearSharedWorkingCache();
         }
     }
+}
+
+export function syncWorkingCacheFromProfileState(activeScope) {
+    if (typeof localStorage === 'undefined') return;
+    try {
+        const rawWorking = localStorage.getItem('auro_match_user');
+        const parsedWorking = tryParseJson(rawWorking);
+        const existingOwner = getRecordOwnerId(parsedWorking.value);
+        if (existingOwner && existingOwner !== activeScope) {
+            const hasProgress = Boolean(
+                profileState &&
+                (profileState.progression?.completedLevelsCount > 0 || profileState.profile?.lotusPetalCount > 0)
+            );
+            if (!hasProgress) return;
+        }
+
+        const userObj = {
+            profile: profileState.profile,
+            progression: profileState.progression,
+            settings: profileState.settings,
+            dailyDrawDate: profileState.dailyDrawDate,
+            ownerId: activeScope || profileState.profile?.ownerId || null
+        };
+        localStorage.setItem('auro_match_user', JSON.stringify(userObj));
+        localStorage.setItem('auro_match_consecrations', JSON.stringify(profileState.reflections || []));
+        localStorage.setItem('auro_match_unlocked_tiles', JSON.stringify(profileState.progression?.completedLevelIds || []));
+    } catch {}
+}
+
+export function clearSharedWorkingCache() {
+    if (typeof localStorage === 'undefined') return;
+    try {
+        localStorage.removeItem('auro_match_user');
+        localStorage.removeItem('auro_match_consecrations');
+        localStorage.removeItem('auro_match_unlocked_tiles');
+    } catch {}
 }
 
 export function resolveAccountScope(context) {
@@ -467,7 +528,11 @@ export function resolveAccountScope(context) {
 
 export function getRecordOwnerId(record) {
     if (!record || typeof record !== 'object') return null;
-    return record.ownerId || record.profile?.ownerId || record.profile?.platformGuestId || record.userId || null;
+    const raw = record.ownerId || record.profile?.ownerId || record.profile?.platformGuestId || record.userId || null;
+    if (typeof raw === 'string' && raw.trim().length > 0) {
+        return raw.trim();
+    }
+    return null;
 }
 
 export function createFreshProfileState(ownerId = null) {
@@ -513,6 +578,7 @@ export async function autoHealFromIndexedDB(scopedContext = null) {
     if (!idb) return false;
 
     const activeScope = resolveAccountScope(scopedContext) || getActiveScope();
+    const isAuthenticated = Boolean(activeScope && !activeScope.startsWith('guest_'));
 
     try {
         const db = await initIndexedDB();
@@ -530,61 +596,63 @@ export async function autoHealFromIndexedDB(scopedContext = null) {
         ];
 
         // 1. Resolve local working state & ownership
-        const rawLocalUser = localStorage.getItem('auro_match_user');
+        const rawLocalUser = activeScope
+            ? (localStorage.getItem(`auro_match_user:${activeScope}`) || localStorage.getItem('auro_match_user'))
+            : localStorage.getItem('auro_match_user');
         const parsedLocalUser = tryParseJson(rawLocalUser);
         const localOwner = getRecordOwnerId(parsedLocalUser.value);
         const isForeignLocal = Boolean(activeScope && localOwner && localOwner !== activeScope);
 
-        // 2. Query IndexedDB for ownership validation
-        const idbUserVal = await new Promise((resolve) => {
-            try {
-                const tx = db.transaction(STORE_NAME, 'readonly');
-                // Check scoped IDB key first if scope is present
-                const keyToGet = activeScope ? `auro_match_user:${activeScope}` : 'auro_match_user';
-                const req = tx.objectStore(STORE_NAME).get(keyToGet);
-                req.onsuccess = () => {
-                    if (req.result !== undefined && req.result !== null) {
-                        resolve(req.result);
-                    } else if (activeScope) {
-                        // Fallback check to working key in IDB
-                        try {
-                            const tx2 = db.transaction(STORE_NAME, 'readonly');
-                            const req2 = tx2.objectStore(STORE_NAME).get('auro_match_user');
-                            req2.onsuccess = () => resolve(req2.result);
-                            req2.onerror = () => resolve(null);
-                        } catch {
-                            resolve(null);
-                        }
-                    } else {
-                        resolve(null);
-                    }
-                };
-                req.onerror = () => resolve(null);
-            } catch {
-                resolve(null);
+        // 2. Query IndexedDB for user record ownership
+        let idbUserVal = null;
+        let isFromScopedKey = false;
+        try {
+            const tx = db.transaction(STORE_NAME, 'readonly');
+            const store = tx.objectStore(STORE_NAME);
+            if (activeScope) {
+                idbUserVal = await new Promise((resolve) => {
+                    const req = store.get(`auro_match_user:${activeScope}`);
+                    req.onsuccess = () => resolve(req.result !== undefined ? req.result : null);
+                    req.onerror = () => resolve(null);
+                });
+                if (idbUserVal !== null) {
+                    isFromScopedKey = true;
+                }
             }
-        });
+            if (idbUserVal === null) {
+                idbUserVal = await new Promise((resolve) => {
+                    const req = store.get('auro_match_user');
+                    req.onsuccess = () => resolve(req.result !== undefined ? req.result : null);
+                    req.onerror = () => resolve(null);
+                });
+            }
+        } catch {
+            return false;
+        }
 
         const parsedIdbUser = tryParseJson(idbUserVal);
         const idbOwner = getRecordOwnerId(parsedIdbUser.value);
 
-        // Foreign IDB data check: If IDB record belongs to another account, do NOT restore or merge into activeScope!
-        if (activeScope && idbOwner && idbOwner !== activeScope) {
-            console.warn(`[Storage] autoHealFromIndexedDB: IDB record belongs to "${idbOwner}", not active account "${activeScope}". Rejecting cross-account recovery.`);
-            return false;
+        // Fail closed for authenticated accounts:
+        // Must have a verified user record in IDB matching activeScope.
+        // Missing, unowned, malformed, or foreign records fail closed!
+        if (isAuthenticated) {
+            if (!idbOwner || idbOwner !== activeScope) {
+                console.warn(`[Storage] autoHealFromIndexedDB: Authenticated account "${activeScope}" cannot hydrate unowned or foreign IDB records (idbOwner="${idbOwner}"). Rejecting.`);
+                return false;
+            }
+        } else if (activeScope) {
+            if (idbOwner && idbOwner !== activeScope) {
+                console.warn(`[Storage] autoHealFromIndexedDB: IDB record belongs to "${idbOwner}", not guest "${activeScope}". Rejecting.`);
+                return false;
+            }
         }
 
-        // Unowned IDB data check: An authenticated account cannot hydrate unowned guest mutations
-        if (activeScope && !activeScope.startsWith('guest_') && !idbOwner && parsedIdbUser.ok) {
-            console.warn(`[Storage] autoHealFromIndexedDB: Authenticated account "${activeScope}" cannot hydrate unowned IDB records.`);
-            return false;
-        }
-
-        // 3. Determine if local state is healthy for the active scope
+        // 3. Determine if local state is healthy for activeScope
         let localState = localStorage.getItem(activeScope ? `auromatch_player_state:${activeScope}` : 'auromatch_player_state');
         let localUser = localStorage.getItem(activeScope ? `auro_match_user:${activeScope}` : 'auro_match_user');
 
-        if (!localUser && !isForeignLocal && rawLocalUser) {
+        if (!localUser && !isForeignLocal && rawLocalUser && (!isAuthenticated || localOwner === activeScope)) {
             localUser = rawLocalUser;
         }
 
@@ -598,22 +666,24 @@ export async function autoHealFromIndexedDB(scopedContext = null) {
             for (const key of baseKeys) {
                 const scopedKey = activeScope ? `${key}:${activeScope}` : key;
                 let localVal = activeScope ? localStorage.getItem(scopedKey) : localStorage.getItem(key);
-                if (localVal === null && !isForeignLocal) {
+                if (localVal === null && !isForeignLocal && (!isAuthenticated || localOwner === activeScope)) {
                     localVal = localStorage.getItem(key);
                 }
 
+                // Query IDB strictly: for authenticated accounts, ONLY read scopedKey!
+                // Unscoped legacy keys in IDB cannot be read or merged unless key is a verified record with owner matching activeScope.
                 const idbVal = await new Promise((resolve) => {
                     try {
                         const tx = db.transaction(STORE_NAME, 'readonly');
-                        const req = tx.objectStore(STORE_NAME).get(scopedKey);
+                        const store = tx.objectStore(STORE_NAME);
+                        const req = store.get(scopedKey);
                         req.onsuccess = () => {
                             if (req.result !== undefined && req.result !== null) {
                                 resolve(req.result);
-                            } else if (activeScope && (idbOwner === activeScope || !idbOwner)) {
+                            } else if (!isAuthenticated && activeScope) {
                                 try {
-                                    const tx2 = db.transaction(STORE_NAME, 'readonly');
-                                    const req2 = tx2.objectStore(STORE_NAME).get(key);
-                                    req2.onsuccess = () => resolve(req2.result);
+                                    const req2 = store.get(key);
+                                    req2.onsuccess = () => resolve(req2.result !== undefined ? req2.result : null);
                                     req2.onerror = () => resolve(null);
                                 } catch {
                                     resolve(null);
@@ -634,16 +704,16 @@ export async function autoHealFromIndexedDB(scopedContext = null) {
 
                 if (localVal === null || localVal === undefined) {
                     if (idbStr !== null) {
-                        localStorage.setItem(key, idbStr);
                         if (activeScope) localStorage.setItem(scopedKey, idbStr);
+                        if (!isAuthenticated || localOwner === activeScope) localStorage.setItem(key, idbStr);
                         localHealedFromIdb = true;
                     }
                     continue;
                 }
 
                 if (idbStr === null) {
-                    await setItemDualWrite(key, localVal);
-                    if (activeScope) await setItemDualWrite(scopedKey, localVal);
+                    if (activeScope) await setItemDualWrite(scopedKey, localVal, { accountScope: activeScope });
+                    if (!isAuthenticated) await setItemDualWrite(key, localVal);
                     idbHealedCount++;
                     continue;
                 }
@@ -656,8 +726,8 @@ export async function autoHealFromIndexedDB(scopedContext = null) {
                             const mergedArr = mergeUniqueItems(pLocal.value, pIdb.value);
                             const mergedStr = JSON.stringify(mergedArr);
                             if (mergedStr !== localVal) localHealedFromIdb = true;
-                            await setItemDualWrite(key, mergedArr);
-                            if (activeScope) await setItemDualWrite(scopedKey, mergedArr);
+                            if (activeScope) await setItemDualWrite(scopedKey, mergedArr, { accountScope: activeScope });
+                            if (!isAuthenticated) await setItemDualWrite(key, mergedArr);
                             idbHealedCount++;
                             continue;
                         }
@@ -670,20 +740,23 @@ export async function autoHealFromIndexedDB(scopedContext = null) {
                             if (activeScope) mergedUser.ownerId = activeScope;
                             const mergedStr = JSON.stringify(mergedUser);
                             if (mergedStr !== localVal) localHealedFromIdb = true;
-                            await setItemDualWrite(key, mergedUser);
-                            if (activeScope) await setItemDualWrite(scopedKey, mergedUser);
+                            if (activeScope) await setItemDualWrite(scopedKey, mergedUser, { accountScope: activeScope });
+                            if (!isAuthenticated) await setItemDualWrite(key, mergedUser);
                             idbHealedCount++;
                             continue;
                         }
                     }
 
-                    await setItemDualWrite(key, localVal);
-                    if (activeScope) await setItemDualWrite(scopedKey, localVal);
+                    if (activeScope) await setItemDualWrite(scopedKey, localVal, { accountScope: activeScope });
+                    if (!isAuthenticated) await setItemDualWrite(key, localVal);
                     idbHealedCount++;
                 }
             }
             if (idbHealedCount > 0) {
                 console.info(`[Storage] Bidirectional auto-heal: reconciled ${idbHealedCount} records between localStorage and IndexedDB.`);
+            }
+            if (localHealedFromIdb) {
+                loadProfileState({ accountScope: activeScope });
             }
             return localHealedFromIdb;
         }
@@ -695,15 +768,15 @@ export async function autoHealFromIndexedDB(scopedContext = null) {
             const val = await new Promise((resolve) => {
                 try {
                     const tx = db.transaction(STORE_NAME, 'readonly');
-                    const req = tx.objectStore(STORE_NAME).get(scopedKey);
+                    const store = tx.objectStore(STORE_NAME);
+                    const req = store.get(scopedKey);
                     req.onsuccess = () => {
                         if (req.result !== undefined && req.result !== null) {
                             resolve(req.result);
-                        } else if (activeScope && idbOwner === activeScope) {
+                        } else if (!isAuthenticated && activeScope) {
                             try {
-                                const tx2 = db.transaction(STORE_NAME, 'readonly');
-                                const req2 = tx2.objectStore(STORE_NAME).get(key);
-                                req2.onsuccess = () => resolve(req2.result);
+                                const req2 = store.get(key);
+                                req2.onsuccess = () => resolve(req2.result !== undefined ? req2.result : null);
                                 req2.onerror = () => resolve(null);
                             } catch {
                                 resolve(null);
@@ -720,8 +793,8 @@ export async function autoHealFromIndexedDB(scopedContext = null) {
 
             if (val !== null && val !== undefined) {
                 const strVal = typeof val === 'string' ? val : JSON.stringify(val);
-                localStorage.setItem(key, strVal);
                 if (activeScope) localStorage.setItem(scopedKey, strVal);
+                if (!isAuthenticated) localStorage.setItem(key, strVal);
                 restoredCount++;
             }
         }
@@ -797,6 +870,7 @@ export function saveProfileState(options = {}) {
     }
     const skipLocalMerge = options && options.skipLocalMerge === true;
     const currentScope = (options && options.accountScope) || _activeScope;
+    const isAuthenticated = Boolean(currentScope && !currentScope.startsWith('guest_'));
 
     if (currentScope) {
         profileState.ownerId = currentScope;
@@ -805,66 +879,75 @@ export function saveProfileState(options = {}) {
 
     if (typeof localStorage !== 'undefined') {
         if (!skipLocalMerge) {
-            // Fresh-Read-Before-Merge (Set-Union & High-Water-Mark):
-            // Check ownership of local records before merging to prevent cross-account pollution!
+            // Fresh-Read-Before-Merge:
+            // For authenticated accounts, ONLY read from authoritative scoped keys!
+            // Never merge unowned shared arrays into an authenticated profile!
             try {
-                const freshUser = localStorage.getItem('auro_match_user');
-                let localOwner = null;
+                let freshUser = null;
+                let freshConsecrations = null;
+                let freshUnlocked = null;
+
+                if (isAuthenticated) {
+                    freshUser = localStorage.getItem(`auro_match_user:${currentScope}`);
+                    freshConsecrations = localStorage.getItem(`auro_match_consecrations:${currentScope}`);
+                    freshUnlocked = localStorage.getItem(`auro_match_unlocked_tiles:${currentScope}`);
+                } else {
+                    const rawShared = localStorage.getItem('auro_match_user');
+                    const parsed = tryParseJson(rawShared);
+                    const localOwner = getRecordOwnerId(parsed.value);
+                    if (!currentScope || !localOwner || localOwner === currentScope) {
+                        freshUser = rawShared;
+                        freshConsecrations = localStorage.getItem('auro_match_consecrations');
+                        freshUnlocked = localStorage.getItem('auro_match_unlocked_tiles');
+                    }
+                }
+
+                if (freshConsecrations) {
+                    const parsed = JSON.parse(freshConsecrations);
+                    if (Array.isArray(parsed)) {
+                        profileState.reflections = mergeUniqueItems(parsed, profileState.reflections);
+                    }
+                }
+                if (freshUnlocked) {
+                    const parsed = JSON.parse(freshUnlocked);
+                    if (Array.isArray(parsed)) {
+                        profileState.progression.completedLevelIds = mergeUniqueItems(
+                            parsed,
+                            profileState.progression.completedLevelIds
+                        );
+                    }
+                }
                 if (freshUser) {
                     const parsed = JSON.parse(freshUser);
-                    localOwner = getRecordOwnerId(parsed);
-                }
-                const isSameOwner = !currentScope || !localOwner || localOwner === currentScope;
-                if (isSameOwner) {
-                    const freshConsecrations = localStorage.getItem('auro_match_consecrations');
-                    if (freshConsecrations) {
-                        const parsed = JSON.parse(freshConsecrations);
-                        if (Array.isArray(parsed)) {
-                            profileState.reflections = mergeUniqueItems(parsed, profileState.reflections);
-                        }
-                    }
-                    const freshUnlocked = localStorage.getItem('auro_match_unlocked_tiles');
-                    if (freshUnlocked) {
-                        const parsed = JSON.parse(freshUnlocked);
-                        if (Array.isArray(parsed)) {
-                            profileState.progression.completedLevelIds = mergeUniqueItems(
-                                parsed,
-                                profileState.progression.completedLevelIds
+                    if (parsed && typeof parsed === 'object') {
+                        if (parsed.progression) {
+                            if (Array.isArray(parsed.progression.completedLevelIds)) {
+                                profileState.progression.completedLevelIds = mergeUniqueItems(
+                                    parsed.progression.completedLevelIds,
+                                    profileState.progression.completedLevelIds
+                                );
+                            }
+                            profileState.progression.completedLevelsCount = Math.max(
+                                Number(parsed.progression.completedLevelsCount || 0),
+                                Number(profileState.progression.completedLevelsCount || 0),
+                                profileState.progression.completedLevelIds.length
                             );
+                            if (Array.isArray(parsed.progression.unlockedThemes)) {
+                                profileState.progression.unlockedThemes = mergeUniqueItems(
+                                    profileState.progression.unlockedThemes,
+                                    parsed.progression.unlockedThemes
+                                );
+                            }
                         }
-                    }
-                    if (freshUser) {
-                        const parsed = JSON.parse(freshUser);
-                        if (parsed && typeof parsed === 'object') {
-                            if (parsed.progression) {
-                                if (Array.isArray(parsed.progression.completedLevelIds)) {
-                                    profileState.progression.completedLevelIds = mergeUniqueItems(
-                                        parsed.progression.completedLevelIds,
-                                        profileState.progression.completedLevelIds
-                                    );
-                                }
-                                profileState.progression.completedLevelsCount = Math.max(
-                                    Number(parsed.progression.completedLevelsCount || 0),
-                                    Number(profileState.progression.completedLevelsCount || 0),
-                                    profileState.progression.completedLevelIds.length
-                                );
-                                if (Array.isArray(parsed.progression.unlockedThemes)) {
-                                    profileState.progression.unlockedThemes = mergeUniqueItems(
-                                        profileState.progression.unlockedThemes,
-                                        parsed.progression.unlockedThemes
-                                    );
-                                }
-                            }
-                            if (parsed.profile && profileState.profile) {
-                                profileState.profile.lotusPetalCount = Math.max(
-                                    Number(parsed.profile.lotusPetalCount || 0),
-                                    Number(profileState.profile.lotusPetalCount || 0)
-                                );
-                                profileState.profile.consciousnessPoints = Math.max(
-                                    Number(parsed.profile.consciousnessPoints || 0),
-                                    Number(profileState.profile.consciousnessPoints || 0)
-                                );
-                            }
+                        if (parsed.profile && profileState.profile) {
+                            profileState.profile.lotusPetalCount = Math.max(
+                                Number(parsed.profile.lotusPetalCount || 0),
+                                Number(profileState.profile.lotusPetalCount || 0)
+                            );
+                            profileState.profile.consciousnessPoints = Math.max(
+                                Number(parsed.profile.consciousnessPoints || 0),
+                                Number(profileState.profile.consciousnessPoints || 0)
+                            );
                         }
                     }
                 }
@@ -891,16 +974,7 @@ export function saveProfileState(options = {}) {
         const serializedCons = JSON.stringify(profileState.reflections);
         const serializedTiles = JSON.stringify(profileState.progression.completedLevelIds);
 
-        localStorage.setItem('auro_match_user', serializedUser);
-        localStorage.setItem('auro_match_consecrations', serializedCons);
-        localStorage.setItem('auro_match_unlocked_tiles', serializedTiles);
-
-        // Asynchronously mirror into durable IndexedDB vault with retry & divergence tracking
-        setItemAsync('auro_match_user', userObj);
-        setItemAsync('auro_match_consecrations', profileState.reflections);
-        setItemAsync('auro_match_unlocked_tiles', profileState.progression.completedLevelIds);
-
-        // If scoped, also persist into account-scoped keys in localStorage and IndexedDB
+        // 1. Authoritative account-scoped keys in localStorage and IndexedDB
         if (currentScope) {
             localStorage.setItem(`auro_match_user:${currentScope}`, serializedUser);
             localStorage.setItem(`auro_match_consecrations:${currentScope}`, serializedCons);
@@ -911,6 +985,19 @@ export function saveProfileState(options = {}) {
             setItemAsync(`auro_match_unlocked_tiles:${currentScope}`, profileState.progression.completedLevelIds);
         }
 
+        // 2. Working cache in localStorage for active in-game UI
+        localStorage.setItem('auro_match_user', serializedUser);
+        localStorage.setItem('auro_match_consecrations', serializedCons);
+        localStorage.setItem('auro_match_unlocked_tiles', serializedTiles);
+
+        // 3. In IndexedDB: ONLY write unscoped keys for unauthenticated guest mode!
+        // Authenticated accounts NEVER write to shared unscoped keys in IndexedDB.
+        if (!isAuthenticated) {
+            setItemAsync('auro_match_user', userObj);
+            setItemAsync('auro_match_consecrations', profileState.reflections);
+            setItemAsync('auro_match_unlocked_tiles', profileState.progression.completedLevelIds);
+        }
+
         return true;
     }
     return false;
@@ -918,6 +1005,7 @@ export function saveProfileState(options = {}) {
 
 export function loadProfileState(options = {}) {
     const currentScope = (options && options.accountScope) || _activeScope;
+    const isAuthenticated = Boolean(currentScope && !currentScope.startsWith('guest_'));
     let userData = null;
     let consecrationsData = null;
     let unlockedData = null;
@@ -933,7 +1021,9 @@ export function loadProfileState(options = {}) {
             if (rawWorking) {
                 const parsed = tryParseJson(rawWorking);
                 const owner = getRecordOwnerId(parsed.value);
-                if (!currentScope || !owner || owner === currentScope) {
+                // For authenticated accounts: ONLY load if owner is strictly established as currentScope!
+                // Missing, unowned, or foreign owner fails closed!
+                if (isAuthenticated ? (owner && owner === currentScope) : (!currentScope || !owner || owner === currentScope)) {
                     userData = rawWorking;
                     consecrationsData = consecrationsData || localStorage.getItem('auro_match_consecrations');
                     unlockedData = unlockedData || localStorage.getItem('auro_match_unlocked_tiles');
@@ -947,9 +1037,9 @@ export function loadProfileState(options = {}) {
         return profileState;
     }
 
-    // Legacy fallback
+    // Legacy fallback (only for unauthenticated guest mode)
     const legacyData = (typeof localStorage !== 'undefined') ? localStorage.getItem('auro_match_profile') : null;
-    if (legacyData && !userData && !currentScope) {
+    if (legacyData && !userData && !currentScope && !isAuthenticated) {
         try {
             const parsedLegacy = JSON.parse(legacyData);
             profileState = parsedLegacy;
@@ -978,16 +1068,30 @@ export function loadProfileState(options = {}) {
         } catch(e) {
             console.error("Failed to parse auro_match_consecrations");
         }
+    } else if (currentScope && !userData) {
+        profileState.reflections = [];
     }
     
     if (unlockedData) {
         try {
             profileState.progression.completedLevelIds = JSON.parse(unlockedData);
+            profileState.progression.completedLevelsCount = Math.max(
+                Number(profileState.progression.completedLevelsCount || 0),
+                profileState.progression.completedLevelIds.length
+            );
         } catch(e) {
             console.error("Failed to parse auro_match_unlocked_tiles");
         }
+    } else if (currentScope && !userData) {
+        profileState.progression.completedLevelIds = [];
+        profileState.progression.completedLevelsCount = 0;
     }
-    
+
+    if (currentScope) {
+        profileState.ownerId = currentScope;
+        if (profileState.profile) profileState.profile.ownerId = currentScope;
+    }
+
     return profileState;
 }
 
@@ -1315,6 +1419,12 @@ export function createAuroMatchGameAdapter() {
         },
         hasLocalProgress: () => {
             try {
+                if (isPurgeActive()) return false;
+                const active = getActiveScope();
+                const isAuthenticated = Boolean(active && !active.startsWith('guest_'));
+                if (isAuthenticated && (!profileState || profileState.ownerId !== active)) {
+                    return false;
+                }
                 return Boolean(
                     profileState &&
                     profileState.progression &&
@@ -1326,15 +1436,44 @@ export function createAuroMatchGameAdapter() {
             }
         },
         exportEnvelope: async (guestId) => {
-            const hasProgress = Boolean(
+            if (isPurgeActive()) {
+                console.warn('[Storage] exportEnvelope blocked: Purge is active.');
+                return {
+                    envelopeVersion: 1,
+                    gameId: 'auromatch',
+                    gameSchemaVersion: 1,
+                    guestId,
+                    baseRevision: 0,
+                    clientUpdatedAt: new Date().toISOString(),
+                    isEmpty: true,
+                    checksum: 'match_0_0',
+                    payload: {
+                        schemaVersion: 1,
+                        profileState: createFreshProfileState(getActiveScope()),
+                        exportedAt: new Date().toISOString()
+                    }
+                };
+            }
+            const active = getActiveScope();
+            const isAuthenticated = Boolean(active && !active.startsWith('guest_'));
+
+            // Ensure in-memory profileState matches active scope
+            if (active && profileState && profileState.ownerId !== active) {
+                loadProfileState({ accountScope: active });
+            }
+
+            const isOwnerValid = isAuthenticated ? (profileState && profileState.ownerId === active) : true;
+            const hasProgress = isOwnerValid && Boolean(
                 profileState &&
                 profileState.progression &&
                 (profileState.progression.completedLevelsCount > 0 ||
                  (profileState.progression.completedLevelIds && profileState.progression.completedLevelIds.length > 0))
             );
+            const effectiveOwner = active || profileState?.ownerId || guestId || null;
             const payload = {
                 schemaVersion: 1,
-                profileState: JSON.parse(JSON.stringify(profileState)),
+                profileState: JSON.parse(JSON.stringify(isOwnerValid ? profileState : createFreshProfileState(active))),
+                ownerId: effectiveOwner,
                 exportedAt: new Date().toISOString()
             };
             const checksum = await computeAuroMatchEnvelopeChecksum(payload);
@@ -1343,6 +1482,7 @@ export function createAuroMatchGameAdapter() {
                 gameId: 'auromatch',
                 gameSchemaVersion: 1,
                 guestId,
+                ownerId: effectiveOwner,
                 baseRevision: 0,
                 clientUpdatedAt: new Date().toISOString(),
                 isEmpty: !hasProgress,
@@ -1357,21 +1497,42 @@ export function createAuroMatchGameAdapter() {
                 console.warn('[Storage] applyEnvelope blocked: Purge is active.');
                 return false;
             }
+
+            const currentScope = getActiveScope();
             const targetScope = resolveAccountScope(context) || resolveAccountScope(envelope);
-            if (targetScope && targetScope !== getActiveScope()) {
+            const isScopeTransition = Boolean(targetScope && targetScope !== currentScope);
+            const skipLocalMerge = Boolean(context?.skipLocalMerge || envelope?.skipLocalMerge || isScopeTransition);
+
+            // Owner mismatch validation: fail closed!
+            // Permits guest-to-account migration ONLY when explicitly verified (context.guestId / migrateFromGuest)
+            const envelopeOwner = envelope.ownerId || envelope.userId || envelope.payload?.ownerId || envelope.payload?.profileState?.ownerId || null;
+            if (envelopeOwner && targetScope && envelopeOwner !== targetScope) {
+                const isGuestMigration = Boolean(
+                    envelopeOwner.startsWith('guest_') &&
+                    (context?.guestId === envelopeOwner || envelope.guestId === envelopeOwner || context?.migrateFromGuest)
+                );
+                if (!isGuestMigration) {
+                    console.warn(`[Storage] applyEnvelope: Owner mismatch: envelope belongs to "${envelopeOwner}", target is "${targetScope}". Rejecting.`);
+                    return false;
+                }
+            }
+
+            if (isScopeTransition) {
                 setAccountScope(targetScope);
             }
-            const skipLocalMerge = Boolean(context?.skipLocalMerge || envelope?.skipLocalMerge || (targetScope && targetScope !== getActiveScope()));
 
             if (envelope.payload.profileState) {
-                profileState = envelope.payload.profileState;
+                if (skipLocalMerge) {
+                    profileState = createFreshProfileState(targetScope);
+                }
+                profileState = JSON.parse(JSON.stringify(envelope.payload.profileState));
                 if (targetScope) profileState.ownerId = targetScope;
                 saveProfileState({ skipLocalMerge: true, accountScope: targetScope });
                 return true;
             }
             if (envelope.payload.user || envelope.payload.consecrations || envelope.payload.unlockedTiles) {
                 const { user, consecrations, unlockedTiles } = envelope.payload;
-                if (skipLocalMerge && targetScope) {
+                if (skipLocalMerge) {
                     profileState = createFreshProfileState(targetScope);
                 }
                 if (user && typeof user === 'object') {

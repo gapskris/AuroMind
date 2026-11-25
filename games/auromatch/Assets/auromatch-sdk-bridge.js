@@ -18,6 +18,7 @@ import {
 
 import {
   autoHealFromIndexedDB,
+  getRecordOwnerId,
   getActiveScope,
   isPurgeActive,
   loadProfileState,
@@ -65,19 +66,41 @@ export function createAuroMatchGameAdapter() {
     },
     hasLocalProgress: () => {
       try {
+        if (typeof isPurgeActive === 'function' && isPurgeActive()) return false;
         if (typeof localStorage === 'undefined') return false;
-        const userRaw = localStorage.getItem('auro_match_user');
+        const active = getActiveScope();
+        const isAuthenticated = Boolean(active && !active.startsWith('guest_'));
+
+        let userRaw = null;
+        if (active) {
+          userRaw = localStorage.getItem(`auro_match_user:${active}`);
+        }
+        if (!userRaw) {
+          const sharedRaw = localStorage.getItem('auro_match_user');
+          if (sharedRaw) {
+            try {
+              const parsed = JSON.parse(sharedRaw);
+              const owner = typeof getRecordOwnerId === 'function' ? getRecordOwnerId(parsed) : parsed?.ownerId;
+              if (isAuthenticated ? (owner && owner === active) : (!active || !owner || owner === active)) {
+                userRaw = sharedRaw;
+              }
+            } catch {}
+          }
+        }
         if (userRaw) {
           const parsed = JSON.parse(userRaw);
-          if (parsed && (parsed.progression?.completedLevelsCount > 0 || parsed.progression?.completedLevelIds?.length > 0)) {
+          if (parsed && (parsed.progression?.completedLevelsCount > 0 || (parsed.progression?.completedLevelIds?.length || 0) > 0)) {
             return true;
           }
         }
-        const stateRaw = localStorage.getItem('auromatch_player_state');
-        if (stateRaw) {
-          const parsed = JSON.parse(stateRaw);
-          if (parsed && (parsed.completedLevels?.length > 0 || parsed.currentLevel > 1)) {
-            return true;
+        // State raw check (only for unauthenticated guest)
+        if (!isAuthenticated) {
+          const stateRaw = localStorage.getItem('auromatch_player_state');
+          if (stateRaw) {
+            const parsed = JSON.parse(stateRaw);
+            if (parsed && (parsed.completedLevels?.length > 0 || parsed.currentLevel > 1)) {
+              return true;
+            }
           }
         }
         return false;
@@ -86,27 +109,64 @@ export function createAuroMatchGameAdapter() {
       }
     },
     exportEnvelope: async (guestId) => {
+      if (typeof isPurgeActive === 'function' && isPurgeActive()) {
+        console.warn('[AuroMatch Bridge] exportEnvelope blocked: Purge is active.');
+        return {
+          envelopeVersion: 1,
+          gameId: 'auromatch',
+          gameSchemaVersion: 1,
+          guestId,
+          baseRevision: 0,
+          clientUpdatedAt: new Date().toISOString(),
+          isEmpty: true,
+          checksum: 'match_0_0',
+          payload: { schemaVersion: 1, user: null, consecrations: [], unlockedTiles: [], exportedAt: new Date().toISOString() }
+        };
+      }
+      const active = getActiveScope();
+      const isAuthenticated = Boolean(active && !active.startsWith('guest_'));
       let userObj = null;
       let consecrations = [];
       let unlockedTiles = [];
 
       try {
         if (typeof localStorage !== 'undefined') {
-          const rawUser = localStorage.getItem('auro_match_user');
-          if (rawUser) userObj = JSON.parse(rawUser);
+          if (active) {
+            const scopedUser = localStorage.getItem(`auro_match_user:${active}`);
+            if (scopedUser) userObj = JSON.parse(scopedUser);
 
-          const rawCons = localStorage.getItem('auro_match_consecrations');
-          if (rawCons) consecrations = JSON.parse(rawCons);
+            const scopedCons = localStorage.getItem(`auro_match_consecrations:${active}`);
+            if (scopedCons) consecrations = JSON.parse(scopedCons);
 
-          const rawTiles = localStorage.getItem('auro_match_unlocked_tiles');
-          if (rawTiles) unlockedTiles = JSON.parse(rawTiles);
+            const scopedTiles = localStorage.getItem(`auro_match_unlocked_tiles:${active}`);
+            if (scopedTiles) unlockedTiles = JSON.parse(scopedTiles);
+          }
+
+          if (!userObj) {
+            const rawUser = localStorage.getItem('auro_match_user');
+            if (rawUser) {
+              const parsed = JSON.parse(rawUser);
+              const owner = typeof getRecordOwnerId === 'function' ? getRecordOwnerId(parsed) : parsed?.ownerId;
+              if (isAuthenticated ? (owner && owner === active) : (!active || !owner || owner === active)) {
+                userObj = parsed;
+                const rawCons = localStorage.getItem('auro_match_consecrations');
+                if (rawCons) consecrations = JSON.parse(rawCons);
+                const rawTiles = localStorage.getItem('auro_match_unlocked_tiles');
+                if (rawTiles) unlockedTiles = JSON.parse(rawTiles);
+              }
+            }
+          }
         }
       } catch {}
+
+      const effectiveOwner = active || userObj?.ownerId || guestId || null;
+      if (userObj && effectiveOwner) userObj.ownerId = effectiveOwner;
 
       const normalizedConsecrations = mergeUniqueItems(Array.isArray(consecrations) ? consecrations : [], []);
       const normalizedTiles = mergeUniqueItems(Array.isArray(unlockedTiles) ? unlockedTiles : [], []);
 
-      const hasProgress = Boolean(
+      const isOwnerValid = isAuthenticated ? (userObj && userObj.ownerId === active) : true;
+      const hasProgress = isOwnerValid && Boolean(
         (userObj && (userObj.progression?.completedLevelsCount > 0 || (userObj.progression?.completedLevelIds?.length || 0) > 0)) ||
         normalizedTiles.length > 0 ||
         normalizedConsecrations.length > 0
@@ -114,9 +174,10 @@ export function createAuroMatchGameAdapter() {
 
       const payload = {
         schemaVersion: 1,
-        user: userObj || null,
-        consecrations: normalizedConsecrations,
-        unlockedTiles: normalizedTiles,
+        user: isOwnerValid ? (userObj || null) : null,
+        consecrations: isOwnerValid ? normalizedConsecrations : [],
+        unlockedTiles: isOwnerValid ? normalizedTiles : [],
+        ownerId: effectiveOwner,
         exportedAt: new Date().toISOString()
       };
 
@@ -132,6 +193,7 @@ export function createAuroMatchGameAdapter() {
         gameId: 'auromatch',
         gameSchemaVersion: 1,
         guestId,
+        ownerId: effectiveOwner,
         baseRevision: 0,
         clientUpdatedAt: new Date().toISOString(),
         isEmpty: !hasProgress,
@@ -148,11 +210,30 @@ export function createAuroMatchGameAdapter() {
       }
       try {
         if (typeof localStorage === 'undefined') return false;
+
+        const currentScope = getActiveScope();
         const targetScope = resolveAccountScope(context) || resolveAccountScope(envelope);
-        if (targetScope && targetScope !== getActiveScope()) {
+        const isScopeTransition = Boolean(targetScope && targetScope !== currentScope);
+        const skipLocalMerge = Boolean(context?.skipLocalMerge || envelope?.skipLocalMerge || isScopeTransition);
+
+        // Owner mismatch validation: fail closed!
+        // Permits guest-to-account migration ONLY when explicitly verified (context.guestId / migrateFromGuest)
+        const envelopeOwner = envelope.ownerId || envelope.userId || envelope.payload?.ownerId || envelope.payload?.profileState?.ownerId || null;
+        if (envelopeOwner && targetScope && envelopeOwner !== targetScope) {
+          const isGuestMigration = Boolean(
+            envelopeOwner.startsWith('guest_') &&
+            (context?.guestId === envelopeOwner || envelope.guestId === envelopeOwner || context?.migrateFromGuest)
+          );
+          if (!isGuestMigration) {
+            console.warn(`[AuroMatch Bridge] applyEnvelope: Owner mismatch: envelope belongs to "${envelopeOwner}", target is "${targetScope}". Rejecting.`);
+            return false;
+          }
+        }
+
+        if (isScopeTransition) {
           setAccountScope(targetScope);
         }
-        const skipLocalMerge = Boolean(context?.skipLocalMerge || envelope?.skipLocalMerge || (targetScope && targetScope !== getActiveScope()));
+
         const { user, consecrations, unlockedTiles, profileState: envelopeProfileState } = envelope.payload;
 
         let effectiveUser = user;
@@ -175,15 +256,18 @@ export function createAuroMatchGameAdapter() {
         let localTiles = [];
         if (!skipLocalMerge) {
           try {
-            const rawUser = localStorage.getItem('auro_match_user');
+            const userKey = targetScope ? `auro_match_user:${targetScope}` : 'auro_match_user';
+            const rawUser = localStorage.getItem(userKey);
             if (rawUser) localUser = JSON.parse(rawUser);
           } catch {}
           try {
-            const rawCons = localStorage.getItem('auro_match_consecrations');
+            const consKey = targetScope ? `auro_match_consecrations:${targetScope}` : 'auro_match_consecrations';
+            const rawCons = localStorage.getItem(consKey);
             if (rawCons) localConsecrations = JSON.parse(rawCons);
           } catch {}
           try {
-            const rawTiles = localStorage.getItem('auro_match_unlocked_tiles');
+            const tilesKey = targetScope ? `auro_match_unlocked_tiles:${targetScope}` : 'auro_match_unlocked_tiles';
+            const rawTiles = localStorage.getItem(tilesKey);
             if (rawTiles) localTiles = JSON.parse(rawTiles);
           } catch {}
         }
@@ -211,15 +295,15 @@ export function createAuroMatchGameAdapter() {
             );
           }
           await setItemDualWrite('auro_match_user', mergedUser);
-          if (targetScope) await setItemDualWrite(`auro_match_user:${targetScope}`, mergedUser);
+          if (targetScope) await setItemDualWrite(`auro_match_user:${targetScope}`, mergedUser, { accountScope: targetScope });
         }
         if (Array.isArray(effectiveConsecrations) || skipLocalMerge) {
           await setItemDualWrite('auro_match_consecrations', mergedConsecrations);
-          if (targetScope) await setItemDualWrite(`auro_match_consecrations:${targetScope}`, mergedConsecrations);
+          if (targetScope) await setItemDualWrite(`auro_match_consecrations:${targetScope}`, mergedConsecrations, { accountScope: targetScope });
         }
         if (Array.isArray(effectiveTiles) || skipLocalMerge) {
           await setItemDualWrite('auro_match_unlocked_tiles', mergedTiles);
-          if (targetScope) await setItemDualWrite(`auro_match_unlocked_tiles:${targetScope}`, mergedTiles);
+          if (targetScope) await setItemDualWrite(`auro_match_unlocked_tiles:${targetScope}`, mergedTiles, { accountScope: targetScope });
         }
         loadProfileState({ accountScope: targetScope });
         return true;

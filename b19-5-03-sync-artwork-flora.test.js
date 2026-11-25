@@ -2394,6 +2394,546 @@ describe('Part 1D — Focused Correction: Remote Save Integrity & Account-Switch
 });
 
 // =============================================================================
+// PART 1E — AUROMATCH LEGACY STORAGE & ACCOUNT-ISOLATION HARDENING (ADVERSARIAL SUITE)
+// =============================================================================
+
+describe('Part 1E — AuroMatch Legacy Storage & Account-Isolation Hardening (Adversarial Suite)', () => {
+  test('Adv-1: Authenticated Account B with no scoped IndexedDB records and unowned legacy IndexedDB records for all three core keys', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+    setAccountScope(null);
+
+    try {
+      // 1. Populate IDB directly with unowned legacy records
+      const db = await new Promise((resolve) => {
+        const req = fakeIdb.open('AuroMatchDB');
+        req.onsuccess = () => resolve(req.result);
+      });
+      const tx = db.transaction('gameState', 'readwrite');
+      const store = tx.objectStore('gameState');
+      store.put(JSON.stringify({
+        profile: { lotusPetalCount: 50, consciousnessPoints: 200 },
+        progression: { completedLevelsCount: 2, completedLevelIds: ['legacy_1', 'legacy_2'], unlockedThemes: ['flowers'] },
+        reflections: [{ id: 'leg_c1', text: 'Legacy Unowned' }],
+        settings: { volumeRaga: 0.8 },
+        dailyDrawDate: '2026-11-20'
+      }), 'auro_match_user');
+      store.put(JSON.stringify([{ id: 'leg_c1', text: 'Legacy Unowned' }]), 'auro_match_consecrations');
+      store.put(JSON.stringify(['legacy_1', 'legacy_2']), 'auro_match_unlocked_tiles');
+      await new Promise((r) => { tx.oncomplete = r; });
+
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+
+      // 2. Account B initializes adapter
+      await nativeAdapter.init({ accountScope: 'user_B', getGuestId: () => 'guest_B' });
+      const healed = await autoHealFromIndexedDB({ accountScope: 'user_B' });
+      assert.equal(healed, false, 'autoHealFromIndexedDB must return false for authenticated Account B with unowned legacy IDB records');
+
+      // 3. Assert Account B has zero legacy progression
+      assert.equal(profileState.profile.lotusPetalCount, 0, 'Account B must not inherit legacy lotus petals');
+      assert.deepEqual(profileState.progression.completedLevelIds, [], 'Account B must have empty completed levels');
+      assert.deepEqual(profileState.reflections, [], 'Account B must have empty reflections');
+      assert.equal(storage.getItem('auro_match_user:user_B'), null);
+      assert.equal(storage.getItem('auro_match_consecrations:user_B'), null);
+      assert.equal(storage.getItem('auro_match_unlocked_tiles:user_B'), null);
+
+      assert.equal(nativeAdapter.hasLocalProgress(), false);
+      assert.equal(bridgeAdapter.hasLocalProgress(), false);
+
+      const envNative = await nativeAdapter.exportEnvelope('guest_B');
+      assert.equal(envNative.isEmpty, true, 'Native envelope must be marked empty');
+
+      const envBridge = await bridgeAdapter.exportEnvelope('guest_B');
+      assert.equal(envBridge.isEmpty, true, 'Bridge envelope must be marked empty');
+    } finally {
+      setPurgeLock(false);
+      setAccountScope(null);
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
+
+  test('Adv-2: Authenticated Account B with a valid scoped user record but unowned legacy reflections and unlocked tiles', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+    setAccountScope(null);
+
+    try {
+      const db = await new Promise((resolve) => {
+        const req = fakeIdb.open('AuroMatchDB');
+        req.onsuccess = () => resolve(req.result);
+      });
+      const tx = db.transaction('gameState', 'readwrite');
+      const store = tx.objectStore('gameState');
+      // Valid scoped user for user_B
+      store.put(JSON.stringify({
+        profile: { lotusPetalCount: 25, consciousnessPoints: 100, ownerId: 'user_B' },
+        progression: { completedLevelsCount: 1, completedLevelIds: ['b_level_1'] },
+        reflections: [],
+        settings: { volumeRaga: 0.5 },
+        ownerId: 'user_B'
+      }), 'auro_match_user:user_B');
+      store.put(JSON.stringify(['b_level_1']), 'auro_match_unlocked_tiles:user_B');
+      // Unowned legacy arrays in unscoped keys
+      store.put(JSON.stringify([{ id: 'unowned_refl', text: 'Foreign Legacy Reflection' }]), 'auro_match_consecrations');
+      store.put(JSON.stringify(['foreign_tile_1', 'foreign_tile_2']), 'auro_match_unlocked_tiles');
+      await new Promise((r) => { tx.oncomplete = r; });
+
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      await nativeAdapter.init({ accountScope: 'user_B' });
+
+      // Account B restores its valid scoped user
+      assert.equal(profileState.profile.lotusPetalCount, 25);
+      assert.deepEqual(profileState.progression.completedLevelIds, ['b_level_1']);
+
+      // Account B must NOT inherit unowned legacy reflections or foreign tiles
+      assert.deepEqual(profileState.reflections, [], 'Must not inherit unowned legacy reflections');
+      const scopedTiles = JSON.parse(storage.getItem('auro_match_unlocked_tiles:user_B') || '[]');
+      assert.deepEqual(scopedTiles, ['b_level_1'], 'Must not inherit foreign legacy tiles');
+      const scopedCons = JSON.parse(storage.getItem('auro_match_consecrations:user_B') || '[]');
+      assert.deepEqual(scopedCons, [], 'Must not inherit foreign legacy reflections');
+    } finally {
+      setPurgeLock(false);
+      setAccountScope(null);
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
+
+  test('Adv-3: Missing IndexedDB user record with populated unowned legacy arrays', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+    setAccountScope(null);
+
+    try {
+      const db = await new Promise((resolve) => {
+        const req = fakeIdb.open('AuroMatchDB');
+        req.onsuccess = () => resolve(req.result);
+      });
+      const tx = db.transaction('gameState', 'readwrite');
+      const store = tx.objectStore('gameState');
+      // No user record, only arrays
+      store.put(JSON.stringify([{ id: 'orphaned_c', text: 'Orphaned' }]), 'auro_match_consecrations');
+      store.put(JSON.stringify(['orphaned_tile_1']), 'auro_match_unlocked_tiles');
+      await new Promise((r) => { tx.oncomplete = r; });
+
+      const healed = await autoHealFromIndexedDB({ accountScope: 'user_B' });
+      assert.equal(healed, false, 'autoHealFromIndexedDB must fail closed when user record is missing');
+      assert.equal(storage.getItem('auro_match_consecrations:user_B'), null);
+      assert.equal(storage.getItem('auro_match_unlocked_tiles:user_B'), null);
+      assert.deepEqual(profileState.reflections, []);
+    } finally {
+      setPurgeLock(false);
+      setAccountScope(null);
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
+
+  test('Adv-4: Malformed owner metadata fails closed across all validation paths', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+    setAccountScope(null);
+
+    const malformedVariants = [
+      { label: 'number ownerId', record: { ownerId: 12345, profile: { lotusPetalCount: 50 } } },
+      { label: 'object ownerId', record: { ownerId: { id: 'user_B' }, profile: { lotusPetalCount: 50 } } },
+      { label: 'empty string ownerId', record: { ownerId: '', profile: { lotusPetalCount: 50 } } },
+      { label: 'whitespace ownerId', record: { ownerId: '   ', profile: { lotusPetalCount: 50 } } },
+      { label: 'boolean ownerId', record: { ownerId: true, profile: { lotusPetalCount: 50 } } },
+      { label: 'array ownerId in profile', record: { profile: { ownerId: ['user_B'], lotusPetalCount: 50 } } },
+      { label: 'null ownerId', record: { ownerId: null, profile: { lotusPetalCount: 50 } } }
+    ];
+
+    try {
+      for (const variant of malformedVariants) {
+        storage.clear();
+        const db = await new Promise((resolve) => {
+          const req = fakeIdb.open('AuroMatchDB');
+          req.onsuccess = () => resolve(req.result);
+        });
+        const tx = db.transaction('gameState', 'readwrite');
+        const store = tx.objectStore('gameState');
+        store.put(JSON.stringify(variant.record), 'auro_match_user:user_B');
+        store.put(JSON.stringify(variant.record), 'auro_match_user');
+        await new Promise((r) => { tx.oncomplete = r; });
+
+        const healed = await autoHealFromIndexedDB({ accountScope: 'user_B' });
+        assert.equal(healed, false, `autoHealFromIndexedDB must fail closed on ${variant.label}`);
+      }
+    } finally {
+      setPurgeLock(false);
+      setAccountScope(null);
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
+
+  test('Adv-5: Account A legacy records followed by Account B initialization and export', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+    setAccountScope(null);
+
+    try {
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+
+      // Account A writes legacy records
+      storage.setItem('auro_match_user', JSON.stringify({
+        profile: { lotusPetalCount: 80, consciousnessPoints: 300, ownerId: 'guest_A' },
+        progression: { completedLevelsCount: 2, completedLevelIds: ['a_tile_1'] },
+        reflections: [{ id: 'a_refl', text: 'A Reflection' }],
+        ownerId: 'guest_A'
+      }));
+      storage.setItem('auro_match_consecrations', JSON.stringify([{ id: 'a_refl', text: 'A Reflection' }]));
+      storage.setItem('auro_match_unlocked_tiles', JSON.stringify(['a_tile_1']));
+
+      // Account B initializes
+      await nativeAdapter.init({ accountScope: 'user_B' });
+
+      // Account B must see no progress
+      assert.equal(nativeAdapter.hasLocalProgress(), false, 'Account B native hasLocalProgress must be false');
+      assert.equal(bridgeAdapter.hasLocalProgress(), false, 'Account B bridge hasLocalProgress must be false');
+
+      const nativeEnvB = await nativeAdapter.exportEnvelope('guest_B');
+      assert.equal(nativeEnvB.isEmpty, true, 'Native export must be empty for Account B');
+      assert.equal(nativeEnvB.payload.profileState.profile.lotusPetalCount, 0);
+      assert.deepEqual(nativeEnvB.payload.profileState.reflections, []);
+
+      const bridgeEnvB = await bridgeAdapter.exportEnvelope('guest_B');
+      assert.equal(bridgeEnvB.isEmpty, true, 'Bridge export must be empty for Account B');
+      assert.equal(bridgeEnvB.payload.user?.profile?.lotusPetalCount || 0, 0);
+      assert.deepEqual(bridgeEnvB.payload.consecrations, []);
+
+      // Account A data remains intact and recoverable
+      await nativeAdapter.init({ accountScope: 'guest_A' });
+      assert.equal(nativeAdapter.hasLocalProgress(), true, 'Account A data must remain recoverable');
+      assert.equal(profileState.profile.lotusPetalCount, 80);
+      assert.deepEqual(profileState.reflections, [{ id: 'a_refl', text: 'A Reflection' }]);
+    } finally {
+      setPurgeLock(false);
+      setAccountScope(null);
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
+
+  test('Adv-6: Account switching while dual-write reconciliation is pending isolates pending entries', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+    setAccountScope(null);
+
+    try {
+      // Force failure on IDB put for Account A's write to create divergence
+      fakeIdb._setAlwaysFailPut(true);
+      await setItemDualWrite('test_divergent_key', 'account_A_secret', { accountScope: 'user_A' });
+      const statusA = getDualWriteStatus('test_divergent_key');
+      assert.equal(statusA.pendingRepair, true);
+
+      // Account switches to user_B
+      setAccountScope('user_B');
+      fakeIdb._setAlwaysFailPut(false);
+
+      // Reconcile dual-write for Account B
+      await reconcileDualWriteParity({ accountScope: 'user_B' });
+
+      // Verify Account A secret was NOT written to user_B's store
+      assert.equal(storage.getItem('test_divergent_key:user_B'), null);
+      assert.equal(storage.getItem('auro_match_user:user_B'), null);
+    } finally {
+      fakeIdb._setAlwaysFailPut(false);
+      setPurgeLock(false);
+      setAccountScope(null);
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
+
+  test('Adv-7: Guest-to-authenticated migration with explicit ownership proof and anti-cross-claim guard', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+    setAccountScope(null);
+
+    try {
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+
+      // Guest plays and earns progress
+      setAccountScope('guest_migrating');
+      profileState.profile.lotusPetalCount = 40;
+      profileState.progression.completedLevelIds = ['mig_1', 'mig_2'];
+      profileState.reflections = [{ id: 'mig_r', text: 'Migrate Me' }];
+      saveProfileState({ accountScope: 'guest_migrating' });
+
+      const guestEnvelope = await nativeAdapter.exportEnvelope('guest_migrating');
+      assert.equal(guestEnvelope.isEmpty, false);
+
+      // Legitimate migration to user_migrated
+      const applied = await nativeAdapter.applyEnvelope(guestEnvelope, {
+        accountScope: 'user_migrated',
+        guestId: 'guest_migrating'
+      });
+      assert.equal(applied, true);
+      assert.equal(profileState.ownerId, 'user_migrated');
+      assert.equal(profileState.profile.lotusPetalCount, 40);
+
+      // Cross-claim attack: envelope owned by 'user_attacker' targeted to 'user_migrated'
+      const spoofEnvelope = {
+        gameId: 'auromatch',
+        ownerId: 'user_attacker',
+        payload: {
+          profileState: {
+            profile: { lotusPetalCount: 9999, ownerId: 'user_attacker' },
+            progression: { completedLevelsCount: 10, completedLevelIds: ['stolen'] },
+            reflections: [{ id: 'stolen_r', text: 'Malicious payload' }]
+          }
+        }
+      };
+      const blockedNative = await nativeAdapter.applyEnvelope(spoofEnvelope, { accountScope: 'user_migrated' });
+      assert.equal(blockedNative, false, 'Native applyEnvelope must reject owner mismatch');
+
+      const blockedBridge = await bridgeAdapter.applyEnvelope(spoofEnvelope, { accountScope: 'user_migrated' });
+      assert.equal(blockedBridge, false, 'Bridge applyEnvelope must reject owner mismatch');
+
+      // State of user_migrated remains untouched
+      assert.equal(profileState.profile.lotusPetalCount, 40);
+    } finally {
+      setPurgeLock(false);
+      setAccountScope(null);
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
+
+  test('Adv-8: Account A -> B -> A across restart and recovery preserves both accounts intact', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+    setAccountScope(null);
+
+    try {
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      const ctxA = { accountScope: 'user_A', getGuestId: () => 'guest_A' };
+      const ctxB = { accountScope: 'user_B', getGuestId: () => 'guest_B' };
+
+      // 1. Account A saves state
+      await nativeAdapter.init(ctxA);
+      profileState.profile.lotusPetalCount = 90;
+      profileState.progression.completedLevelIds = ['a_lvl'];
+      profileState.progression.completedLevelsCount = 1;
+      profileState.reflections = [{ id: 'a_ref', text: 'A refl' }];
+      saveProfileState({ accountScope: 'user_A' });
+
+      // 2. Account B saves state
+      await nativeAdapter.init(ctxB);
+      profileState.profile.lotusPetalCount = 30;
+      profileState.progression.completedLevelIds = ['b_lvl'];
+      profileState.progression.completedLevelsCount = 1;
+      profileState.reflections = [{ id: 'b_ref', text: 'B refl' }];
+      saveProfileState({ accountScope: 'user_B' });
+
+      // 3. Simulate crash/reload: wipe localStorage
+      storage.clear();
+
+      // 4. Account A initializes & recovers
+      await nativeAdapter.init(ctxA);
+      assert.equal(profileState.profile.lotusPetalCount, 90, 'Account A petals recovered from IDB');
+      assert.deepEqual(profileState.progression.completedLevelIds, ['a_lvl']);
+      assert.deepEqual(profileState.reflections, [{ id: 'a_ref', text: 'A refl' }]);
+
+      // 5. Account B initializes & recovers
+      await nativeAdapter.init(ctxB);
+      assert.equal(profileState.profile.lotusPetalCount, 30, 'Account B petals recovered from IDB');
+      assert.deepEqual(profileState.progression.completedLevelIds, ['b_lvl']);
+      assert.deepEqual(profileState.reflections, [{ id: 'b_ref', text: 'B refl' }]);
+
+      // 6. Return to Account A
+      await nativeAdapter.init(ctxA);
+      assert.equal(profileState.profile.lotusPetalCount, 90, 'Account A petals remain 90');
+      assert.deepEqual(profileState.progression.completedLevelIds, ['a_lvl']);
+    } finally {
+      setPurgeLock(false);
+      setAccountScope(null);
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
+
+  test('Adv-9: Purge lock blocks recovery, export, apply, and writes', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+
+    try {
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+
+      setPurgeLock(true);
+      assert.equal(isPurgeActive(), true);
+
+      // Writes blocked
+      assert.equal(saveProfileState(), false);
+      const dwRes = await setItemDualWrite('test_purge', 'val');
+      assert.equal(dwRes.blockedByPurge, true);
+
+      // Auto-heal blocked
+      const healed = await autoHealFromIndexedDB({ accountScope: 'user_test' });
+      assert.equal(healed, false);
+
+      // hasLocalProgress returns false
+      assert.equal(nativeAdapter.hasLocalProgress(), false);
+      assert.equal(bridgeAdapter.hasLocalProgress(), false);
+
+      // exportEnvelope returns isEmpty: true
+      const envNative = await nativeAdapter.exportEnvelope('guest_test');
+      assert.equal(envNative.isEmpty, true);
+      const envBridge = await bridgeAdapter.exportEnvelope('guest_test');
+      assert.equal(envBridge.isEmpty, true);
+
+      // applyEnvelope returns false
+      const testEnv = { gameId: 'auromatch', payload: { profileState: {} } };
+      assert.equal(await nativeAdapter.applyEnvelope(testEnv), false);
+      assert.equal(await bridgeAdapter.applyEnvelope(testEnv), false);
+
+      setPurgeLock(false);
+      assert.equal(isPurgeActive(), false);
+    } finally {
+      setPurgeLock(false);
+      setAccountScope(null);
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
+
+  test('Adv-10: Native adapter and SDK bridge parity across security boundaries', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+    setAccountScope(null);
+
+    try {
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+
+      // 1. Empty state: both report false / isEmpty: true
+      assert.equal(nativeAdapter.hasLocalProgress(), false);
+      assert.equal(bridgeAdapter.hasLocalProgress(), false);
+      const natEnv = await nativeAdapter.exportEnvelope('guest_1');
+      const briEnv = await bridgeAdapter.exportEnvelope('guest_1');
+      assert.equal(natEnv.isEmpty, true);
+      assert.equal(briEnv.isEmpty, true);
+
+      // 2. Foreign gameId rejection: both return false
+      const foreignGameEnv = { gameId: 'vak', payload: { user: {} } };
+      assert.equal(await nativeAdapter.applyEnvelope(foreignGameEnv), false);
+      assert.equal(await bridgeAdapter.applyEnvelope(foreignGameEnv), false);
+
+      // 3. Null / malformed envelope rejection: both return false
+      assert.equal(await nativeAdapter.applyEnvelope(null), false);
+      assert.equal(await bridgeAdapter.applyEnvelope(null), false);
+      assert.equal(await nativeAdapter.applyEnvelope({ gameId: 'auromatch' }), false);
+      assert.equal(await bridgeAdapter.applyEnvelope({ gameId: 'auromatch' }), false);
+
+      // 4. Owner mismatch rejection: both fail closed
+      const mismatchEnv = {
+        gameId: 'auromatch',
+        ownerId: 'user_attacker',
+        payload: {
+          user: { profile: { lotusPetalCount: 500 } },
+          consecrations: [],
+          unlockedTiles: []
+        }
+      };
+      assert.equal(await nativeAdapter.applyEnvelope(mismatchEnv, { accountScope: 'user_victim' }), false);
+      assert.equal(await bridgeAdapter.applyEnvelope(mismatchEnv, { accountScope: 'user_victim' }), false);
+    } finally {
+      setPurgeLock(false);
+      setAccountScope(null);
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
+});
+
+// =============================================================================
 // PART 2 — REAL BROWSER VERIFICATION (CHROMIUM / EDGE VIA BROWSER HARNESS)
 // =============================================================================
 
