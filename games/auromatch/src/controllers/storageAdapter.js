@@ -1835,10 +1835,14 @@ export function createAuroMatchGameAdapter() {
 
             if (isScopeTransition) {
                 setAccountScope(targetScope);
+                if (getActiveScope() !== targetScope || getScopeGeneration() !== entryGen + 1) {
+                    console.warn('[Storage] applyEnvelope: Mid-transition scope interference detected. Failing closed.');
+                    return false;
+                }
             }
 
             const expectedScope = targetScope !== null && targetScope !== undefined ? targetScope : entryScope;
-            const expectedGen = getScopeGeneration();
+            const expectedGen = isScopeTransition ? entryGen + 1 : entryGen;
             const isScopeConsistent = () => (getActiveScope() === expectedScope && getScopeGeneration() === expectedGen);
 
             if (!isScopeConsistent()) {
@@ -1905,40 +1909,22 @@ export function createAuroMatchGameAdapter() {
             // Sequential asynchronous dual-write persistence with revalidation across every boundary
             if (targetScope) {
                 if (!isScopeConsistent()) return false;
-                if (typeof localStorage !== 'undefined') {
-                    localStorage.setItem(`auro_match_user:${targetScope}`, JSON.stringify(userObj));
-                }
                 await setItemDualWrite(`auro_match_user:${targetScope}`, userObj, { accountScope: targetScope });
                 if (!isScopeConsistent()) return false;
 
-                if (typeof localStorage !== 'undefined') {
-                    localStorage.setItem(`auro_match_consecrations:${targetScope}`, JSON.stringify(reflections));
-                }
                 await setItemDualWrite(`auro_match_consecrations:${targetScope}`, reflections, { accountScope: targetScope });
                 if (!isScopeConsistent()) return false;
 
-                if (typeof localStorage !== 'undefined') {
-                    localStorage.setItem(`auro_match_unlocked_tiles:${targetScope}`, JSON.stringify(completedLevelIds));
-                }
                 await setItemDualWrite(`auro_match_unlocked_tiles:${targetScope}`, completedLevelIds, { accountScope: targetScope });
                 if (!isScopeConsistent()) return false;
             } else if (!isAuthenticatedTarget) {
                 if (!isScopeConsistent()) return false;
-                if (typeof localStorage !== 'undefined') {
-                    localStorage.setItem('auro_match_user', JSON.stringify(userObj));
-                }
                 await setItemDualWrite('auro_match_user', userObj);
                 if (!isScopeConsistent()) return false;
 
-                if (typeof localStorage !== 'undefined') {
-                    localStorage.setItem('auro_match_consecrations', JSON.stringify(reflections));
-                }
                 await setItemDualWrite('auro_match_consecrations', reflections);
                 if (!isScopeConsistent()) return false;
 
-                if (typeof localStorage !== 'undefined') {
-                    localStorage.setItem('auro_match_unlocked_tiles', JSON.stringify(completedLevelIds));
-                }
                 await setItemDualWrite('auro_match_unlocked_tiles', completedLevelIds);
                 if (!isScopeConsistent()) return false;
             }

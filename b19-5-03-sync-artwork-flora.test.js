@@ -106,7 +106,16 @@ function createMemoryStorage({ failOnSet = false, quotaError = false } = {}) {
   };
 }
 
-function createFakeIndexedDB({ failPutCount = 0, alwaysFailPut = false } = {}) {
+function createDeferred() {
+  let resolve, reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function createFakeIndexedDB({ failPutCount = 0, alwaysFailPut = false, onPut = null } = {}) {
   const dbs = new Map();
   let remainingPutFailures = failPutCount;
   let forceFailPut = alwaysFailPut;
@@ -156,7 +165,11 @@ function createFakeIndexedDB({ failPutCount = 0, alwaysFailPut = false } = {}) {
               },
               put(value, explicitKey) {
                 const req = { result: undefined, onsuccess: null, onerror: null };
-                queueMicrotask(() => {
+                const executePut = async () => {
+                  const k = explicitKey !== undefined ? explicitKey : (value && (value.id || value.key));
+                  if (typeof onPut === 'function') {
+                    await onPut(k, value);
+                  }
                   if (forceFailPut || remainingPutFailures > 0) {
                     if (remainingPutFailures > 0) remainingPutFailures--;
                     const err = new Error('Simulated IndexedDB write failure');
@@ -166,11 +179,18 @@ function createFakeIndexedDB({ failPutCount = 0, alwaysFailPut = false } = {}) {
                     if (tx.onerror) tx.onerror({ target: tx });
                     return;
                   }
-                  const k = explicitKey !== undefined ? explicitKey : (value && (value.id || value.key));
                   store.set(k, value);
                   req.result = k;
                   if (req.onsuccess) req.onsuccess({ target: req });
                   if (tx.oncomplete) tx.oncomplete({ target: tx });
+                };
+                queueMicrotask(() => {
+                  executePut().catch((err) => {
+                    tx.error = err;
+                    req.error = err;
+                    if (req.onerror) req.onerror({ target: req });
+                    if (tx.onerror) tx.onerror({ target: tx });
+                  });
                 });
                 return req;
               },
@@ -4547,160 +4567,321 @@ describe('Part 1E — AuroMatch Legacy Storage & Account-Isolation Hardening (Ad
     }
   });
 
-  test('Adv-47: Asynchronous applyEnvelope protects against mid-flight A -> B account transition race in both adapters', async () => {
+  test('Adv-47: Deterministic deferred-promise account-switch gate: pause first persistence write, switch account (A -> B, A -> B -> A, A -> null -> A, A -> null), release write in both adapters', async () => {
     const prevLS = globalThis.localStorage;
-    const storage = createMemoryStorage();
-    globalThis.localStorage = storage;
-    setAccountScope('user_apply_a');
+    const prevIDB = globalThis.indexedDB;
+
+    const envelopeA = {
+      gameId: 'auromatch',
+      ownerId: 'user_apply_a',
+      payload: {
+        profileState: {
+          profile: { lotusPetalCount: 42, ownerId: 'user_apply_a' },
+          progression: { completedLevelsCount: 1, completedLevelIds: ['lvl_a'] },
+          reflections: [{ id: 'ref_a', text: 'Ref A' }],
+          ownerId: 'user_apply_a'
+        }
+      }
+    };
+
+    const adapters = [
+      { name: 'Native', create: createAuroMatchNativeAdapter },
+      { name: 'Bridge', create: createAuroMatchBridgeAdapter }
+    ];
 
     try {
-      const nativeAdapter = createAuroMatchNativeAdapter();
-      const bridgeAdapter = createAuroMatchBridgeAdapter();
+      for (const { name, create } of adapters) {
+        // --- Subcase 1: A -> B ---
+        {
+          const storage = createMemoryStorage();
+          globalThis.localStorage = storage;
+          const pauseDef = createDeferred();
+          const reachedDef = createDeferred();
+          const fakeIdb = createFakeIndexedDB({
+            onPut: async (k) => {
+              if (k && k.startsWith('auro_match_user:')) {
+                reachedDef.resolve();
+                await pauseDef.promise;
+              }
+            }
+          });
+          globalThis.indexedDB = fakeIdb;
+          resetIndexedDBConnection();
+          setAccountScope('user_apply_a');
 
-      const envelopeA = {
-        gameId: 'auromatch',
-        ownerId: 'user_apply_a',
-        payload: {
-          profileState: {
-            profile: { lotusPetalCount: 42, ownerId: 'user_apply_a' },
-            progression: { completedLevelsCount: 1, completedLevelIds: ['lvl_a'] },
-            reflections: [{ id: 'ref_a', text: 'Ref A' }],
-            ownerId: 'user_apply_a'
-          }
+          const adapter = create();
+          const applyPromise = adapter.applyEnvelope(envelopeA, { accountScope: 'user_apply_a' });
+          await reachedDef.promise; // Suspended deterministically inside write 1
+
+          setAccountScope('user_apply_b'); // Intervening account switch
+          pauseDef.resolve(); // Release write 1
+
+          const res = await applyPromise;
+          assert.equal(res, false, `${name}: applyEnvelope must fail closed on deterministic A -> B race during 1st write`);
+          assert.equal(getActiveScope(), 'user_apply_b');
+          assert.equal(storage.getItem('auro_match_user:user_apply_b'), null, `${name}: User B scoped user must be null`);
+          assert.equal(storage.getItem('auro_match_consecrations:user_apply_b'), null, `${name}: User B reflections must be null`);
+          assert.equal(storage.getItem('auro_match_unlocked_tiles:user_apply_b'), null, `${name}: User B tiles must be null`);
+          assert.equal(storage.getItem('auro_match_user'), null, `${name}: User B active working cache must not be contaminated`);
+          assert.equal(storage.getItem('auro_match_consecrations:user_apply_a'), null, `${name}: Write 2 for User A must not execute`);
+          assert.equal(storage.getItem('auro_match_unlocked_tiles:user_apply_a'), null, `${name}: Write 3 for User A must not execute`);
         }
-      };
 
-      // 1. Native adapter: mid-flight switch to B while applying A
-      const nativePromise = nativeAdapter.applyEnvelope(envelopeA, { accountScope: 'user_apply_a' });
-      setAccountScope('user_apply_b'); // Switch to B while apply is in flight
-      const nativeResult = await nativePromise;
+        // --- Subcase 2: A -> B -> A ---
+        {
+          const storage = createMemoryStorage();
+          globalThis.localStorage = storage;
+          const pauseDef = createDeferred();
+          const reachedDef = createDeferred();
+          const fakeIdb = createFakeIndexedDB({
+            onPut: async (k) => {
+              if (k && k.startsWith('auro_match_user:')) {
+                reachedDef.resolve();
+                await pauseDef.promise;
+              }
+            }
+          });
+          globalThis.indexedDB = fakeIdb;
+          resetIndexedDBConnection();
+          setAccountScope('user_apply_a');
 
-      assert.equal(nativeResult, false, 'Native applyEnvelope must fail closed on mid-flight A -> B transition');
-      assert.equal(getActiveScope(), 'user_apply_b');
-      assert.equal(storage.getItem('auro_match_user:user_apply_b'), null, 'User B storage must not be contaminated');
+          const adapter = create();
+          const applyPromise = adapter.applyEnvelope(envelopeA, { accountScope: 'user_apply_a' });
+          await reachedDef.promise;
 
-      // 2. Bridge adapter: mid-flight switch to B while applying A
-      setAccountScope('user_apply_a');
-      const bridgePromise = bridgeAdapter.applyEnvelope(envelopeA, { accountScope: 'user_apply_a' });
-      setAccountScope('user_apply_b'); // Switch to B while apply is in flight
-      const bridgeResult = await bridgePromise;
+          setAccountScope('user_intervening_b');
+          setAccountScope('user_apply_a');
+          pauseDef.resolve();
 
-      assert.equal(bridgeResult, false, 'Bridge applyEnvelope must fail closed on mid-flight A -> B transition');
-      assert.equal(getActiveScope(), 'user_apply_b');
-      assert.equal(storage.getItem('auro_match_user:user_apply_b'), null, 'User B storage must not be contaminated');
+          const res = await applyPromise;
+          assert.equal(res, false, `${name}: applyEnvelope must fail closed on deterministic A -> B -> A race via generation check`);
+          assert.equal(storage.getItem('auro_match_user:user_intervening_b'), null, `${name}: Intervening User B scoped user must be null`);
+          assert.equal(storage.getItem('auro_match_consecrations:user_intervening_b'), null, `${name}: Intervening User B reflections must be null`);
+          assert.equal(storage.getItem('auro_match_unlocked_tiles:user_intervening_b'), null, `${name}: Intervening User B tiles must be null`);
+          assert.equal(storage.getItem('auro_match_consecrations:user_apply_a'), null, `${name}: Write 2 must not execute after A -> B -> A`);
+          assert.equal(storage.getItem('auro_match_unlocked_tiles:user_apply_a'), null, `${name}: Write 3 must not execute after A -> B -> A`);
+        }
+
+        // --- Subcase 3: A -> null -> A ---
+        {
+          const storage = createMemoryStorage();
+          globalThis.localStorage = storage;
+          const pauseDef = createDeferred();
+          const reachedDef = createDeferred();
+          const fakeIdb = createFakeIndexedDB({
+            onPut: async (k) => {
+              if (k && k.startsWith('auro_match_user:')) {
+                reachedDef.resolve();
+                await pauseDef.promise;
+              }
+            }
+          });
+          globalThis.indexedDB = fakeIdb;
+          resetIndexedDBConnection();
+          setAccountScope('user_apply_a');
+
+          const adapter = create();
+          const applyPromise = adapter.applyEnvelope(envelopeA, { accountScope: 'user_apply_a' });
+          await reachedDef.promise;
+
+          setAccountScope(null); // Logout
+          setAccountScope('user_apply_a'); // Re-login
+          pauseDef.resolve();
+
+          const res = await applyPromise;
+          assert.equal(res, false, `${name}: applyEnvelope must fail closed on deterministic A -> null -> A race`);
+          assert.equal(storage.getItem('auro_match_consecrations:user_apply_a'), null, `${name}: Write 2 must not execute after A -> null -> A`);
+          assert.equal(storage.getItem('auro_match_unlocked_tiles:user_apply_a'), null, `${name}: Write 3 must not execute after A -> null -> A`);
+        }
+
+        // --- Subcase 4: A -> null (mid-flight logout) ---
+        {
+          const storage = createMemoryStorage();
+          globalThis.localStorage = storage;
+          const pauseDef = createDeferred();
+          const reachedDef = createDeferred();
+          const fakeIdb = createFakeIndexedDB({
+            onPut: async (k) => {
+              if (k && k.startsWith('auro_match_user:')) {
+                reachedDef.resolve();
+                await pauseDef.promise;
+              }
+            }
+          });
+          globalThis.indexedDB = fakeIdb;
+          resetIndexedDBConnection();
+          setAccountScope('user_apply_a');
+
+          const adapter = create();
+          const applyPromise = adapter.applyEnvelope(envelopeA, { accountScope: 'user_apply_a' });
+          await reachedDef.promise;
+
+          setAccountScope(null); // Logout
+          pauseDef.resolve();
+
+          const res = await applyPromise;
+          assert.equal(res, false, `${name}: applyEnvelope must fail closed on mid-flight logout`);
+          assert.equal(storage.getItem('auro_match_user'), null, `${name}: Shared working cache must be clean on logout`);
+        }
+      }
     } finally {
       setAccountScope(null);
+      resetIndexedDBConnection();
       if (prevLS === undefined) delete globalThis.localStorage;
       else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
     }
   });
 
-  test('Adv-48: Asynchronous applyEnvelope protects against mid-flight A -> B -> A account transition race via monotonic generation counter in both adapters', async () => {
+  test('Adv-48: Deterministic deferred-promise test: pause between first and second persistence writes, switch account to B, release write in both adapters', async () => {
     const prevLS = globalThis.localStorage;
-    const storage = createMemoryStorage();
-    globalThis.localStorage = storage;
-    setAccountScope('user_apply_aba');
+    const prevIDB = globalThis.indexedDB;
+
+    const envelopeA = {
+      gameId: 'auromatch',
+      ownerId: 'user_apply_a',
+      payload: {
+        profileState: {
+          profile: { lotusPetalCount: 42, ownerId: 'user_apply_a' },
+          progression: { completedLevelsCount: 1, completedLevelIds: ['lvl_a'] },
+          reflections: [{ id: 'ref_a', text: 'Ref A' }],
+          ownerId: 'user_apply_a'
+        }
+      }
+    };
+
+    const adapters = [
+      { name: 'Native', create: createAuroMatchNativeAdapter },
+      { name: 'Bridge', create: createAuroMatchBridgeAdapter }
+    ];
 
     try {
-      const nativeAdapter = createAuroMatchNativeAdapter();
-      const bridgeAdapter = createAuroMatchBridgeAdapter();
+      for (const { name, create } of adapters) {
+        const storage = createMemoryStorage();
+        globalThis.localStorage = storage;
+        const pauseDef = createDeferred();
+        const reachedDef = createDeferred();
 
-      const envelopeABA = {
-        gameId: 'auromatch',
-        ownerId: 'user_apply_aba',
-        payload: {
-          profileState: {
-            profile: { lotusPetalCount: 99, ownerId: 'user_apply_aba' },
-            progression: { completedLevelsCount: 2, completedLevelIds: ['aba_1', 'aba_2'] },
-            ownerId: 'user_apply_aba'
+        // Write 1 (user) completes normally; pause on write 2 (consecrations)
+        const fakeIdb = createFakeIndexedDB({
+          onPut: async (k) => {
+            if (k && k.startsWith('auro_match_consecrations:')) {
+              reachedDef.resolve();
+              await pauseDef.promise;
+            }
           }
-        }
-      };
+        });
+        globalThis.indexedDB = fakeIdb;
+        resetIndexedDBConnection();
+        setAccountScope('user_apply_a');
 
-      // 1. Native adapter A -> B -> A race
-      const nativePromise = nativeAdapter.applyEnvelope(envelopeABA, { accountScope: 'user_apply_aba' });
-      setAccountScope('user_intervening_b');
-      setAccountScope('user_apply_aba');
-      const nativeResult = await nativePromise;
+        const adapter = create();
+        const applyPromise = adapter.applyEnvelope(envelopeA, { accountScope: 'user_apply_a' });
+        await reachedDef.promise; // Suspended on write 2 (between write 1 and write 2)
 
-      assert.equal(nativeResult, false, 'Native applyEnvelope must fail closed on A -> B -> A race via generation check');
+        setAccountScope('user_apply_b'); // Intervening account switch
+        pauseDef.resolve(); // Release write 2
 
-      // 2. Bridge adapter A -> B -> A race
-      setAccountScope('user_apply_aba');
-      const bridgePromise = bridgeAdapter.applyEnvelope(envelopeABA, { accountScope: 'user_apply_aba' });
-      setAccountScope('user_intervening_b');
-      setAccountScope('user_apply_aba');
-      const bridgeResult = await bridgePromise;
-
-      assert.equal(bridgeResult, false, 'Bridge applyEnvelope must fail closed on A -> B -> A race via generation check');
+        const res = await applyPromise;
+        assert.equal(res, false, `${name}: applyEnvelope must fail closed when account switch occurs between 1st and 2nd writes`);
+        assert.equal(getActiveScope(), 'user_apply_b');
+        // Write 3 (unlocked tiles) was never executed
+        assert.equal(storage.getItem('auro_match_unlocked_tiles:user_apply_a'), null, `${name}: Write 3 for User A must never execute`);
+        // User B storage must not be contaminated
+        assert.equal(storage.getItem('auro_match_user:user_apply_b'), null, `${name}: User B user record must be null`);
+        assert.equal(storage.getItem('auro_match_consecrations:user_apply_b'), null, `${name}: User B reflections must be null`);
+        assert.equal(storage.getItem('auro_match_unlocked_tiles:user_apply_b'), null, `${name}: User B tiles must be null`);
+        // Working cache must remain clean for active User B
+        assert.equal(storage.getItem('auro_match_user'), null, `${name}: Active working cache must not be contaminated for User B`);
+      }
     } finally {
       setAccountScope(null);
+      resetIndexedDBConnection();
       if (prevLS === undefined) delete globalThis.localStorage;
       else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
     }
   });
 
-  test('Adv-49: Asynchronous applyEnvelope protects against mid-flight A -> null -> A and logout (A -> null) races in both adapters', async () => {
+  test('Adv-49: Deterministic deferred-promise test: pause immediately before completion on third persistence write, switch account to B, release write in both adapters', async () => {
     const prevLS = globalThis.localStorage;
-    const storage = createMemoryStorage();
-    globalThis.localStorage = storage;
-    setAccountScope('user_apply_ana');
+    const prevIDB = globalThis.indexedDB;
+
+    const envelopeA = {
+      gameId: 'auromatch',
+      ownerId: 'user_apply_a',
+      payload: {
+        profileState: {
+          profile: { lotusPetalCount: 42, ownerId: 'user_apply_a' },
+          progression: { completedLevelsCount: 1, completedLevelIds: ['lvl_a'] },
+          reflections: [{ id: 'ref_a', text: 'Ref A' }],
+          ownerId: 'user_apply_a'
+        }
+      }
+    };
+
+    const adapters = [
+      { name: 'Native', create: createAuroMatchNativeAdapter },
+      { name: 'Bridge', create: createAuroMatchBridgeAdapter }
+    ];
 
     try {
-      const nativeAdapter = createAuroMatchNativeAdapter();
-      const bridgeAdapter = createAuroMatchBridgeAdapter();
+      for (const { name, create } of adapters) {
+        const storage = createMemoryStorage();
+        globalThis.localStorage = storage;
+        const pauseDef = createDeferred();
+        const reachedDef = createDeferred();
 
-      const envelopeANA = {
-        gameId: 'auromatch',
-        ownerId: 'user_apply_ana',
-        payload: {
-          profileState: {
-            profile: { lotusPetalCount: 55, ownerId: 'user_apply_ana' },
-            progression: { completedLevelsCount: 3, completedLevelIds: ['ana_1'] },
-            ownerId: 'user_apply_ana'
+        // Write 1 and 2 complete normally; pause on write 3 (unlocked tiles)
+        const fakeIdb = createFakeIndexedDB({
+          onPut: async (k) => {
+            if (k && k.startsWith('auro_match_unlocked_tiles:')) {
+              reachedDef.resolve();
+              await pauseDef.promise;
+            }
           }
-        }
-      };
+        });
+        globalThis.indexedDB = fakeIdb;
+        resetIndexedDBConnection();
+        setAccountScope('user_apply_a');
 
-      // 1. Native adapter A -> null -> A race
-      const nativePromise = nativeAdapter.applyEnvelope(envelopeANA, { accountScope: 'user_apply_ana' });
-      setAccountScope(null); // Logout
-      setAccountScope('user_apply_ana'); // Re-login
-      const nativeResult = await nativePromise;
-      assert.equal(nativeResult, false, 'Native applyEnvelope must fail closed on A -> null -> A race');
+        const adapter = create();
+        const applyPromise = adapter.applyEnvelope(envelopeA, { accountScope: 'user_apply_a' });
+        await reachedDef.promise; // Suspended on write 3 immediately before completion
 
-      // 2. Bridge adapter A -> null -> A race
-      setAccountScope('user_apply_ana');
-      const bridgePromise = bridgeAdapter.applyEnvelope(envelopeANA, { accountScope: 'user_apply_ana' });
-      setAccountScope(null);
-      setAccountScope('user_apply_ana');
-      const bridgeResult = await bridgePromise;
-      assert.equal(bridgeResult, false, 'Bridge applyEnvelope must fail closed on A -> null -> A race');
+        setAccountScope('user_apply_b'); // Intervening account switch
+        pauseDef.resolve(); // Release write 3
 
-      // 3. Native adapter mid-flight logout (A -> null)
-      setAccountScope('user_apply_ana');
-      const nativeLogoutPromise = nativeAdapter.applyEnvelope(envelopeANA, { accountScope: 'user_apply_ana' });
-      setAccountScope(null); // Logout during flight
-      const nativeLogoutResult = await nativeLogoutPromise;
-      assert.equal(nativeLogoutResult, false, 'Native applyEnvelope must fail closed on mid-flight logout');
-
-      // 4. Bridge adapter mid-flight logout (A -> null)
-      setAccountScope('user_apply_ana');
-      const bridgeLogoutPromise = bridgeAdapter.applyEnvelope(envelopeANA, { accountScope: 'user_apply_ana' });
-      setAccountScope(null); // Logout during flight
-      const bridgeLogoutResult = await bridgeLogoutPromise;
-      assert.equal(bridgeLogoutResult, false, 'Bridge applyEnvelope must fail closed on mid-flight logout');
+        const res = await applyPromise;
+        assert.equal(res, false, `${name}: applyEnvelope must fail closed when account switch occurs immediately before completion`);
+        assert.equal(getActiveScope(), 'user_apply_b');
+        // User B storage must not be contaminated
+        assert.equal(storage.getItem('auro_match_user:user_apply_b'), null, `${name}: User B user record must be null`);
+        assert.equal(storage.getItem('auro_match_consecrations:user_apply_b'), null, `${name}: User B reflections must be null`);
+        assert.equal(storage.getItem('auro_match_unlocked_tiles:user_apply_b'), null, `${name}: User B tiles must be null`);
+        // Working cache must remain clean for active User B
+        assert.equal(storage.getItem('auro_match_user'), null, `${name}: Active working cache must not be contaminated for User B`);
+      }
     } finally {
       setAccountScope(null);
+      resetIndexedDBConnection();
       if (prevLS === undefined) delete globalThis.localStorage;
       else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
     }
   });
 
-  test('Adv-50: Asynchronous applyEnvelope sequential write integrity and completion boundary in both adapters', async () => {
+  test('Adv-50: Deterministic stable-scope operation succeeds and persists complete state across all boundaries in both adapters', async () => {
     const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
     const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
     globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
     setAccountScope('user_stable_apply');
 
     try {
@@ -4727,15 +4908,32 @@ describe('Part 1E — AuroMatch Legacy Storage & Account-Isolation Hardening (Ad
       assert.ok(storage.getItem('auro_match_user:user_stable_apply'), 'Scoped user record must exist');
       assert.ok(storage.getItem('auro_match_consecrations:user_stable_apply'), 'Scoped reflections must exist');
       assert.ok(storage.getItem('auro_match_unlocked_tiles:user_stable_apply'), 'Scoped tiles must exist');
+      assert.ok(storage.getItem('auro_match_user'), 'Active working cache user must exist');
+      assert.ok(storage.getItem('auro_match_consecrations'), 'Active working cache reflections must exist');
+      assert.ok(storage.getItem('auro_match_unlocked_tiles'), 'Active working cache tiles must exist');
+
+      // Reset storage for Bridge test
+      storage.clear();
+      resetIndexedDBConnection();
+      setAccountScope('user_stable_apply');
 
       // Bridge application succeeds under stable scope
       const bridgeSuccess = await bridgeAdapter.applyEnvelope(validEnvelope, { accountScope: 'user_stable_apply' });
       assert.equal(bridgeSuccess, true, 'Bridge applyEnvelope must succeed under stable scope');
       assert.equal(getActiveScope(), 'user_stable_apply');
+      assert.ok(storage.getItem('auro_match_user:user_stable_apply'), 'Bridge: Scoped user record must exist');
+      assert.ok(storage.getItem('auro_match_consecrations:user_stable_apply'), 'Bridge: Scoped reflections must exist');
+      assert.ok(storage.getItem('auro_match_unlocked_tiles:user_stable_apply'), 'Bridge: Scoped tiles must exist');
+      assert.ok(storage.getItem('auro_match_user'), 'Bridge: Active working cache user must exist');
+      assert.ok(storage.getItem('auro_match_consecrations'), 'Bridge: Active working cache reflections must exist');
+      assert.ok(storage.getItem('auro_match_unlocked_tiles'), 'Bridge: Active working cache tiles must exist');
     } finally {
       setAccountScope(null);
+      resetIndexedDBConnection();
       if (prevLS === undefined) delete globalThis.localStorage;
       else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
     }
   });
 
