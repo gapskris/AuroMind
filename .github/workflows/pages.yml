@@ -1,24 +1,20 @@
-name: Deploy AuroMind Static Site to GitHub Pages (Manual Allowlist)
+name: Deploy AuroMind Static Site to GitHub Pages (Allowlist)
 
 # ------------------------------------------------------------------------------
 # AuroMind — Controlled GitHub Pages Allowlist Deployment Workflow (B0 Closeout)
 # ------------------------------------------------------------------------------
 # Safety posture:
-# - Manual workflow_dispatch ONLY until explicit Product Owner approval is given
-#   to activate automatic production deployment.
+# - Automatically deploys pushes to `dev/studio-integration` while retaining
+#   manual `workflow_dispatch` triggers.
 # - Copies ONLY approved static runtime assets into `_site/`.
 # - Excludes architecture-design/, phase0-audit/, server.js, *.test.js,
 #   package.json, README.md, bun.lock, dotfiles, and development metadata.
-#
-# To activate automatic production deployment later (requires explicit approval):
-# 1. Confirm GitHub Repository Settings -> Pages -> Build and deployment -> Source
-#    is set to "GitHub Actions".
-# 2. Add a `push: branches: [main]` trigger under `on:` in a dedicated approved PR.
-# 3. Verify `https://gapskris.github.io/AuroMind/` serves portal & all 6 games
-#    while `/architecture-design/` and `/phase0-audit/` return 404.
 # ------------------------------------------------------------------------------
 
 on:
+  push:
+    branches:
+      - dev/studio-integration
   workflow_dispatch:
 
 permissions:

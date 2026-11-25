@@ -619,14 +619,15 @@ test('Root service worker precaches shared SDK files, serves them offline, and i
   }
 });
 
-test('GitHub Pages allowlist workflow remains manual-only and verifies shared SDK files', () => {
+test('GitHub Pages allowlist workflow deploys dev/studio-integration cleanly and verifies shared SDK files', () => {
   const workflow = fs.readFileSync(
     path.join(__dirname, '.github/workflows/pages.yml'),
     'utf8'
   );
 
   assert.ok(workflow.includes('workflow_dispatch:'), 'Pages workflow must retain manual workflow_dispatch trigger');
-  assert.ok(!/^  push:/m.test(workflow), 'Pages workflow must NOT enable automatic push deployment');
+  assert.ok(/^  push:/m.test(workflow), 'Pages workflow must trigger on approved dev branch pushes');
+  assert.ok(workflow.includes('- dev/studio-integration'), 'Pages push trigger must target dev/studio-integration');
   assert.ok(workflow.includes('"_site/assets/sdk/auromind-sdk.js"'), 'Pages workflow must verify auromind-sdk.js');
   assert.ok(workflow.includes('"_site/assets/sdk/auromind-adapters.js"'), 'Pages workflow must verify auromind-adapters.js');
   assert.ok(workflow.includes('"_site/architecture-design"'), 'Pages workflow must exclude architecture-design');
