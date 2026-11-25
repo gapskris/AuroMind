@@ -434,15 +434,22 @@ export function isValidAuroMatchState(raw) {
 }
 
 let _activeScope = null;
+let _scopeGeneration = 0;
 
 export function getActiveScope() {
     return _activeScope;
 }
 
-export function setAccountScope(scope) {
+export function getScopeGeneration() {
+    return _scopeGeneration;
+}
+
+export function setAccountScope(scope, options = {}) {
     const nextScope = scope ? String(scope) : null;
-    if (_activeScope !== nextScope) {
+    const force = Boolean(options && options.force);
+    if (_activeScope !== nextScope || force) {
         _activeScope = nextScope;
+        _scopeGeneration++;
 
         // Isolate pending dual-write entries from foreign scopes
         if (typeof pendingDualWriteKeys !== 'undefined') {
@@ -1495,7 +1502,10 @@ export function createAuroMatchGameAdapter() {
                         ((userVal.progression &&
                           (Number(userVal.progression.completedLevelsCount || 0) > 0 ||
                            (Array.isArray(userVal.progression.completedLevelIds) && userVal.progression.completedLevelIds.length > 0))) ||
-                         (Array.isArray(userVal.reflections) && userVal.reflections.length > 0))
+                         (Array.isArray(userVal.reflections) && userVal.reflections.length > 0) ||
+                         (userVal.profile &&
+                          (Number(userVal.profile.lotusPetalCount || 0) > 0 ||
+                           Number(userVal.profile.consciousnessPoints || 0) > 0)))
                     );
 
                     if (!hasPersistedProgress) {
@@ -1526,9 +1536,13 @@ export function createAuroMatchGameAdapter() {
                 }
                 return Boolean(
                     profileState &&
-                    profileState.progression &&
-                    (profileState.progression.completedLevelsCount > 0 ||
-                     (profileState.progression.completedLevelIds && profileState.progression.completedLevelIds.length > 0))
+                    ((profileState.progression &&
+                      (Number(profileState.progression.completedLevelsCount || 0) > 0 ||
+                       (Array.isArray(profileState.progression.completedLevelIds) && profileState.progression.completedLevelIds.length > 0))) ||
+                     (Array.isArray(profileState.reflections) && profileState.reflections.length > 0) ||
+                     (profileState.profile &&
+                      (Number(profileState.profile.lotusPetalCount || 0) > 0 ||
+                       Number(profileState.profile.consciousnessPoints || 0) > 0)))
                 );
             } catch {
                 return false;
@@ -1554,6 +1568,7 @@ export function createAuroMatchGameAdapter() {
                 };
             }
             const active = getActiveScope();
+            const generation = getScopeGeneration();
             const isAuthenticated = Boolean(active && !active.startsWith('guest_'));
 
             let isAuthoritativeValid = false;
@@ -1627,13 +1642,18 @@ export function createAuroMatchGameAdapter() {
                 ((profileState.progression &&
                   (Number(profileState.progression.completedLevelsCount || 0) > 0 ||
                    (Array.isArray(profileState.progression.completedLevelIds) && profileState.progression.completedLevelIds.length > 0))) ||
-                 (Array.isArray(profileState.reflections) && profileState.reflections.length > 0))
+                 (Array.isArray(profileState.reflections) && profileState.reflections.length > 0) ||
+                 (profileState.profile &&
+                  (Number(profileState.profile.lotusPetalCount || 0) > 0 ||
+                   Number(profileState.profile.consciousnessPoints || 0) > 0)))
             );
             const effectiveOwner = isAuthenticated ? active : (active || (isAuthoritativeValid ? profileState?.ownerId : null) || guestId || null);
             const exportedProfile = isAuthoritativeValid ? profileState : createFreshProfileState(active);
             const payload = {
                 schemaVersion: 1,
                 profileState: JSON.parse(JSON.stringify(exportedProfile)),
+                consecrations: Array.isArray(exportedProfile.reflections) ? exportedProfile.reflections : [],
+                unlockedTiles: Array.isArray(exportedProfile.progression?.completedLevelIds) ? exportedProfile.progression.completedLevelIds : [],
                 ownerId: effectiveOwner,
                 persistenceValid: isAuthoritativeValid,
                 validationStatus,
@@ -1642,10 +1662,11 @@ export function createAuroMatchGameAdapter() {
             };
             const checksum = await computeAuroMatchEnvelopeChecksum(payload);
 
-            // Concurrency check: verify active scope did not transition during async checksum calculation
+            // Concurrency check: verify active scope and generation did not transition during async checksum calculation
             const currentScopeAfterAsync = getActiveScope();
-            if (isAuthenticated && currentScopeAfterAsync !== active) {
-                console.warn(`[Storage] exportEnvelope: Scope transition race detected mid-flight (captured="${active}", current="${currentScopeAfterAsync}"). Invalidate export.`);
+            const currentGenAfterAsync = getScopeGeneration();
+            if ((isAuthenticated && currentScopeAfterAsync !== active) || currentGenAfterAsync !== generation) {
+                console.warn(`[Storage] exportEnvelope: Scope transition race detected mid-flight (captured="${active}"/gen=${generation}, current="${currentScopeAfterAsync}"/gen=${currentGenAfterAsync}). Invalidate export.`);
                 return {
                     envelopeVersion: 1,
                     gameId: 'auromatch',
@@ -1662,6 +1683,8 @@ export function createAuroMatchGameAdapter() {
                     payload: {
                         schemaVersion: 1,
                         profileState: createFreshProfileState(active),
+                        consecrations: [],
+                        unlockedTiles: [],
                         ownerId: active,
                         persistenceValid: false,
                         validationStatus: 'scope_race_detected',

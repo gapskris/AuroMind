@@ -618,4 +618,13 @@ test('SACRED-INVARIANTS: VAK speech corpus & Flora database match exact frozen b
   const floraHash = crypto.createHash('sha256').update(floraBuffer).digest('hex');
   assert.equal(floraHash, '689d035cd52abd8d342528d8c5f61f298916b8052b8287450be4931cf8ae1a3a', 'Flora hash must match baseline exactly');
   assert.equal(floraBuffer.length, 2002176, 'Flora database size must be exactly 2,002,176 bytes');
+
+  // 3. Full VAK HTML File Invariant
+  const vakFullHash = crypto.createHash('sha256').update(fs.readFileSync(vakPath)).digest('hex').toUpperCase();
+  assert.equal(vakFullHash, 'A8E2EF8B9B5E7F95B231C75B185C3DDEB61EA8FCB4C25C85FABC6872FA780360', 'Full VAK HTML hash must match baseline exactly');
+
+  // 4. Commercial Gate Invariant
+  const backendConfigPath = path.join(__dirname, 'assets/sdk/config/backend-config.js');
+  const backendConfigContent = fs.readFileSync(backendConfigPath, 'utf8');
+  assert.match(backendConfigContent, /export\s+const\s+COMMERCIAL_GATE_ENABLED\s*=\s*false;/, 'Commercial gate must remain strictly false in active configuration');
 });

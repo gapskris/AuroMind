@@ -20,6 +20,7 @@ import {
   autoHealFromIndexedDB,
   getRecordOwnerId,
   getActiveScope,
+  getScopeGeneration,
   isPurgeActive,
   loadProfileState,
   mergeAuroMatchUserRecords,
@@ -41,6 +42,8 @@ const OWNED_STORAGE_KEYS = Object.freeze([
   'auro_match_unlocked_tiles',
   'auro_match_teachings'
 ]);
+
+export { getScopeGeneration };
 
 /**
  * Creates the platform adapter for AuroMatch.
@@ -94,7 +97,10 @@ export function createAuroMatchGameAdapter() {
             (parsed.progression &&
              (Number(parsed.progression.completedLevelsCount || 0) > 0 ||
               (Array.isArray(parsed.progression.completedLevelIds) && parsed.progression.completedLevelIds.length > 0))) ||
-            (Array.isArray(parsed.reflections) && parsed.reflections.length > 0)
+            (Array.isArray(parsed.reflections) && parsed.reflections.length > 0) ||
+            (parsed.profile &&
+             (Number(parsed.profile.lotusPetalCount || 0) > 0 ||
+              Number(parsed.profile.consciousnessPoints || 0) > 0))
           );
           if (!hasProgress) {
             try {
@@ -169,6 +175,7 @@ export function createAuroMatchGameAdapter() {
         };
       }
       const active = getActiveScope();
+      const generation = getScopeGeneration();
       const isAuthenticated = Boolean(active && !active.startsWith('guest_'));
       let userObj = null;
       let consecrations = [];
@@ -300,7 +307,13 @@ export function createAuroMatchGameAdapter() {
       const normalizedTiles = (isAuthoritativeValid && userObj) ? mergeUniqueItems(Array.isArray(unlockedTiles) ? unlockedTiles : [], []) : [];
 
       const hasProgress = isAuthoritativeValid && Boolean(
-        (exportUser && (Number(exportUser.progression?.completedLevelsCount || 0) > 0 || (Array.isArray(exportUser.progression?.completedLevelIds) && exportUser.progression.completedLevelIds.length > 0))) ||
+        (exportUser &&
+          ((Number(exportUser.progression?.completedLevelsCount || 0) > 0 ||
+            (Array.isArray(exportUser.progression?.completedLevelIds) && exportUser.progression.completedLevelIds.length > 0)) ||
+           (Array.isArray(exportUser.reflections) && exportUser.reflections.length > 0) ||
+           (exportUser.profile &&
+            (Number(exportUser.profile.lotusPetalCount || 0) > 0 ||
+             Number(exportUser.profile.consciousnessPoints || 0) > 0)))) ||
         normalizedTiles.length > 0 ||
         normalizedConsecrations.length > 0
       );
@@ -335,10 +348,11 @@ export function createAuroMatchGameAdapter() {
         checksum = 'match_' + (normalizedTiles.length || 0) + '_' + (normalizedConsecrations.length || 0);
       }
 
-      // Concurrency check: verify active scope did not transition during async checksum calculation
+      // Concurrency check: verify active scope and generation did not transition during async checksum calculation
       const currentScopeAfterAsync = getActiveScope();
-      if (isAuthenticated && currentScopeAfterAsync !== active) {
-        console.warn(`[AuroMatch Bridge] exportEnvelope: Scope transition race detected mid-flight (captured="${active}", current="${currentScopeAfterAsync}"). Invalidate export.`);
+      const currentGenAfterAsync = getScopeGeneration();
+      if ((isAuthenticated && currentScopeAfterAsync !== active) || currentGenAfterAsync !== generation) {
+        console.warn(`[AuroMatch Bridge] exportEnvelope: Scope transition race detected mid-flight (captured="${active}"/gen=${generation}, current="${currentScopeAfterAsync}"/gen=${currentGenAfterAsync}). Invalidate export.`);
         return {
           envelopeVersion: 1,
           gameId: 'auromatch',
