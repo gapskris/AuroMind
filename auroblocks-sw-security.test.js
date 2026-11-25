@@ -66,23 +66,26 @@ describe('AuroBlocks SW Scope Security - Structural Invariants', () => {
       'AuroBlocks index.html must not contain unauthorized inline scripts violating CSP'
     );
 
+    // Precache Manifest Invariant: Reconciled cleanly with active bundle linked in index.html
+    const precachePath = path.join(__dirname, 'games/auroblocks/precache-manifest.json');
+    const precache = JSON.parse(fs.readFileSync(precachePath, 'utf8'));
+    const activeJs = precache.assets.find((a) => /^\.\/assets\/index-[a-zA-Z0-9_-]+\.js$/.test(a));
+    const activeCss = precache.assets.find((a) => /^\.\/assets\/index-[a-zA-Z0-9_-]+\.css$/.test(a));
+
+    assert.ok(activeJs, 'Precache manifest must declare an active JS entry bundle');
+    assert.ok(activeCss, 'Precache manifest must declare an active CSS entry bundle');
+
     // Integration Invariant: Correct script loading order
     const initIdx = html.indexOf('src="./assets/auroblocks-init.js"');
     const bridgeIdx = html.indexOf('src="./assets/auroblocks-sdk-bridge.js"');
-    const bundleIdx = html.indexOf('src="./assets/index-BluMyXvX.js"');
+    const bundleIdx = html.indexOf(`src="${activeJs}"`);
 
     assert.ok(initIdx !== -1, 'auroblocks-init.js must be linked');
     assert.ok(bridgeIdx !== -1, 'auroblocks-sdk-bridge.js must be linked');
-    assert.ok(bundleIdx !== -1, 'Active bundle index-BluMyXvX.js must be linked');
+    assert.ok(bundleIdx !== -1, `Active bundle ${activeJs} must be linked in index.html`);
+    assert.ok(html.includes(`href="${activeCss}"`), `Active CSS ${activeCss} must be linked in index.html`);
     assert.ok(initIdx < bridgeIdx, 'auroblocks-init.js must load before bridge');
     assert.ok(bridgeIdx < bundleIdx, 'auroblocks-sdk-bridge.js must load before application bundle');
-
-    // Precache Manifest Invariant: Reconciled with active bundle
-    const precachePath = path.join(__dirname, 'games/auroblocks/precache-manifest.json');
-    const precache = JSON.parse(fs.readFileSync(precachePath, 'utf8'));
-    assert.ok(precache.assets.includes('./assets/index-BluMyXvX.js'), 'Precache must include active bundle');
-    assert.ok(precache.assets.includes('./assets/web-GBKL1FYn.js'), 'Precache must include active worker');
-    assert.ok(precache.assets.includes('./assets/index-DqmwI8E_.css'), 'Precache must include active CSS');
 
     // Boulder Mode Invariant: 24 textures present
     const boulderDir = path.join(__dirname, 'games/auroblocks/assets/boulder');

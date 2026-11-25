@@ -1,6 +1,7 @@
 // AuroBlocks Sanctuary Service Worker
 // Version: 1.5.1 — First-visit offline bundle precaching & safe cache lifecycle
 const CACHE_NAME = 'auroblocks-v1.5.1';
+const BUILD_ID = 'index-BcrUlf8o.js';
 
 const PRECACHE_ASSETS = [
   './',
@@ -17,6 +18,17 @@ const PRECACHE_ASSETS = [
   './assets/artwork/mode-classic-flow.webp',
   './assets/artwork/mode-sacred-sudoku.webp',
   './assets/artwork/mode-sacred-journey.webp',
+  './assets/artwork/sanctuary/level_01.jpg',
+  './assets/artwork/sanctuary/level_02.jpg',
+  './assets/artwork/sanctuary/level_03.jpg',
+  './assets/artwork/sanctuary/level_04.jpg',
+  './assets/artwork/sanctuary/level_05.jpg',
+  './assets/artwork/sanctuary/level_07.jpg',
+  './assets/artwork/sanctuary/level_08.jpg',
+  './assets/artwork/sanctuary/level_10.jpg',
+  './assets/artwork/sanctuary/level_11.jpg',
+  './assets/artwork/sanctuary/level_12.jpg',
+  './assets/artwork/sanctuary/level_13.jpg',
   './assets/fonts/cinzel-latin.woff2',
   './assets/fonts/plus-jakarta-sans-latin.woff2',
   './assets/fonts/jetbrains-mono-latin.woff2',
@@ -131,11 +143,30 @@ self.addEventListener('activate', (event) => {
           }
           const cache = await caches.open(name);
           const keys = await cache.keys();
+          let activeBundleSet = null;
+          try {
+            const mRes = await fetch('./precache-manifest.json', { cache: 'no-cache' });
+            if (mRes && mRes.ok) {
+              const mData = await mRes.json();
+              if (mData && Array.isArray(mData.assets)) {
+                activeBundleSet = new Set(
+                  mData.assets.map((a) => new URL(a, self.location.href).href)
+                );
+              }
+            }
+          } catch {}
           await Promise.all(
             keys.map((req) => {
               try {
                 const reqUrl = new URL(req.url);
                 if (isViteDevModulePath(reqUrl.pathname)) {
+                  return cache.delete(req);
+                }
+                if (
+                  activeBundleSet &&
+                  /\/assets\/(?:index|web)-[a-zA-Z0-9_-]+\.(?:js|css)$/i.test(reqUrl.pathname) &&
+                  !activeBundleSet.has(reqUrl.origin + reqUrl.pathname)
+                ) {
                   return cache.delete(req);
                 }
               } catch {
@@ -232,10 +263,10 @@ self.addEventListener('fetch', (event) => {
   const rootCacheUrl = scopeUrl.href;
 
   // A. Navigation requests (HTML documents):
-  // NetworkFirst with offline cache fallback to ./index.html or ./
+  // NetworkFirst (bypassing HTTP disk cache) with offline cache fallback to ./index.html or ./
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request)
+      fetch(typeof Request === 'function' ? new Request(event.request, { cache: 'no-cache' }) : event.request)
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
             const copy = networkResponse.clone();
@@ -258,17 +289,15 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // B. Hashed or static immutable assets (./assets/*, icons): CacheFirst
+  // B. Immutable content-hashed bundles & static media assets: CacheFirst
+  const isContentHashedBundle = /\/assets\/(?:index|web)-[a-zA-Z0-9_-]{6,}\.(?:js|css)$/i.test(url.pathname);
   const isStaticOrHashed =
-    url.pathname.startsWith(normalizedScope + 'assets/') ||
+    isContentHashedBundle ||
     url.pathname.endsWith('.woff2') ||
-    url.pathname.endsWith('.js') ||
-    url.pathname.endsWith('.css') ||
     url.pathname.endsWith('.svg') ||
     url.pathname.endsWith('.png') ||
     url.pathname.endsWith('.webp') ||
-    url.pathname.endsWith('.jpg') ||
-    url.pathname.endsWith('.webmanifest');
+    url.pathname.endsWith('.jpg');
 
   if (isStaticOrHashed) {
     event.respondWith(
@@ -292,33 +321,25 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // C. General app assets: StaleWhileRevalidate with safe offline fallback
+  // C. Mutable unhashed assets (precache-manifest.json, init/bridge JS, manifests): NetworkFirst with offline cache fallback
   event.respondWith(
     (async () => {
       const cache = await caches.open(CACHE_NAME);
       const cleanHref = url.origin + url.pathname;
-      const cachedResponse =
-        (await cache.match(event.request)) || (await cache.match(cleanHref));
-      if (cachedResponse) {
-        fetch(event.request)
-          .then(async (networkResponse) => {
-            if (networkResponse && networkResponse.status === 200) {
-              const copy = networkResponse.clone();
-              await cache.put(cleanHref, copy);
-            }
-          })
-          .catch(() => {});
-        return cachedResponse;
-      }
-
       try {
-        const networkResponse = await fetch(event.request);
+        const freshReq = typeof Request === 'function' ? new Request(event.request, { cache: 'no-cache' }) : event.request;
+        const networkResponse = await fetch(freshReq);
         if (networkResponse && networkResponse.status === 200) {
           const copy = networkResponse.clone();
           await cache.put(cleanHref, copy);
         }
         return networkResponse;
       } catch (_err) {
+        const cachedResponse =
+          (await cache.match(event.request)) || (await cache.match(cleanHref));
+        if (cachedResponse) {
+          return cachedResponse;
+        }
         return new Response('', { status: 504, statusText: 'Offline' });
       }
     })()

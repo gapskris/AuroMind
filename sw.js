@@ -248,10 +248,42 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 4. Portal shell & asset caching (Cache-First with network fallback and query-agnostic lookup)
+  // 4. Portal shell & asset caching (Network-First for HTML & unhashed shell scripts, Cache-First for immutable binary media)
   event.respondWith(
     (async () => {
       const cache = await caches.open(PORTAL_CACHE_NAME);
+      const isMutableShellAsset =
+        request.mode === 'navigate' ||
+        url.pathname.endsWith('.html') ||
+        url.pathname.endsWith('.js') ||
+        url.pathname.endsWith('.css') ||
+        url.pathname.endsWith('.json');
+
+      if (isMutableShellAsset) {
+        try {
+          const freshReq = typeof Request === 'function' ? new Request(request, { cache: 'no-cache' }) : request;
+          const networkResponse = await fetch(freshReq);
+          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+            cache.put(request, networkResponse.clone());
+          }
+          return networkResponse;
+        } catch (_err) {
+          const cachedFallback =
+            (await cache.match(request)) || (await cache.match(request, { ignoreSearch: true }));
+          if (cachedFallback) {
+            return cachedFallback;
+          }
+          if (request.mode === 'navigate') {
+            const indexUrl = new URL('./index.html', self.registration.scope).href;
+            const fallbackDoc =
+              (await cache.match(indexUrl)) || (await cache.match('./index.html'));
+            if (fallbackDoc) {
+              return fallbackDoc;
+            }
+          }
+          return new Response('', { status: 504, statusText: 'Offline' });
+        }
+      }
 
       const exactMatch = await cache.match(request);
       if (exactMatch) {
@@ -274,14 +306,6 @@ self.addEventListener('fetch', (event) => {
         }
         return networkResponse;
       } catch (_err) {
-        if (request.mode === 'navigate') {
-          const indexUrl = new URL('./index.html', self.registration.scope).href;
-          const fallbackDoc =
-            (await cache.match(indexUrl)) || (await cache.match('./index.html'));
-          if (fallbackDoc) {
-            return fallbackDoc;
-          }
-        }
         return new Response('', { status: 504, statusText: 'Offline' });
       }
     })()

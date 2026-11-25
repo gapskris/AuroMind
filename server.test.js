@@ -47,6 +47,13 @@ test('Express static server serves portal, assets, and all live games', async ()
         contentType.includes(check.expectedContentType),
         `Expected content-type ${check.expectedContentType} for ${check.path}, got ${contentType}`
       );
+      if (check.path === '/' || check.path.endsWith('.html') || check.path.endsWith('/sw.js')) {
+        const cacheControl = res.headers.get('cache-control') || '';
+        assert.ok(
+          cacheControl.includes('no-cache') && cacheControl.includes('must-revalidate'),
+          `Expected non-stale Cache-Control header on ${check.path}, got "${cacheControl}"`
+        );
+      }
       if (check.expectedText) {
         const body = await res.text();
         assert.ok(body.includes(check.expectedText), `Expected ${check.path} to contain ${check.expectedText}`);

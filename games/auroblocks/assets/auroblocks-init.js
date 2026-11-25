@@ -51,7 +51,7 @@
   } catch (e) {}
 })();
 
-// 2. Service worker registration path rewrite
+// 2. Service worker registration path rewrite + active update trigger
 if ('serviceWorker' in navigator) {
   const origRegister = navigator.serviceWorker.register.bind(navigator.serviceWorker);
   navigator.serviceWorker.register = function (scriptURL, options) {
@@ -60,7 +60,70 @@ if ('serviceWorker' in navigator) {
     }
     return origRegister(scriptURL, options);
   };
+  try {
+    navigator.serviceWorker.getRegistration('./').then(function (reg) {
+      if (reg && typeof reg.update === 'function') {
+        reg.update().catch(function () {});
+      }
+    }).catch(function () {});
+  } catch (e) {}
 }
+
+// 2b. Build-Parity Self-Heal Guard: if browser/SW served a stale index.html, purge old SW caches and reload once
+(function () {
+  try {
+    if (typeof fetch !== 'function' || typeof document === 'undefined') return;
+    fetch('./precache-manifest.json?_=' + Date.now(), { cache: 'no-store' })
+      .then(function (res) {
+        return res && res.ok ? res.json() : null;
+      })
+      .then(function (manifest) {
+        if (!manifest || !Array.isArray(manifest.assets)) return;
+        var expectedEntry = null;
+        for (var i = 0; i < manifest.assets.length; i++) {
+          if (/\.\/assets\/index-[a-zA-Z0-9_-]+\.js$/.test(manifest.assets[i])) {
+            expectedEntry = manifest.assets[i].replace('./', '');
+            break;
+          }
+        }
+        if (!expectedEntry) return;
+        var scripts = document.querySelectorAll('script[src*="assets/index-"]');
+        if (!scripts || scripts.length === 0) return;
+        var currentSrc = scripts[0].getAttribute('src') || '';
+        if (currentSrc.indexOf(expectedEntry) !== -1) {
+          sessionStorage.removeItem('auroblocks_build_heal');
+          return;
+        }
+        if (sessionStorage.getItem('auroblocks_build_heal') === expectedEntry) return;
+        sessionStorage.setItem('auroblocks_build_heal', expectedEntry);
+
+        var cleanupPromise = Promise.resolve();
+        if ('caches' in window) {
+          cleanupPromise = caches.keys().then(function (names) {
+            return Promise.all(
+              names.map(function (name) {
+                return name.indexOf('auroblocks-') === 0 ? caches.delete(name) : Promise.resolve(false);
+              })
+            );
+          });
+        }
+        cleanupPromise.finally(function () {
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistration('./').then(function (reg) {
+              if (reg && reg.update) {
+                return reg.update().catch(function () {});
+              }
+            }).finally(function () {
+              window.location.reload();
+            });
+          } else {
+            window.location.reload();
+          }
+        });
+      })
+      .catch(function () {});
+  } catch (e) {}
+})();
 
 // 3. Artwork asset URL rewriter (DOM prototype patch + MutationObserver)
 (function () {

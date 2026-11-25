@@ -347,7 +347,14 @@ document.addEventListener('DOMContentLoaded', bootstrapPortal);
 function initPortalServiceWorker() {
   if ('serviceWorker' in navigator) {
     const registerSw = () => {
-      navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(() => {});
+      navigator.serviceWorker
+        .register('./sw.js', { scope: './', updateViaCache: 'none' })
+        .then((reg) => {
+          if (reg && typeof reg.update === 'function') {
+            reg.update().catch(() => {});
+          }
+        })
+        .catch(() => {});
     };
     if (document.readyState === 'complete') {
       registerSw();
@@ -409,7 +416,8 @@ function initTheaterMode() {
     'auromatch': 'games/auromatch/index.html',
     'wordriddle': 'games/word-riddle/index.html',
     'auromandala': 'games/auromandala/index.html',
-    'auroblocks': 'games/auroblocks/index.html'
+    'auroblocks': 'games/auroblocks/index.html',
+    'maablocs': 'games/maablocs/index.html'
   };
 
   let activeGameStartTime = null;
@@ -633,7 +641,8 @@ function initTheaterMode() {
     'auromandala': ['auromandala'],
     'vak': ['vak', 'vakspeech', 'vak-speech'],
     'wordriddle': ['wordriddle', 'word-riddle'],
-    'vak-sanctuary': ['vak-sanctuary', 'vak-living-sanctuary', 'vaksanctuary']
+    'vak-sanctuary': ['vak-sanctuary', 'vak-living-sanctuary', 'vaksanctuary'],
+    'maablocs': ['maablocs', 'the-vedic-magic-sum']
   };
 
   // Listen to HTML5 PostMessage from child game iframes (Vak, AuroMatch, etc.)

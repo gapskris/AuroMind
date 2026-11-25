@@ -66,12 +66,37 @@ function createZeroDepStatic(rootDir, options = {}) {
   };
 }
 
+function applyStaticCacheHeaders(filePath, res) {
+  const normalized = (filePath || '').replace(/\\/g, '/').toLowerCase();
+  const baseName = path.basename(normalized);
+  const ext = path.extname(normalized);
+  const isContentHashedAsset = /-[a-z0-9_-]{6,}\.(js|css)$/i.test(baseName);
+
+  if (
+    ext === '.html' ||
+    baseName === 'sw.js' ||
+    baseName === 'precache-manifest.json' ||
+    baseName === 'manifest.json' ||
+    baseName === 'manifest.webmanifest' ||
+    ((ext === '.js' || ext === '.css' || ext === '.json') && !isContentHashedAsset)
+  ) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  } else if (isContentHashedAsset || ext === '.woff2') {
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  } else {
+    res.setHeader('Cache-Control', 'public, max-age=3600, must-revalidate');
+  }
+}
+
 function serveFile(filePath, stats, res) {
   const ext = path.extname(filePath).toLowerCase();
   const contentType = MIME_TYPES[ext] || 'application/octet-stream';
   if (!res.getHeader('Content-Type')) {
     res.setHeader('Content-Type', contentType);
   }
+  applyStaticCacheHeaders(filePath, res);
   if (stats && typeof stats.size === 'number') {
     res.setHeader('Content-Length', stats.size);
   }
@@ -210,12 +235,14 @@ export function createApp() {
 
   // Map root-relative AuroBlocks artwork requests to their sub-game directory
   app.use('/assets/artwork', staticHandler(path.join(__dirname, 'games/auroblocks/assets/artwork'), {
-    dotfiles: 'ignore'
+    dotfiles: 'ignore',
+    setHeaders: (res, servedPath) => applyStaticCacheHeaders(servedPath, res)
   }));
 
   app.use(staticHandler(__dirname, {
     index: 'index.html',
-    dotfiles: 'ignore'
+    dotfiles: 'ignore',
+    setHeaders: (res, servedPath) => applyStaticCacheHeaders(servedPath, res)
   }));
 
   return app;
