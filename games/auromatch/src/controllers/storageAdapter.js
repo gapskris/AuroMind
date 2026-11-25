@@ -1490,12 +1490,33 @@ export function createAuroMatchGameAdapter() {
                     if (!recordOwner || recordOwner !== active) return false;
 
                     const userVal = parsed.value;
-                    const hasPersistedProgress = Boolean(
+                    let hasPersistedProgress = Boolean(
                         userVal &&
-                        userVal.progression &&
-                        (Number(userVal.progression.completedLevelsCount || 0) > 0 ||
-                         (Array.isArray(userVal.progression.completedLevelIds) && userVal.progression.completedLevelIds.length > 0))
+                        ((userVal.progression &&
+                          (Number(userVal.progression.completedLevelsCount || 0) > 0 ||
+                           (Array.isArray(userVal.progression.completedLevelIds) && userVal.progression.completedLevelIds.length > 0))) ||
+                         (Array.isArray(userVal.reflections) && userVal.reflections.length > 0))
                     );
+
+                    if (!hasPersistedProgress) {
+                        try {
+                            const rawTiles = localStorage.getItem(`auro_match_unlocked_tiles:${active}`);
+                            if (rawTiles) {
+                                const pt = JSON.parse(rawTiles);
+                                if (Array.isArray(pt) && pt.length > 0) hasPersistedProgress = true;
+                            }
+                        } catch {}
+                    }
+                    if (!hasPersistedProgress) {
+                        try {
+                            const rawCons = localStorage.getItem(`auro_match_consecrations:${active}`);
+                            if (rawCons) {
+                                const pc = JSON.parse(rawCons);
+                                if (Array.isArray(pc) && pc.length > 0) hasPersistedProgress = true;
+                            }
+                        } catch {}
+                    }
+
                     if (!hasPersistedProgress) return false;
 
                     if (profileState && (profileState.ownerId !== active || profileState.profile?.ownerId !== active)) {
@@ -1590,11 +1611,23 @@ export function createAuroMatchGameAdapter() {
                 }
             }
 
+            let validationStatus = 'valid';
+            if (!isAuthoritativeValid) {
+                if (persistenceError === 'MISSING_SCOPED_RECORD') {
+                    validationStatus = 'missing_persistence';
+                } else if (persistenceError === 'STORAGE_UNAVAILABLE' || persistenceError === 'STORAGE_ACCESS_ERROR') {
+                    validationStatus = 'inaccessible_persistence';
+                } else {
+                    validationStatus = 'invalid_persistence';
+                }
+            }
+
             const hasProgress = isAuthoritativeValid && Boolean(
                 profileState &&
-                profileState.progression &&
-                (Number(profileState.progression.completedLevelsCount || 0) > 0 ||
-                 (Array.isArray(profileState.progression.completedLevelIds) && profileState.progression.completedLevelIds.length > 0))
+                ((profileState.progression &&
+                  (Number(profileState.progression.completedLevelsCount || 0) > 0 ||
+                   (Array.isArray(profileState.progression.completedLevelIds) && profileState.progression.completedLevelIds.length > 0))) ||
+                 (Array.isArray(profileState.reflections) && profileState.reflections.length > 0))
             );
             const effectiveOwner = isAuthenticated ? active : (active || (isAuthoritativeValid ? profileState?.ownerId : null) || guestId || null);
             const exportedProfile = isAuthoritativeValid ? profileState : createFreshProfileState(active);
@@ -1603,10 +1636,41 @@ export function createAuroMatchGameAdapter() {
                 profileState: JSON.parse(JSON.stringify(exportedProfile)),
                 ownerId: effectiveOwner,
                 persistenceValid: isAuthoritativeValid,
+                validationStatus,
                 ...(persistenceError ? { persistenceError } : {}),
                 exportedAt: new Date().toISOString()
             };
             const checksum = await computeAuroMatchEnvelopeChecksum(payload);
+
+            // Concurrency check: verify active scope did not transition during async checksum calculation
+            const currentScopeAfterAsync = getActiveScope();
+            if (isAuthenticated && currentScopeAfterAsync !== active) {
+                console.warn(`[Storage] exportEnvelope: Scope transition race detected mid-flight (captured="${active}", current="${currentScopeAfterAsync}"). Invalidate export.`);
+                return {
+                    envelopeVersion: 1,
+                    gameId: 'auromatch',
+                    gameSchemaVersion: 1,
+                    guestId,
+                    ownerId: active,
+                    baseRevision: 0,
+                    clientUpdatedAt: new Date().toISOString(),
+                    isEmpty: true,
+                    persistenceValid: false,
+                    validationStatus: 'scope_race_detected',
+                    persistenceError: 'SCOPE_TRANSITION_RACE',
+                    checksum: 'match_0_0',
+                    payload: {
+                        schemaVersion: 1,
+                        profileState: createFreshProfileState(active),
+                        ownerId: active,
+                        persistenceValid: false,
+                        validationStatus: 'scope_race_detected',
+                        persistenceError: 'SCOPE_TRANSITION_RACE',
+                        exportedAt: new Date().toISOString()
+                    }
+                };
+            }
+
             return {
                 envelopeVersion: 1,
                 gameId: 'auromatch',
@@ -1617,7 +1681,7 @@ export function createAuroMatchGameAdapter() {
                 clientUpdatedAt: new Date().toISOString(),
                 isEmpty: !hasProgress,
                 persistenceValid: isAuthoritativeValid,
-                validationStatus: isAuthoritativeValid ? 'valid' : 'invalid_persistence',
+                validationStatus,
                 ...(persistenceError ? { persistenceError } : {}),
                 checksum,
                 payload

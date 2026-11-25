@@ -90,11 +90,31 @@ export function createAuroMatchGameAdapter() {
           const owner = typeof getRecordOwnerId === 'function' ? getRecordOwnerId(parsed) : parsed?.ownerId;
           if (!owner || owner !== active) return false; // Foreign or invalid owner
 
-          return Boolean(
-            parsed.progression &&
-            (Number(parsed.progression.completedLevelsCount || 0) > 0 ||
-             (Array.isArray(parsed.progression.completedLevelIds) && parsed.progression.completedLevelIds.length > 0))
+          let hasProgress = Boolean(
+            (parsed.progression &&
+             (Number(parsed.progression.completedLevelsCount || 0) > 0 ||
+              (Array.isArray(parsed.progression.completedLevelIds) && parsed.progression.completedLevelIds.length > 0))) ||
+            (Array.isArray(parsed.reflections) && parsed.reflections.length > 0)
           );
+          if (!hasProgress) {
+            try {
+              const rawTiles = localStorage.getItem(`auro_match_unlocked_tiles:${active}`);
+              if (rawTiles) {
+                const pt = JSON.parse(rawTiles);
+                if (Array.isArray(pt) && pt.length > 0) hasProgress = true;
+              }
+            } catch {}
+          }
+          if (!hasProgress) {
+            try {
+              const rawCons = localStorage.getItem(`auro_match_consecrations:${active}`);
+              if (rawCons) {
+                const pc = JSON.parse(rawCons);
+                if (Array.isArray(pc) && pc.length > 0) hasProgress = true;
+              }
+            } catch {}
+          }
+          return hasProgress;
         }
 
         // Unauthenticated guest mode
@@ -285,6 +305,17 @@ export function createAuroMatchGameAdapter() {
         normalizedConsecrations.length > 0
       );
 
+      let validationStatus = 'valid';
+      if (!isAuthoritativeValid) {
+        if (persistenceError === 'MISSING_SCOPED_RECORD') {
+          validationStatus = 'missing_persistence';
+        } else if (persistenceError === 'STORAGE_UNAVAILABLE' || persistenceError === 'STORAGE_ACCESS_ERROR') {
+          validationStatus = 'inaccessible_persistence';
+        } else {
+          validationStatus = 'invalid_persistence';
+        }
+      }
+
       const payload = {
         schemaVersion: 1,
         user: isAuthoritativeValid ? exportUser : null,
@@ -292,6 +323,7 @@ export function createAuroMatchGameAdapter() {
         unlockedTiles: normalizedTiles,
         ownerId: effectiveOwner,
         persistenceValid: isAuthoritativeValid,
+        validationStatus,
         ...(persistenceError ? { persistenceError } : {}),
         exportedAt: new Date().toISOString()
       };
@@ -301,6 +333,37 @@ export function createAuroMatchGameAdapter() {
         checksum = await computePayloadChecksum(payload);
       } catch {
         checksum = 'match_' + (normalizedTiles.length || 0) + '_' + (normalizedConsecrations.length || 0);
+      }
+
+      // Concurrency check: verify active scope did not transition during async checksum calculation
+      const currentScopeAfterAsync = getActiveScope();
+      if (isAuthenticated && currentScopeAfterAsync !== active) {
+        console.warn(`[AuroMatch Bridge] exportEnvelope: Scope transition race detected mid-flight (captured="${active}", current="${currentScopeAfterAsync}"). Invalidate export.`);
+        return {
+          envelopeVersion: 1,
+          gameId: 'auromatch',
+          gameSchemaVersion: 1,
+          guestId,
+          ownerId: active,
+          baseRevision: 0,
+          clientUpdatedAt: new Date().toISOString(),
+          isEmpty: true,
+          persistenceValid: false,
+          validationStatus: 'scope_race_detected',
+          persistenceError: 'SCOPE_TRANSITION_RACE',
+          checksum: 'match_0_0',
+          payload: {
+            schemaVersion: 1,
+            user: null,
+            consecrations: [],
+            unlockedTiles: [],
+            ownerId: active,
+            persistenceValid: false,
+            validationStatus: 'scope_race_detected',
+            persistenceError: 'SCOPE_TRANSITION_RACE',
+            exportedAt: new Date().toISOString()
+          }
+        };
       }
 
       return {
@@ -313,7 +376,7 @@ export function createAuroMatchGameAdapter() {
         clientUpdatedAt: new Date().toISOString(),
         isEmpty: !hasProgress,
         persistenceValid: isAuthoritativeValid,
-        validationStatus: isAuthoritativeValid ? 'valid' : 'invalid_persistence',
+        validationStatus,
         ...(persistenceError ? { persistenceError } : {}),
         checksum,
         payload
