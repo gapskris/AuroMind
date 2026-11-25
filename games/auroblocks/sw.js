@@ -1,7 +1,7 @@
 // AuroBlocks Sanctuary Service Worker
 // Version: 1.5.1 — First-visit offline bundle precaching & safe cache lifecycle
 const CACHE_NAME = 'auroblocks-v1.5.1';
-const BUILD_ID = 'index-BcrUlf8o.js';
+const BUILD_ID = 'index-B5ewA8qJ.js';
 
 const PRECACHE_ASSETS = [
   './',
