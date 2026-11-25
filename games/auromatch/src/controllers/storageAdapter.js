@@ -597,7 +597,9 @@ export async function autoHealFromIndexedDB(scopedContext = null) {
 
         // 1. Resolve local working state & ownership
         const rawLocalUser = activeScope
-            ? (localStorage.getItem(`auro_match_user:${activeScope}`) || localStorage.getItem('auro_match_user'))
+            ? (isAuthenticated
+                ? localStorage.getItem(`auro_match_user:${activeScope}`)
+                : (localStorage.getItem(`auro_match_user:${activeScope}`) || localStorage.getItem('auro_match_user')))
             : localStorage.getItem('auro_match_user');
         const parsedLocalUser = tryParseJson(rawLocalUser);
         const localOwner = getRecordOwnerId(parsedLocalUser.value);
@@ -619,7 +621,7 @@ export async function autoHealFromIndexedDB(scopedContext = null) {
                     isFromScopedKey = true;
                 }
             }
-            if (idbUserVal === null) {
+            if (idbUserVal === null && !isAuthenticated) {
                 idbUserVal = await new Promise((resolve) => {
                     const req = store.get('auro_match_user');
                     req.onsuccess = () => resolve(req.result !== undefined ? req.result : null);
@@ -652,7 +654,7 @@ export async function autoHealFromIndexedDB(scopedContext = null) {
         let localState = localStorage.getItem(activeScope ? `auromatch_player_state:${activeScope}` : 'auromatch_player_state');
         let localUser = localStorage.getItem(activeScope ? `auro_match_user:${activeScope}` : 'auro_match_user');
 
-        if (!localUser && !isForeignLocal && rawLocalUser && (!isAuthenticated || localOwner === activeScope)) {
+        if (!localUser && !isForeignLocal && rawLocalUser && !isAuthenticated) {
             localUser = rawLocalUser;
         }
 
@@ -1046,14 +1048,15 @@ export function loadProfileState(options = {}) {
             }
         }
 
-        if (!isValidUserRecord) {
-            // Check fallback working cache
+        // Shared working cache fallback: ONLY permitted for unauthenticated guest mode!
+        // Authenticated accounts MUST NEVER load from shared unscoped storage.
+        if (!isValidUserRecord && !isAuthenticated) {
             const rawWorking = localStorage.getItem('auro_match_user');
             if (rawWorking) {
                 const parsed = tryParseJson(rawWorking);
                 if (parsed.ok && parsed.value && typeof parsed.value === 'object' && !Array.isArray(parsed.value)) {
                     const owner = getRecordOwnerId(parsed.value);
-                    if (isAuthenticated ? (owner && owner === currentScope) : (!currentScope || !owner || owner === currentScope)) {
+                    if (!currentScope || !owner || owner === currentScope) {
                         userData = parsed.value;
                         isValidUserRecord = true;
                         consecrationsData = localStorage.getItem('auro_match_consecrations');
@@ -1466,8 +1469,16 @@ export function createAuroMatchGameAdapter() {
                 if (isPurgeActive()) return false;
                 const active = getActiveScope();
                 const isAuthenticated = Boolean(active && !active.startsWith('guest_'));
-                if (isAuthenticated && (!profileState || profileState.ownerId !== active)) {
-                    return false;
+                if (isAuthenticated) {
+                    if (!profileState || profileState.ownerId !== active || profileState.profile?.ownerId !== active) {
+                        return false;
+                    }
+                    if (typeof localStorage !== 'undefined') {
+                        const raw = localStorage.getItem(`auro_match_user:${active}`);
+                        if (!raw) return false;
+                        const parsed = tryParseJson(raw);
+                        if (!parsed.ok || getRecordOwnerId(parsed.value) !== active) return false;
+                    }
                 }
                 return Boolean(
                     profileState &&
@@ -1501,22 +1512,43 @@ export function createAuroMatchGameAdapter() {
             const active = getActiveScope();
             const isAuthenticated = Boolean(active && !active.startsWith('guest_'));
 
-            // Ensure in-memory profileState matches active scope
-            if (active && profileState && profileState.ownerId !== active) {
+            // Strictly validate active account against authoritative scoped persistence:
+            // Stale in-memory state can NEVER override authenticated identity or export another account's data.
+            if (isAuthenticated) {
+                loadProfileState({ accountScope: active });
+            } else if (active && profileState && profileState.ownerId !== active) {
                 loadProfileState({ accountScope: active });
             }
 
-            const isOwnerValid = isAuthenticated ? (profileState && profileState.ownerId === active) : true;
-            const hasProgress = isOwnerValid && Boolean(
+            // Verify in-memory profile ownership matches active account strictly
+            const isOwnerValid = isAuthenticated
+                ? Boolean(profileState && profileState.ownerId === active && profileState.profile?.ownerId === active)
+                : Boolean(!active || !profileState?.ownerId || profileState.ownerId.startsWith('guest_'));
+
+            // Verify persisted scoped user record directly for authenticated accounts
+            let isPersistedRecordValid = true;
+            if (isAuthenticated && typeof localStorage !== 'undefined') {
+                const rawScoped = localStorage.getItem(`auro_match_user:${active}`);
+                if (rawScoped) {
+                    const parsed = tryParseJson(rawScoped);
+                    if (!parsed.ok || getRecordOwnerId(parsed.value) !== active) {
+                        isPersistedRecordValid = false;
+                    }
+                }
+            }
+
+            const isAuthoritativeValid = isOwnerValid && isPersistedRecordValid;
+
+            const hasProgress = isAuthoritativeValid && Boolean(
                 profileState &&
                 profileState.progression &&
                 (profileState.progression.completedLevelsCount > 0 ||
                  (profileState.progression.completedLevelIds && profileState.progression.completedLevelIds.length > 0))
             );
-            const effectiveOwner = active || (isOwnerValid ? profileState?.ownerId : null) || guestId || null;
+            const effectiveOwner = isAuthenticated ? active : (active || (isAuthoritativeValid ? profileState?.ownerId : null) || guestId || null);
             const payload = {
                 schemaVersion: 1,
-                profileState: JSON.parse(JSON.stringify(isOwnerValid ? profileState : createFreshProfileState(active))),
+                profileState: JSON.parse(JSON.stringify(isAuthoritativeValid ? profileState : createFreshProfileState(active))),
                 ownerId: effectiveOwner,
                 exportedAt: new Date().toISOString()
             };
@@ -1566,26 +1598,13 @@ export function createAuroMatchGameAdapter() {
                 }
                 const envelopeOwner = rawOwnerCandidate.trim();
 
-                if (envelopeOwner === targetScope) {
-                    // Exact owner-to-target match: accepted
-                } else {
-                    // Check for explicit verified guest migration
-                    const isGuestOwner = envelopeOwner.startsWith('guest_');
-                    const verifiedGuestId = (typeof context?.guestId === 'string' && context.guestId.trim())
-                        || (typeof context?.verifiedGuestId === 'string' && context.verifiedGuestId.trim())
-                        || (typeof window !== 'undefined' && typeof window.__AUROMIND_GUEST_ID__ === 'string' ? window.__AUROMIND_GUEST_ID__.trim() : null);
-
-                    const isVerifiedGuestMigration = Boolean(
-                        isGuestOwner &&
-                        verifiedGuestId &&
-                        verifiedGuestId === envelopeOwner &&
-                        (context?.guestId === envelopeOwner || context?.migrateFromGuest)
-                    );
-
-                    if (!isVerifiedGuestMigration) {
-                        console.warn(`[Storage] applyEnvelope: Owner mismatch or unverified guest migration: envelope belongs to "${envelopeOwner}", target is "${targetScope}". Rejecting.`);
-                        return false;
-                    }
+                // Strict identity binding: envelope must belong to targetScope.
+                // Untrusted caller context (context.migrateFromGuest, context.guestId, window globals)
+                // cannot authorize cross-owner or guest-to-authenticated migration without an authoritative
+                // server-signed identity-provider transition receipt (which is not part of this client contract).
+                if (envelopeOwner !== targetScope) {
+                    console.warn(`[Storage] applyEnvelope: Rejected cross-owner envelope (belongs to "${envelopeOwner}", target is "${targetScope}"). Untrusted caller context cannot authorize migration. Failing closed.`);
+                    return false;
                 }
             } else if (targetScope) {
                 // Guest target with explicit targetScope

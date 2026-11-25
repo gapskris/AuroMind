@@ -192,7 +192,7 @@ export function createAuroMatchGameAdapter() {
         }
       } catch {}
 
-      const effectiveOwner = active || (userObj ? (typeof getRecordOwnerId === 'function' ? getRecordOwnerId(userObj) : userObj?.ownerId) : null) || guestId || null;
+      const effectiveOwner = isAuthenticated ? active : (active || (userObj ? (typeof getRecordOwnerId === 'function' ? getRecordOwnerId(userObj) : userObj?.ownerId) : null) || guestId || null);
       const isOwnerValid = isAuthenticated ? Boolean(userObj && (typeof getRecordOwnerId === 'function' ? getRecordOwnerId(userObj) : userObj?.ownerId) === active) : true;
 
       // Do NOT mutate source userObj during validation or export! Deep clone for export.
@@ -274,26 +274,13 @@ export function createAuroMatchGameAdapter() {
           }
           const envelopeOwner = rawOwnerCandidate.trim();
 
-          if (envelopeOwner === targetScope) {
-            // Exact owner-to-target match: accepted
-          } else {
-            // Check for explicit verified guest migration
-            const isGuestOwner = envelopeOwner.startsWith('guest_');
-            const verifiedGuestId = (typeof context?.guestId === 'string' && context.guestId.trim())
-              || (typeof context?.verifiedGuestId === 'string' && context.verifiedGuestId.trim())
-              || (typeof window !== 'undefined' && typeof window.__AUROMIND_GUEST_ID__ === 'string' ? window.__AUROMIND_GUEST_ID__.trim() : null);
-
-            const isVerifiedGuestMigration = Boolean(
-              isGuestOwner &&
-              verifiedGuestId &&
-              verifiedGuestId === envelopeOwner &&
-              (context?.guestId === envelopeOwner || context?.migrateFromGuest)
-            );
-
-            if (!isVerifiedGuestMigration) {
-              console.warn(`[AuroMatch Bridge] applyEnvelope: Owner mismatch or unverified guest migration: envelope belongs to "${envelopeOwner}", target is "${targetScope}". Rejecting.`);
-              return false;
-            }
+          // Strict identity binding: envelope must belong to targetScope.
+          // Untrusted caller context (context.migrateFromGuest, context.guestId, window globals)
+          // cannot authorize cross-owner or guest-to-authenticated migration without an authoritative
+          // server-signed identity-provider transition receipt.
+          if (envelopeOwner !== targetScope) {
+            console.warn(`[AuroMatch Bridge] applyEnvelope: Rejected cross-owner envelope (belongs to "${envelopeOwner}", target is "${targetScope}"). Untrusted caller context cannot authorize migration. Failing closed.`);
+            return false;
           }
         } else if (targetScope) {
           // Guest target with explicit targetScope

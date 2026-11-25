@@ -2698,7 +2698,7 @@ describe('Part 1E — AuroMatch Legacy Storage & Account-Isolation Hardening (Ad
     }
   });
 
-  test('Adv-7: Guest-to-authenticated migration with explicit ownership proof and anti-cross-claim guard', async () => {
+  test('Adv-7: Untrusted caller context cannot authorize guest-to-authenticated migration and anti-cross-claim guard', async () => {
     const prevLS = globalThis.localStorage;
     const prevIDB = globalThis.indexedDB;
     const storage = createMemoryStorage();
@@ -2722,14 +2722,20 @@ describe('Part 1E — AuroMatch Legacy Storage & Account-Isolation Hardening (Ad
       const guestEnvelope = await nativeAdapter.exportEnvelope('guest_migrating');
       assert.equal(guestEnvelope.isEmpty, false);
 
-      // Legitimate migration to user_migrated
+      // Untrusted caller context cannot authorize migration into an authenticated target (fails closed)
       const applied = await nativeAdapter.applyEnvelope(guestEnvelope, {
         accountScope: 'user_migrated',
         guestId: 'guest_migrating'
       });
-      assert.equal(applied, true);
-      assert.equal(profileState.ownerId, 'user_migrated');
+      assert.equal(applied, false, 'Untrusted caller context must fail closed on guest-to-authenticated migration');
+
+      // Guest progress remains intact under guest_migrating
+      loadProfileState({ accountScope: 'guest_migrating' });
       assert.equal(profileState.profile.lotusPetalCount, 40);
+      assert.deepEqual(profileState.progression.completedLevelIds, ['mig_1', 'mig_2']);
+
+      // Target authenticated account storage remains untouched
+      assert.equal(storage.getItem('auro_match_user:user_migrated'), null);
 
       // Cross-claim attack: envelope owned by 'user_attacker' targeted to 'user_migrated'
       const spoofEnvelope = {
@@ -2749,8 +2755,8 @@ describe('Part 1E — AuroMatch Legacy Storage & Account-Isolation Hardening (Ad
       const blockedBridge = await bridgeAdapter.applyEnvelope(spoofEnvelope, { accountScope: 'user_migrated' });
       assert.equal(blockedBridge, false, 'Bridge applyEnvelope must reject owner mismatch');
 
-      // State of user_migrated remains untouched
-      assert.equal(profileState.profile.lotusPetalCount, 40);
+      // Target storage still completely empty
+      assert.equal(storage.getItem('auro_match_user:user_migrated'), null);
     } finally {
       setPurgeLock(false);
       setAccountScope(null);
@@ -3317,7 +3323,7 @@ describe('Part 1E — AuroMatch Legacy Storage & Account-Isolation Hardening (Ad
     }
   });
 
-  test('Adv-19: Guest migration succeeds only with verifiable matching guest identity', async () => {
+  test('Adv-19: Untrusted caller context cannot authorize guest-to-authenticated migration', async () => {
     const prevLS = globalThis.localStorage;
     const prevIDB = globalThis.indexedDB;
     const storage = createMemoryStorage();
@@ -3379,21 +3385,28 @@ describe('Part 1E — AuroMatch Legacy Storage & Account-Isolation Hardening (Ad
         'Bridge must reject foreign authenticated envelope masquerading as guest migration'
       );
 
-      // 4. Valid guest migration with matching guestId AND migrateFromGuest: true -> SUCCEED
+      // 4. Untrusted caller context (even with matching guestId and migrateFromGuest) fails closed on authenticated target
       assert.equal(
         await bridgeAdapter.applyEnvelope(guestEnv, {
           accountScope: 'user_auth',
           guestId: 'guest_legit_123',
           migrateFromGuest: true
         }),
-        true,
-        'Bridge must accept verified guest migration'
+        false,
+        'Bridge must reject guest migration via untrusted caller context'
+      );
+      assert.equal(
+        await nativeAdapter.applyEnvelope(guestEnv, {
+          accountScope: 'user_auth',
+          guestId: 'guest_legit_123',
+          migrateFromGuest: true
+        }),
+        false,
+        'Native must reject guest migration via untrusted caller context'
       );
 
-      // Verify data is now authoritative under user_auth
-      const scopedUser = JSON.parse(storage.getItem('auro_match_user:user_auth'));
-      assert.equal(scopedUser.ownerId, 'user_auth', 'Migrated user record must be owned by user_auth');
-      assert.equal(scopedUser.profile.lotusPetalCount, 33);
+      // Verify user_auth storage remains untouched
+      assert.equal(storage.getItem('auro_match_user:user_auth'), null, 'user_auth scoped storage must remain empty');
     } finally {
       setPurgeLock(false);
       setAccountScope(null);
@@ -3519,6 +3532,239 @@ describe('Part 1E — AuroMatch Legacy Storage & Account-Isolation Hardening (Ad
       // Crucial: no storage writes occurred for user_victim or user_attacker
       assert.equal(storage.getItem('auro_match_user:user_victim'), null);
       assert.equal(storage.getItem('auro_match_user:user_attacker'), null);
+    } finally {
+      setPurgeLock(false);
+      setAccountScope(null);
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
+
+  test('Adv-22: Authenticated account with missing scoped user record ignores matching unscoped auro_match_user data', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+    setAccountScope(null);
+
+    try {
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+
+      // Place unscoped auro_match_user with matching ownerId
+      storage.setItem('auro_match_user', JSON.stringify({
+        profile: { lotusPetalCount: 75, consciousnessPoints: 300, ownerId: 'user_auth' },
+        progression: { completedLevelsCount: 2, completedLevelIds: ['unscoped_1'] },
+        reflections: [{ id: 'u_ref', text: 'Unscoped' }],
+        ownerId: 'user_auth'
+      }));
+      storage.setItem('auro_match_consecrations', JSON.stringify([{ id: 'u_ref', text: 'Unscoped' }]));
+      storage.setItem('auro_match_unlocked_tiles', JSON.stringify(['unscoped_1']));
+
+      // Authenticated account initializes - scoped record is MISSING
+      await nativeAdapter.init({ accountScope: 'user_auth' });
+
+      // Must NOT load unscoped data
+      assert.equal(profileState.profile.lotusPetalCount, 0, 'Must not load lotus petals from unscoped cache');
+      assert.deepEqual(profileState.progression.completedLevelIds, [], 'Must not load level IDs from unscoped cache');
+      assert.deepEqual(profileState.reflections, [], 'Must not load reflections from unscoped cache');
+
+      assert.equal(nativeAdapter.hasLocalProgress(), false, 'Native hasLocalProgress must be false');
+      assert.equal(bridgeAdapter.hasLocalProgress(), false, 'Bridge hasLocalProgress must be false');
+
+      const nativeEnv = await nativeAdapter.exportEnvelope('guest_test');
+      assert.equal(nativeEnv.isEmpty, true, 'Native export must be empty');
+      assert.equal(nativeEnv.payload.profileState.profile.lotusPetalCount, 0);
+
+      const bridgeEnv = await bridgeAdapter.exportEnvelope('guest_test');
+      assert.equal(bridgeEnv.isEmpty, true, 'Bridge export must be empty');
+      assert.equal(bridgeEnv.payload.user, null);
+    } finally {
+      setPurgeLock(false);
+      setAccountScope(null);
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
+
+  test('Adv-23: Authenticated account with missing scoped user record ignores foreign unscoped data', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+    setAccountScope(null);
+
+    try {
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+
+      // Place unscoped auro_match_user with foreign ownerId
+      storage.setItem('auro_match_user', JSON.stringify({
+        profile: { lotusPetalCount: 99, ownerId: 'user_foreign' },
+        progression: { completedLevelsCount: 3, completedLevelIds: ['f_1'] },
+        ownerId: 'user_foreign'
+      }));
+
+      await nativeAdapter.init({ accountScope: 'user_auth' });
+
+      assert.equal(nativeAdapter.hasLocalProgress(), false);
+      assert.equal(bridgeAdapter.hasLocalProgress(), false);
+
+      const nativeEnv = await nativeAdapter.exportEnvelope('guest_test');
+      assert.equal(nativeEnv.isEmpty, true);
+      assert.equal(nativeEnv.payload.profileState.profile.lotusPetalCount, 0);
+
+      const bridgeEnv = await bridgeAdapter.exportEnvelope('guest_test');
+      assert.equal(bridgeEnv.isEmpty, true);
+      assert.equal(bridgeEnv.payload.user, null);
+    } finally {
+      setPurgeLock(false);
+      setAccountScope(null);
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
+
+  test('Adv-24: Scoped user record with missing reflections/tiles defaults to empty arrays without unscoped fallback', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+    setAccountScope(null);
+
+    try {
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+
+      // Scoped user record exists with progress
+      storage.setItem('auro_match_user:user_auth', JSON.stringify({
+        profile: { lotusPetalCount: 20, consciousnessPoints: 100, ownerId: 'user_auth' },
+        progression: { completedLevelsCount: 1, completedLevelIds: ['auth_lvl_1'] },
+        settings: { volumeRaga: 0.5 },
+        ownerId: 'user_auth'
+      }));
+
+      // Unscoped arrays populated with foreign or shared data
+      storage.setItem('auro_match_consecrations', JSON.stringify([{ id: 'unscoped_c', text: 'Unscoped Reflection' }]));
+      storage.setItem('auro_match_unlocked_tiles', JSON.stringify(['unscoped_t1', 'unscoped_t2']));
+
+      // Scoped reflection and tile keys are deliberately MISSING
+      storage.removeItem('auro_match_consecrations:user_auth');
+      storage.removeItem('auro_match_unlocked_tiles:user_auth');
+
+      await nativeAdapter.init({ accountScope: 'user_auth' });
+
+      // In-memory profile must NOT have inherited unscoped reflections
+      assert.deepEqual(profileState.reflections, [], 'Reflections must default to empty array, not fall back to unscoped key');
+
+      // Bridge export must NOT contain unscoped reflections or foreign tiles
+      const bridgeEnv = await bridgeAdapter.exportEnvelope('guest_test');
+      assert.deepEqual(bridgeEnv.payload.consecrations, [], 'Bridge export consecrations must be empty');
+      assert.deepEqual(bridgeEnv.payload.unlockedTiles, [], 'Bridge export tiles must be empty');
+    } finally {
+      setPurgeLock(false);
+      setAccountScope(null);
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
+
+  test('Adv-25: Stale in-memory profile state cannot override authenticated active account identity during export', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+    setAccountScope(null);
+
+    try {
+      const nativeAdapter = createAuroMatchNativeAdapter();
+
+      // Legitimate user_victim has progress
+      storage.setItem('auro_match_user:user_victim', JSON.stringify({
+        profile: { lotusPetalCount: 500, ownerId: 'user_victim' },
+        progression: { completedLevelsCount: 5, completedLevelIds: ['vic_1'] },
+        ownerId: 'user_victim'
+      }));
+
+      // Attacker switches in memory to victim's profile
+      profileState.ownerId = 'user_victim';
+      profileState.profile.ownerId = 'user_victim';
+      profileState.profile.lotusPetalCount = 500;
+      profileState.progression.completedLevelsCount = 5;
+      profileState.progression.completedLevelIds = ['vic_1'];
+
+      // Active account is user_attacker with NO scoped storage
+      setAccountScope('user_attacker');
+
+      // Native export must strictly reload against active account (user_attacker) and reject stale memory state
+      const env = await nativeAdapter.exportEnvelope('guest_test');
+      assert.equal(env.isEmpty, true, 'Export must be empty because user_attacker has no progress');
+      assert.equal(env.ownerId, 'user_attacker', 'Envelope ownerId must be user_attacker');
+      assert.equal(env.payload.ownerId, 'user_attacker');
+      assert.equal(env.payload.profileState.profile.lotusPetalCount, 0, 'Lotus petals must be 0 for user_attacker');
+      assert.deepEqual(env.payload.profileState.progression.completedLevelIds, []);
+    } finally {
+      setPurgeLock(false);
+      setAccountScope(null);
+      resetIndexedDBConnection();
+      if (prevLS === undefined) delete globalThis.localStorage;
+      else globalThis.localStorage = prevLS;
+      if (prevIDB === undefined) delete globalThis.indexedDB;
+      else globalThis.indexedDB = prevIDB;
+    }
+  });
+
+  test('Adv-26: Native and Bridge exportEnvelope() fail safe after storage corruption or errors', async () => {
+    const prevLS = globalThis.localStorage;
+    const prevIDB = globalThis.indexedDB;
+    const storage = createMemoryStorage();
+    const fakeIdb = createFakeIndexedDB();
+    globalThis.localStorage = storage;
+    globalThis.indexedDB = fakeIdb;
+    resetIndexedDBConnection();
+    setAccountScope(null);
+
+    try {
+      const nativeAdapter = createAuroMatchNativeAdapter();
+      const bridgeAdapter = createAuroMatchBridgeAdapter();
+
+      // Corrupt scoped user record (not valid JSON)
+      storage.setItem('auro_match_user:user_corrupt', '{ corrupted json: true, ');
+      setAccountScope('user_corrupt');
+
+      const nativeEnv = await nativeAdapter.exportEnvelope('guest_test');
+      assert.equal(nativeEnv.isEmpty, true, 'Native export must fail safe with isEmpty: true on corrupt storage');
+      assert.equal(nativeEnv.ownerId, 'user_corrupt');
+      assert.equal(nativeEnv.payload.profileState.profile.lotusPetalCount, 0);
+
+      const bridgeEnv = await bridgeAdapter.exportEnvelope('guest_test');
+      assert.equal(bridgeEnv.isEmpty, true, 'Bridge export must fail safe with isEmpty: true on corrupt storage');
+      assert.equal(bridgeEnv.ownerId, 'user_corrupt');
+      assert.equal(bridgeEnv.payload.user, null);
     } finally {
       setPurgeLock(false);
       setAccountScope(null);
