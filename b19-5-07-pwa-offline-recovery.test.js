@@ -31,14 +31,15 @@ describe('B19.5-07: PWA Precache and Service Worker Integrity', () => {
     assert.ok(content.includes('./manifest.json'), 'sw.js must precache ./manifest.json');
   });
 
-  test('All 6 games precache their respective SDK bridge scripts in their SWs', () => {
+  test('All 7 games precache their respective SDK bridge scripts in their SWs', () => {
     const swMap = [
       { game: 'auromatch', file: 'games/auromatch/sw.js', expected: 'auromatch-sdk-bridge.js' },
       { game: 'auromandala', file: 'games/auromandala/sw.js', expected: 'auromandala-sdk-bridge.js' },
       { game: 'word-riddle', file: 'games/word-riddle/sw.js', expected: 'word-riddle-sdk-bridge.js' },
       { game: 'vak', file: 'games/vak/sw.js', expected: 'vak-sdk-bridge.js' },
       { game: 'vak-living-sanctuary', file: 'games/vak-living-sanctuary/sw.js', expected: 'vak-living-sanctuary-sdk-bridge.js' },
-      { game: 'auroblocks', file: 'games/auroblocks/sw.js', expected: 'auroblocks' }
+      { game: 'auroblocks', file: 'games/auroblocks/sw.js', expected: 'auroblocks' },
+      { game: 'maablocs', file: 'games/maablocs/sw.js', expected: 'maablocs' }
     ];
 
     for (const item of swMap) {
@@ -58,6 +59,15 @@ describe('B19.5-07: PWA Precache and Service Worker Integrity', () => {
     assert.ok(
       content.includes("status: 504") || content.includes("status: 408") || content.includes("cachedResponse ||"),
       'AuroBlocks SW must provide a fallback Response object on offline cache miss'
+    );
+  });
+
+  test('MaaBlocs SW handles offline cache miss without returning undefined', () => {
+    const swPath = path.join(ROOT, 'games/maablocs/sw.js');
+    const content = fs.readFileSync(swPath, 'utf8');
+    assert.ok(
+      content.includes("status: 503") || content.includes("cachedResponse ||"),
+      'MaaBlocs SW must provide a fallback Response object on offline cache miss'
     );
   });
 

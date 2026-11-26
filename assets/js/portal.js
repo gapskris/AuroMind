@@ -411,13 +411,11 @@ function initTheaterMode() {
   }
 
   const gameUrls = {
-    'vak': 'games/vak/index.html',
-    'vak-sanctuary': 'games/vak-living-sanctuary/index.html',
-    'auromatch': 'games/auromatch/index.html',
-    'wordriddle': 'games/word-riddle/index.html',
     'auromandala': 'games/auromandala/index.html',
+    'auromatch': 'games/auromatch/index.html',
     'auroblocks': 'games/auroblocks/index.html',
-    'maablocs': 'games/maablocs/index.html'
+    'maamatch': 'games/auromatch/index.html',
+    'maablock': 'games/auroblocks/index.html'
   };
 
   let activeGameStartTime = null;
@@ -636,13 +634,11 @@ function initTheaterMode() {
 
   // Narrow explicit alias map for game close message validation (B19.5-01D)
   const GAME_ID_ALIASES = {
-    'auromatch': ['auromatch'],
-    'auroblocks': ['auroblocks'],
+    'auromatch': ['auromatch', 'maamatch'],
+    'auroblocks': ['auroblocks', 'maablock'],
     'auromandala': ['auromandala'],
-    'vak': ['vak', 'vakspeech', 'vak-speech'],
-    'wordriddle': ['wordriddle', 'word-riddle'],
-    'vak-sanctuary': ['vak-sanctuary', 'vak-living-sanctuary', 'vaksanctuary'],
-    'maablocs': ['maablocs', 'the-vedic-magic-sum']
+    'maamatch': ['auromatch', 'maamatch'],
+    'maablock': ['auroblocks', 'maablock']
   };
 
   // Listen to HTML5 PostMessage from child game iframes (Vak, AuroMatch, etc.)
@@ -759,8 +755,9 @@ function initTheaterMode() {
     if (data.type !== 'AUROMIND_REQUEST_PURCHASE') return;
 
     const purchaseTitles = {
-      vak: 'VAK — The Control of Speech',
-      auromatch: 'AuroMatch — Zen Tile Solitaire'
+      auromatch: 'MaaMATCH — Zen Tile Solitaire',
+      auroblocks: 'MaaBLOCK — Mindful Geometry',
+      auromandala: 'AuroMandala — Mindful Breath'
     };
 
     if (!Object.prototype.hasOwnProperty.call(purchaseTitles, activeGameId)) return;
@@ -1237,9 +1234,15 @@ function initAuthModal() {
         (account.email ? account.email.split('@')[0] : 'Account');
       authBtn.textContent = '';
       const iconSpan = document.createElement('span');
-      iconSpan.textContent = avatar && avatar.type === 'preset' && avatar.value ? avatar.value : '👤';
+      iconSpan.textContent = '👤';
+      if (avatar && avatar.type === 'preset' && avatar.value) {
+        iconSpan.textContent = avatar.value;
+      }
       const labelSpan = document.createElement('span');
-      labelSpan.textContent = shortName.slice(0, 18);
+      labelSpan.textContent = shortName;
+      if (shortName.length > 18) {
+        labelSpan.textContent = shortName.slice(0, 18);
+      }
       authBtn.appendChild(iconSpan);
       authBtn.appendChild(labelSpan);
     } else {
@@ -2147,9 +2150,9 @@ function initPurchaseBridge() {
   const titleEl = document.getElementById('purchase-game-title');
 
   window.openPurchaseModal = function(gameId, title) {
-    const activePurchaseGameId = gameId || 'vak';
+    const activePurchaseGameId = gameId || 'auromatch';
     if (titleEl) {
-      titleEl.textContent = title || (activePurchaseGameId === 'vak' ? 'VAK — The Control of Speech' : 'AuroMatch — Zen Tile Solitaire');
+      titleEl.textContent = title || (activePurchaseGameId === 'auroblocks' ? 'MaaBLOCK — Mindful Geometry' : (activePurchaseGameId === 'auromandala' ? 'AuroMandala — Mindful Breath' : 'MaaMATCH — Zen Tile Solitaire'));
     }
     if (modal) modal.classList.add('open');
   };

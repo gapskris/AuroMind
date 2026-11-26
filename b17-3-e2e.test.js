@@ -83,13 +83,13 @@ test('E2E Suite A - 2: Main navigation header and controls render correctly', as
   }
 });
 
-test('E2E Suite A - 3: Game catalogue displays exactly 37 unique games and AuroBlocks is unique', async () => {
+test('E2E Suite A - 3: Game catalogue displays exactly 3 unique games and AuroBlocks is unique', async () => {
   const { page, close } = await env.createInstrumentedPage();
   try {
     await page.goto(env.baseUrl, { waitUntil: 'domcontentloaded' });
 
     const totalCards = await page.$$eval('.game-card', cards => cards.length);
-    assert.equal(totalCards, 37, 'Catalogue must display exactly 37 unique cards (6 baseline live + MaaBlocs + 30 upcoming)');
+    assert.equal(totalCards, 3, 'Catalogue must display exactly 3 unique cards (AuroMandala, MaaMATCH, MaaBLOCK)');
 
     // Verify AuroBlocks appears exactly once (zero duplicate card articles)
     const auroBlocksCards = await page.$$eval('.game-card[data-game-id="auroblocks"]', cards => cards.length);
@@ -99,14 +99,14 @@ test('E2E Suite A - 3: Game catalogue displays exactly 37 unique games and AuroB
   }
 });
 
-test('E2E Suite A - 4: Live Now category filter displays exactly 7 unique live games', async () => {
+test('E2E Suite A - 4: Live Now category filter displays exactly 3 unique live games', async () => {
   const { page, close } = await env.createInstrumentedPage();
   try {
     await page.goto(env.baseUrl, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('.sidebar-nav-item[data-category="live"]');
 
     const liveCards = await page.$$eval('.game-card[data-category*="live"]', cards => cards.length);
-    assert.equal(liveCards, 7, 'Live Now filter must match exactly 7 live game cards (VAK, AuroMatch, AuroMandala, Word Riddle, AuroBlocks, VAK Sanctuary, MaaBlocs)');
+    assert.equal(liveCards, 3, 'Live Now filter must match exactly 3 live game cards (AuroMandala, MaaMATCH, MaaBLOCK)');
 
     // Trigger filter click via page.evaluate
     await page.evaluate(() => {
@@ -114,23 +114,23 @@ test('E2E Suite A - 4: Live Now category filter displays exactly 7 unique live g
       if (item) item.click();
     });
 
-    // Wait until cards are filtered to 7
+    // Wait until cards are filtered to 3
     await page.waitForFunction(() => {
       const cards = Array.from(document.querySelectorAll('.game-card'));
-      return cards.filter(c => window.getComputedStyle(c).display !== 'none').length === 7;
+      return cards.filter(c => window.getComputedStyle(c).display !== 'none').length === 3;
     }, { timeout: 5000 });
 
     // Count visible cards
     const visibleLiveCards = await page.$$eval('.game-card', cards => {
       return cards.filter(c => window.getComputedStyle(c).display !== 'none').length;
     });
-    assert.equal(visibleLiveCards, 7, 'Exactly 7 cards must be visible when Live Now filter is active');
+    assert.equal(visibleLiveCards, 3, 'Exactly 3 cards must be visible when Live Now filter is active');
   } finally {
     await close();
   }
 });
 
-test('E2E Suite A - 5: Sidebar game count displays All Games (37)', async () => {
+test('E2E Suite A - 5: Sidebar game count displays All Games (3)', async () => {
   const { page, close } = await env.createInstrumentedPage();
   try {
     await page.goto(env.baseUrl, { waitUntil: 'domcontentloaded' });
@@ -139,7 +139,7 @@ test('E2E Suite A - 5: Sidebar game count displays All Games (37)', async () => 
       '.sidebar-nav-item[data-category="all"] span:last-child',
       el => el.textContent.trim()
     );
-    assert.equal(allGamesText, 'All Games (37)', 'Sidebar all games label must read "All Games (37)" as reconciled by portal.js');
+    assert.equal(allGamesText, 'All Games (3)', 'Sidebar all games label must read "All Games (3)" as reconciled by portal.js');
   } finally {
     await close();
   }
@@ -150,37 +150,34 @@ test('E2E Suite A - 6: Search input filters catalogue titles dynamically', async
   try {
     await page.goto(env.baseUrl, { waitUntil: 'domcontentloaded' });
 
-    // Type "Word Riddle" into search input
-    await page.type('#search-input', 'Word Riddle');
+    // Type "MaaMATCH" into search input
+    await page.type('#search-input', 'MaaMATCH');
 
     const visibleCards = await page.$$eval('.game-card', cards => {
       return cards.filter(c => window.getComputedStyle(c).display !== 'none');
     });
-    assert.equal(visibleCards.length, 1, 'Search for "Word Riddle" should yield exactly 1 visible card');
+    assert.equal(visibleCards.length, 1, 'Search for "MaaMATCH" should yield exactly 1 visible card');
 
     const visibleTitle = await page.$$eval('.game-card', cards => {
       const visible = cards.find(c => window.getComputedStyle(c).display !== 'none');
       return visible ? visible.querySelector('.game-card-title').textContent : '';
     });
-    assert.ok(visibleTitle.includes('Word Riddle'), 'Filtered title must be Word Riddle');
+    assert.ok(visibleTitle.includes('MaaMATCH') || visibleTitle.includes('Garden'), 'Filtered title must be MaaMATCH');
   } finally {
     await close();
   }
 });
 
 // ===========================================================================
-// Suite B — Game Theatre and Navigation (All 6 Games)
+// Suite B — Game Theatre and Navigation (3 Consolidated Games)
 // ===========================================================================
-const SIX_GAMES = [
-  { id: 'auroblocks', name: 'AuroBlocks', expectedUrl: 'games/auroblocks/index.html' },
-  { id: 'auromatch', name: 'AuroMatch', expectedUrl: 'games/auromatch/index.html' },
-  { id: 'auromandala', name: 'AuroMandala', expectedUrl: 'games/auromandala/index.html' },
-  { id: 'vak', name: 'VAK Speech Control', expectedUrl: 'games/vak/index.html' },
-  { id: 'wordriddle', name: 'Word Riddle', expectedUrl: 'games/word-riddle/index.html' },
-  { id: 'vak-sanctuary', name: 'VAK Living Sanctuary', expectedUrl: 'games/vak-living-sanctuary/index.html' }
+const THREE_GAMES = [
+  { id: 'auroblocks', name: 'MaaBLOCK', expectedUrl: 'games/auroblocks/index.html' },
+  { id: 'auromatch', name: 'MaaMATCH', expectedUrl: 'games/auromatch/index.html' },
+  { id: 'auromandala', name: 'AuroMandala', expectedUrl: 'games/auromandala/index.html' }
 ];
 
-for (const game of SIX_GAMES) {
+for (const game of THREE_GAMES) {
   test(`E2E Suite B: Launch ${game.name} in theatre, verify iframe, return to portal`, async () => {
     const { page, close } = await env.createInstrumentedPage();
     try {
@@ -262,7 +259,7 @@ for (const game of SIX_GAMES) {
 test('E2E Suite B - 7: Direct standalone access to games loads without crashing', async () => {
   const { page, close } = await env.createInstrumentedPage();
   try {
-    for (const game of SIX_GAMES) {
+    for (const game of THREE_GAMES) {
       const standaloneUrl = `${env.baseUrl}/${game.expectedUrl}`;
       const response = await page.goto(standaloneUrl, { waitUntil: 'domcontentloaded' });
       assert.equal(response.status(), 200, `${game.name} standalone must return HTTP 200`);

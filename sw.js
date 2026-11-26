@@ -4,7 +4,7 @@
  * and strictly excludes /games/* routes so individual game Service Workers remain isolated.
  */
 
-const PORTAL_CACHE_NAME = 'auro-portal-v1.2.0';
+const PORTAL_CACHE_NAME = 'auro-portal-v2.0.0';
 const FONT_CACHE_NAME = 'auro-portal-fonts-v1.0.0';
 const CACHE_PREFIX = 'auro-portal-';
 
@@ -30,50 +30,12 @@ const PORTAL_SHELL_ASSETS = [
   './assets/icons/auromind-logo.svg',
   './assets/icons/icon-192.png',
   './assets/icons/icon-512.png',
-  './assets/icons/vak-logo.svg',
   './assets/icons/auromatch-logo.svg',
-  './assets/icons/wordriddle-logo.svg',
-  './assets/icons/vak-sanctuary-logo.svg',
   './assets/icons/auromandala-logo.svg',
   './assets/icons/auroblocks-logo.svg',
-  './assets/icons/mahjong-logo.svg',
-  './assets/icons/logic-logo.svg',
-  './assets/icons/merge-logo.svg',
-  './assets/thumbnails/vak.png',
   './assets/thumbnails/auromatch.png',
-  './assets/thumbnails/wordriddle.png',
-  './assets/thumbnails/vak_living_sanctuary.jpg',
   './assets/thumbnails/auromandala.jpg',
-  './assets/thumbnails/auroblocks.webp',
-  './assets/thumbnails/match3_puzzle.jpg',
-  './assets/thumbnails/logic_riddles.png',
-  './assets/thumbnails/sanctuary_merge.jpg',
-  './assets/thumbnails/01_stillwater.png',
-  './assets/thumbnails/02_living_terrarium.png',
-  './assets/thumbnails/03_pattern_and_petal.jpg',
-  './assets/thumbnails/04_the_quiet_eye.png',
-  './assets/thumbnails/05_chords_of_calm.png',
-  './assets/thumbnails/06_lux.jpg',
-  './assets/thumbnails/07_hue_and_harmony.png',
-  './assets/thumbnails/08_living_tributary.png',
-  './assets/thumbnails/09_windborn.png',
-  './assets/thumbnails/10_starlight_origami.png',
-  './assets/thumbnails/strat_01_chronostasis.png',
-  './assets/thumbnails/strat_02_the_axiomat.png',
-  './assets/thumbnails/strat_03_metamorphosis.png',
-  './assets/thumbnails/strat_04_the_fourfold_veil.png',
-  './assets/thumbnails/strat_05_epistemic_horizons.png',
-  './assets/thumbnails/strat_06_scale.png',
-  './assets/thumbnails/strat_07_topos.png',
-  './assets/thumbnails/strat_08_syntropy.png',
-  './assets/thumbnails/strat_09_vakya.png',
-  './assets/thumbnails/strat_10_equilibrium.png',
-  './assets/thumbnails/strat_11_maxwell.png',
-  './assets/thumbnails/strat_12_entanglement.png',
-  './assets/thumbnails/strat_13_epigenesis.png',
-  './assets/thumbnails/strat_14_ananta.png',
-  './assets/thumbnails/strat_15_yagna.png',
-  './assets/thumbnails/strat_16_pranamirror.png'
+  './assets/thumbnails/auroblocks.webp'
 ];
 
 const PORTAL_FONT_URLS = [

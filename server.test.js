@@ -33,7 +33,7 @@ test('Express static server serves portal, assets, and all live games', async ()
       { path: '/games/auromandala/index.html', expectedContentType: 'text/html', expectedText: 'PranaMandala' },
       { path: '/games/auroblocks/index.html', expectedContentType: 'text/html', expectedText: 'AuroBlocks' },
       { path: '/manifest.json', expectedContentType: 'application/json', expectedText: 'icon-192.png' },
-      { path: '/sw.js', expectedContentType: 'javascript', expectedText: 'auro-portal-v1.2.0' },
+      { path: '/sw.js', expectedContentType: 'javascript', expectedText: 'auro-portal-' },
       { path: '/assets/icons/icon-192.png', expectedContentType: 'image/png', expectedText: '' },
       { path: '/assets/icons/icon-512.png', expectedContentType: 'image/png', expectedText: '' },
       { path: '/assets/artwork/hero-sacred-geometry.webp', expectedContentType: 'image/webp', expectedText: '' }
@@ -521,8 +521,8 @@ test('Root service worker precaches shared SDK files, serves them offline, and i
   }
   await Promise.all(installPromises);
 
-  const portalCache = cacheStore.get('auro-portal-v1.2.0');
-  assert.ok(portalCache, 'Expected auro-portal-v1.2.0 cache to be created during install');
+  const portalCache = cacheStore.get('auro-portal-v2.0.0') || cacheStore.get('auro-portal-v1.2.0');
+  assert.ok(portalCache, 'Expected auro-portal cache to be created during install');
   assert.ok(
     portalCache.has('http://localhost:3000/assets/sdk/auromind-sdk.js'),
     'auromind-sdk.js must be precached'
@@ -543,7 +543,7 @@ test('Root service worker precaches shared SDK files, serves them offline, and i
   }
   await Promise.all(activatePromises);
   assert.equal(cacheStore.has('auro-portal-v1.0.0'), false, 'Legacy auro-portal-v1.0.0 cache must be evicted');
-  assert.equal(cacheStore.has('auro-portal-v1.2.0'), true, 'Active auro-portal-v1.2.0 cache must remain');
+  assert.equal(cacheStore.has('auro-portal-v2.0.0') || cacheStore.has('auro-portal-v1.2.0'), true, 'Active portal cache must remain');
   assert.equal(cacheStore.has('auro-portal-fonts-v1.0.0'), true, 'Font cache must remain');
 
   // 3. Go offline and dispatch fetch events

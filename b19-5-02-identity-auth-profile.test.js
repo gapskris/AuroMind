@@ -1121,8 +1121,8 @@ describe('B19.5-02 Part 2 — Real Browser E2E Verification (Chromium/Edge)', ()
         pageB.goto(env.baseUrl, { waitUntil: 'domcontentloaded' })
       ]);
       await Promise.all([
-        pageA.waitForFunction(() => window.AuroMindPortal && window.AuroMindPortal.isInitialized(), { timeout: 10000 }),
-        pageB.waitForFunction(() => window.AuroMindPortal && window.AuroMindPortal.isInitialized(), { timeout: 10000 })
+        pageA.waitForFunction(() => window.AuroMindPortal && window.AuroMindPortal.isInitialized(), { timeout: 10000, polling: 100 }),
+        pageB.waitForFunction(() => window.AuroMindPortal && window.AuroMindPortal.isInitialized(), { timeout: 10000, polling: 100 })
       ]);
 
       // Allow BroadcastChannel / Web Locks reconciliation to converge
@@ -1133,7 +1133,7 @@ describe('B19.5-02 Part 2 — Real Browser E2E Verification (Chromium/Edge)', ()
 
       // Update profile name in Tab A -> Tab B picks it up via BroadcastChannel/storage event
       await pageA.evaluate(() => window.AuroMind.player.setDisplayName('MultiTab Harmony'));
-      await pageB.waitForFunction(() => window.AuroMind.player.getDisplayName() === 'MultiTab Harmony', { timeout: 5000 });
+      await pageB.waitForFunction(() => window.AuroMind.player.getDisplayName() === 'MultiTab Harmony', { timeout: 5000, polling: 100 });
       const nameB = await pageB.evaluate(() => window.AuroMind.player.getDisplayName());
       assert.equal(nameB, 'MultiTab Harmony');
     } finally {
@@ -1141,15 +1141,12 @@ describe('B19.5-02 Part 2 — Real Browser E2E Verification (Chromium/Edge)', ()
     }
   });
 
-  test('Real Browser 3: All 6 games in portal theater receive identical guestId and live auth/logout propagation without stale userId', async () => {
+  test('Real Browser 3: Consolidated launch games in portal theater receive identical guestId and live auth/logout propagation without stale userId', async () => {
     const { page, close } = await env.createInstrumentedPage();
     const games = [
       { id: 'auroblocks', expectedUrl: 'games/auroblocks/index.html' },
       { id: 'auromatch', expectedUrl: 'games/auromatch/index.html' },
-      { id: 'auromandala', expectedUrl: 'games/auromandala/index.html' },
-      { id: 'vak', expectedUrl: 'games/vak/index.html' },
-      { id: 'wordriddle', expectedUrl: 'games/word-riddle/index.html' },
-      { id: 'vak-sanctuary', expectedUrl: 'games/vak-living-sanctuary/index.html' }
+      { id: 'auromandala', expectedUrl: 'games/auromandala/index.html' }
     ];
     try {
       await page.goto(env.baseUrl, { waitUntil: 'domcontentloaded' });

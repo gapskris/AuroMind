@@ -323,7 +323,7 @@ test('B8 Security Test 9: Oversized request stream never triggers JSON.parse', a
 function createValidTelemetryEvent(idSuffix = '1') {
   return {
     eventId: `a0000000-0000-4000-8000-00000000000${idSuffix}`,
-    eventName: 'vak_level_completed',
+    eventName: 'level_completed',
     category: 'progression',
     gameId: 'vak',
     payload: { level: 5, accuracy: 0.98 },

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "AuroMasti",
+  "brandTagline": "A Little Twist. A Lot of Masti!",
+  "brandPillars": "PLAY • EXPLORE • ENJOY",
+  "version": "2.0.0",
+  "releaseDate": "2027-01-01",
+  "buildChannel": "production-beta",
+  "minSupportedVersion": "1.0.0",
+  "runtime": {
+    "target": "browser",
+    "offlineCapable": true,
+    "pwaEnabled": true,
+    "serviceWorkerCacheVersion": "auro-portal-v2.0.0"
+  },
+  "applications": [
+    {
+      "id": "auromandala",
+      "name": "AuroMandala",
+      "subtitle": "Sacred Geometry & Mindful Breath Sanctuary",
+      "version": "2.0.0",
+      "entrypoint": "games/auromandala/index.html",
+      "storageSchemaVersion": "2.0.0",
+      "supportedModes": ["breathing", "mandala-art", "sankalpa"],
+      "status": "live"
+    },
+    {
+      "id": "auromatch",
+      "alias": "maamatch",
+      "name": "MaaMATCH",
+      "subtitle": "Triple Garden of Solitaire",
+      "version": "2.0.0",
+      "entrypoint": "games/auromatch/index.html",
+      "storageSchemaVersion": "2.0.0",
+      "supportedModes": ["zen-matching", "flora-botanical"],
+      "status": "live"
+    },
+    {
+      "id": "auroblocks",
+      "alias": "maablock",
+      "name": "MaaBLOCK",
+      "subtitle": "Mindful Geometry",
+      "version": "2.0.0",
+      "entrypoint": "games/auroblocks/index.html",
+      "storageSchemaVersion": "2.0.0",
+      "supportedModes": ["classic-8x8", "sudoku-9x9", "journey"],
+      "status": "live"
+    }
+  ],
+  "featureFlags": {
+    "COMMERCIAL_GATE_ENABLED": false,
+    "ENABLE_432HZ_AUDIO": true,
+    "ENABLE_SENIOR_MODE": true,
+    "ENABLE_OFFLINE_OUTBOX": true,
+    "ENABLE_LOCAL_FIRST_SANKALPA": true,
+    "ENABLE_ANALYTICS_CONSENT_BANNER": true,
+    "TELEMETRY_DEFAULT_OPT_IN": false
+  },
+  "contracts": {
+    "zeroCountdownClocks": true,
+    "zeroPredatoryAds": true,
+    "zeroThirdPartyTrackers": true,
+    "unrestrictedBetaAccess": true
+  }
+}

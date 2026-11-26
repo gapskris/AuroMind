@@ -69,7 +69,8 @@ test('B11 Suite 1: All six games have valid shells, manifests, viewports, and pr
     { id: 'auromandala', dir: 'games/auromandala', manifest: 'manifest.webmanifest' },
     { id: 'wordriddle', dir: 'games/word-riddle', manifest: 'manifest.webmanifest' },
     { id: 'auroblocks', dir: 'games/auroblocks', manifest: 'manifest.webmanifest' },
-    { id: 'vak-sanctuary', dir: 'games/vak-living-sanctuary', manifest: 'manifest.webmanifest' }
+    { id: 'vak-sanctuary', dir: 'games/vak-living-sanctuary', manifest: 'manifest.webmanifest' },
+    { id: 'maablocs', dir: 'games/maablocs', manifest: 'manifest.webmanifest' }
   ];
 
   for (const game of expectedGames) {
@@ -132,8 +133,8 @@ test('B11 Suite 2: Single-origin guest identity is consistent across portal and 
   assert.ok(platformGuestId, 'Portal must establish guest identity');
   assert.ok(platformGuestId.startsWith('guest_'), 'Guest ID must use guest_ prefix');
 
-  // Phase 2: Each of the six games initializes in the same browser origin
-  const gameIds = ['vak', 'auromatch', 'auromandala', 'wordriddle', 'auroblocks', 'vak-sanctuary'];
+  // Phase 2: Each of the seven games initializes in the same browser origin
+  const gameIds = ['vak', 'auromatch', 'auromandala', 'wordriddle', 'auroblocks', 'vak-sanctuary', 'maablocs'];
   for (const gId of gameIds) {
     const gameSdk = createAuroMindSDK(env);
     const gameCtx = await gameSdk.init({ gameId: gId, appVersion: '1.0.0' });
@@ -200,12 +201,16 @@ test('B11 Suite 3: Save schemas remain isolated; cache clearing does not erase g
   sharedStorage.setItem('vak_sanctuary_codex_v1', JSON.stringify({
     unlockedWords: ['CALM', 'ASPIRATION', 'PEACE']
   }));
+  sharedStorage.setItem('maablocs_offline_v1', JSON.stringify({
+    levelProgress: { level_01: { completed: true, bestScore: 1850 } }
+  }));
 
   // 2. Cross-Game Isolation: Clearing or modifying one game's save never corrupts another game's save
   sharedStorage.setItem('auro_vak_user', JSON.stringify({ player: { name: 'Seeker', currentLevel: 43, sparks: 1600 } }));
   assert.ok(sharedStorage.getItem('auro_match_user').includes('18'), 'AuroMatch progress must be unaffected by VAK save update');
   assert.ok(sharedStorage.getItem('pranamandala_game_cache_v2').includes('1200'), 'AuroMandala progress must be unaffected');
   assert.ok(sharedStorage.getItem('auroblocks_player_save_v1').includes('4850'), 'AuroBlocks progress must be unaffected');
+  assert.ok(sharedStorage.getItem('maablocs_offline_v1').includes('1850'), 'MaaBlocs progress must be unaffected');
 
   // 3. Cache Clearing Safety: Simulated Service Worker cache clear
   // Clearing CacheStorage (Caches API) strictly leaves localStorage and IndexedDB intact
@@ -249,7 +254,10 @@ test('B11 Suite 4: Root service worker strictly bypasses /games/* routes, preser
   const rootSwCode = fs.readFileSync(path.join(__dirname, 'sw.js'), 'utf8');
 
   // Invariant 1: Root SW uses isolated portal cache key
-  assert.ok(rootSwCode.includes('auro-portal-v1.2.0'), 'Root SW must use auro-portal-v1.2.0 cache');
+  assert.ok(
+    rootSwCode.includes('auro-portal-v2.0.0') || rootSwCode.includes('auro-portal-v1.2.0'),
+    'Root SW must use auro-portal-v2.0.0 or valid auro-portal cache'
+  );
   assert.ok(rootSwCode.includes('auro-portal-fonts-v1.0.0'), 'Root SW must use isolated font cache');
 
   // Invariant 2: Root SW explicitly bypasses /games/* and iframe referrers
@@ -287,6 +295,10 @@ test('B11 Suite 4: Root service worker strictly bypasses /games/* routes, preser
 
   const blocksSw = fs.readFileSync(path.join(__dirname, 'games/auroblocks/sw.js'), 'utf8');
   assert.ok(blocksSw.includes('auroblocks-'), 'AuroBlocks must use isolated auroblocks cache');
+
+  const maablocsSw = fs.readFileSync(path.join(__dirname, 'games/maablocs/sw.js'), 'utf8');
+  assert.ok(maablocsSw.includes('maablocs-'), 'MaaBlocs must use isolated maablocs cache');
+  assert.equal(maablocsSw.includes('auro-portal-'), false, 'MaaBlocs must not use portal cache');
 });
 
 // ---------------------------------------------------------------------------

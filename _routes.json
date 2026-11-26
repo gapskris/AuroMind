@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "include": [
+    "/*"
+  ],
+  "exclude": [
+    "/assets/*",
+    "/games/*",
+    "/favicon.ico",
+    "/manifest.json",
+    "/sw.js",
+    "/release-manifest.json",
+    "/_headers"
+  ]
+}

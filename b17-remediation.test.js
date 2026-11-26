@@ -104,20 +104,20 @@ test('B17.1 Test 4: AuroBlocks catalog card is unique (zero duplication)', () =>
   );
 });
 
-test('B17.1 Test 5: Live Now category filter matches exactly 6 unique live games', () => {
+test('B17.1 Test 5: Live Now category filter matches exactly 3 unique live games', () => {
   const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
   const liveCards = html.match(/<article[^>]*class="game-card"[^>]*data-category="[^"]*live[^"]*"/g);
   assert.equal(
     liveCards ? liveCards.length : 0,
-    6,
-    'Live Now category filter must match exactly 6 unique live game cards'
+    3,
+    'Live Now category filter must match exactly 3 unique live game cards'
   );
 });
 
-test('B17.1 Test 6: Sidebar count reflects curated 36 unique catalogue entries', () => {
+test('B17.1 Test 6: Sidebar count reflects curated 3 unique catalogue entries', () => {
   const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-  assert.ok(html.includes('All Games (36)'), 'Sidebar must display All Games (36)');
-  assert.ok(html.includes('Search all 36 games'), 'Search input placeholder must say 36 games');
+  assert.ok(html.includes('All Games (3)'), 'Sidebar must display All Games (3)');
+  assert.ok(html.includes('Search AuroMasti games'), 'Search input placeholder must say Search AuroMasti games');
 
   const portalJs = fs.readFileSync(path.join(__dirname, 'assets/js/portal.js'), 'utf8');
   assert.ok(

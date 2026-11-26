@@ -24,7 +24,8 @@ export const KNOWN_GAME_IDS = Object.freeze([
   'auromandala',
   'word-riddle',
   'vak-living-sanctuary',
-  'auroblocks'
+  'auroblocks',
+  'maablocs'
 ]);
 
 const VALID_GAME_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -1256,9 +1257,43 @@ export const VakLivingSanctuaryMergeStrategy = Object.freeze({
   }
 });
 
+export const MaaBlocsMergeStrategy = Object.freeze({
+  gameId: 'maablocs',
+  strategyVersion: '1.0.0',
+  resolve(localEnvelope, remoteEnvelope) {
+    const local = (localEnvelope && localEnvelope.payload) || {};
+    const remote = (remoteEnvelope && remoteEnvelope.payload) || {};
+
+    const localProgress = local.levelProgress || {};
+    const remoteProgress = remote.levelProgress || {};
+    const mergedProgress = { ...localProgress, ...remoteProgress };
+
+    const localPBs = local.personalBests || {};
+    const remotePBs = remote.personalBests || {};
+    const mergedPBs = { ...localPBs };
+    for (const [lvl, score] of Object.entries(remotePBs)) {
+      if (typeof score === 'number') {
+        mergedPBs[lvl] = Math.max(mergedPBs[lvl] || 0, score);
+      }
+    }
+
+    return Object.freeze({
+      status: 'auto_merged',
+      resolvedPayload: {
+        ...local,
+        ...remote,
+        levelProgress: mergedProgress,
+        personalBests: mergedPBs,
+        lastMergedAt: new Date().toISOString()
+      }
+    });
+  }
+});
+
 export function getDefaultGameMergeStrategy(gameId) {
   switch (gameId) {
     case 'auroblocks': return AuroBlocksMergeStrategy;
+    case 'maablocs': return MaaBlocsMergeStrategy;
     case 'auromatch': return AuroMatchMergeStrategy;
     case 'auromandala': return AuroMandalaMergeStrategy;
     case 'vak': return VakMergeStrategy;
