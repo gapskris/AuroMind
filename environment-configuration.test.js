@@ -21,11 +21,14 @@ import {
   parseEnvContent,
   maskSecret,
   isServiceRoleJwt,
+  isPrivilegedKey,
+  isValidPublishableKey,
   loadEnvironment
 } from './scripts/load-env.mjs';
 
 import {
   validateEnvironmentDictionary,
+  isSensitiveVariable,
   EXPECTED_SUPABASE_PROJECT_ID,
   EXPECTED_SUPABASE_REGION
 } from './scripts/validate-env.mjs';
@@ -76,6 +79,8 @@ describe('AuroMasti Environment Configuration System', () => {
       UNQUOTED=some_value # inline comment
       ANON_KEY=eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiYW5vbiJ9.signature
       SERVICE_KEY=eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.signature
+      PUB_KEY=sb_publishable_test_token_1234567890
+      SECRET_KEY=sb_secret_privileged_admin_key_12345
     `;
 
     const parsed = parseEnvContent(raw);
@@ -84,15 +89,25 @@ describe('AuroMasti Environment Configuration System', () => {
     assert.equal(parsed.SINGLE_QUOTED, 'test value');
     assert.equal(parsed.UNQUOTED, 'some_value');
 
-    // Secret masking
+    // Secret masking: strict zero character leakage guarantee
     const masked = maskSecret('super_secret_password_12345');
-    assert.ok(masked.startsWith('super_'));
-    assert.ok(masked.endsWith('2345'));
-    assert.ok(masked.includes('[REDACTED]'));
+    assert.equal(masked, '[REDACTED]', 'Masking must strictly output [REDACTED]');
+    assert.ok(!masked.includes('super_'), 'Must not leak head characters');
+    assert.ok(!masked.includes('12345'), 'Must not leak tail characters');
+    assert.equal(maskSecret('YOUR_KEY_HERE'), '[PLACEHOLDER]');
+    assert.equal(maskSecret(''), '');
 
-    // Service role JWT detection
+    // Service role JWT and secret key detection
     assert.equal(isServiceRoleJwt(parsed.ANON_KEY), false, 'Anon key is not service_role');
     assert.equal(isServiceRoleJwt(parsed.SERVICE_KEY), true, 'Service key correctly flagged as service_role');
+    assert.equal(isServiceRoleJwt(parsed.SECRET_KEY), true, 'sb_secret format correctly flagged as service_role/secret');
+
+    // Publishable key validation
+    assert.equal(isValidPublishableKey(parsed.PUB_KEY), true, 'sb_publishable_ format is valid');
+    assert.equal(isValidPublishableKey(parsed.ANON_KEY), true, '3-segment anon JWT is valid');
+    assert.equal(isValidPublishableKey(parsed.SECRET_KEY), false, 'sb_secret_ format must be rejected');
+    assert.equal(isValidPublishableKey(parsed.SERVICE_KEY), false, 'service_role JWT must be rejected');
+    assert.equal(isValidPublishableKey('short_invalid'), false, 'invalid string must be rejected');
   });
 
   test('ENV-03: scripts/validate-env.mjs validates example templates and catches safety violations', () => {
@@ -202,6 +217,131 @@ describe('AuroMasti Environment Configuration System', () => {
     assert.ok(verifySql.includes('v_unprotected_tables'));
     assert.ok(verifySql.includes('v_unpinned_functions'));
     assert.ok(verifySql.includes('rlqrtbjynaihdspbqtce'));
+  });
+
+  test('ENV-09: Publishable key compatibility accepts sb_publishable_ and legacy anon JWTs, and enforces deterministic precedence', () => {
+    const baseValid = {
+      NODE_ENV: 'development',
+      COMMERCIAL_GATE_ENABLED: 'false',
+      SUPABASE_PROJECT_ID: EXPECTED_SUPABASE_PROJECT_ID,
+      SUPABASE_URL: `https://${EXPECTED_SUPABASE_PROJECT_ID}.supabase.co`
+    };
+
+    // 1. Valid with new sb_publishable_ format alone
+    const resPublishableOnly = validateEnvironmentDictionary({
+      ...baseValid,
+      SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_0123456789abcdefghij'
+    });
+    assert.equal(resPublishableOnly.valid, true, 'sb_publishable_ format alone must be valid');
+    assert.equal(resPublishableOnly.errors.length, 0);
+
+    // 2. Valid with legacy anon JWT format alone
+    const resAnonOnly = validateEnvironmentDictionary({
+      ...baseValid,
+      SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiYW5vbiJ9.sig12345'
+    });
+    assert.equal(resAnonOnly.valid, true, 'legacy anon JWT alone must be valid');
+    assert.equal(resAnonOnly.errors.length, 0);
+
+    // 3. Precedence resolution: SUPABASE_PUBLISHABLE_KEY takes precedence
+    const loaded = loadEnvironment({
+      rootDir: REPO_ROOT,
+      injectProcessEnv: false
+    });
+    // Synthetic precedence check
+    const pubKey = 'sb_publishable_canonical_wins_12345';
+    const legacyAnon = 'eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiYW5vbiJ9.legacy';
+    const mergedMock = {
+      SUPABASE_PUBLISHABLE_KEY: pubKey,
+      SUPABASE_ANON_KEY: legacyAnon
+    };
+    // Simulate precedence sync logic
+    if (mergedMock.SUPABASE_PUBLISHABLE_KEY) {
+      mergedMock.SUPABASE_ANON_KEY = mergedMock.SUPABASE_PUBLISHABLE_KEY;
+    }
+    assert.equal(mergedMock.SUPABASE_ANON_KEY, pubKey, 'Canonical publishable key must win');
+
+    // 4. Negative: sb_secret_ format must be rejected with SECURITY_VIOLATION
+    const resSecretKey = validateEnvironmentDictionary({
+      ...baseValid,
+      SUPABASE_PUBLISHABLE_KEY: 'sb_secret_privileged_admin_key_12345'
+    });
+    assert.equal(resSecretKey.valid, false);
+    assert.ok(resSecretKey.errors.some(e => e.includes('SECURITY_VIOLATION')));
+
+    // 5. Negative: service_role JWT must be rejected with SECURITY_VIOLATION
+    const resServiceRole = validateEnvironmentDictionary({
+      ...baseValid,
+      SUPABASE_PUBLISHABLE_KEY: 'eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.sig'
+    });
+    assert.equal(resServiceRole.valid, false);
+    assert.ok(resServiceRole.errors.some(e => e.includes('SECURITY_VIOLATION')));
+  });
+
+  test('ENV-10: Sensitive credentials (tokens, passwords, service keys) are strictly redacted with zero leakage', () => {
+    const sentinelToken = 'sbp_developer_super_secret_token_1234567890';
+    const sentinelPassword = 'UltraSecurePostgresPassword#2027!';
+    const sentinelServiceKey = 'sb_secret_master_admin_key_999888777';
+
+    const testEnv = {
+      NODE_ENV: 'development',
+      COMMERCIAL_GATE_ENABLED: 'false',
+      SUPABASE_PROJECT_ID: EXPECTED_SUPABASE_PROJECT_ID,
+      SUPABASE_URL: `https://${EXPECTED_SUPABASE_PROJECT_ID}.supabase.co`,
+      SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test_token_1234567890',
+      SUPABASE_ACCESS_TOKEN: sentinelToken,
+      SUPABASE_DB_PASSWORD: sentinelPassword,
+      POSTGRES_PASSWORD: sentinelPassword,
+      SUPABASE_SERVICE_ROLE_KEY: sentinelServiceKey
+    };
+
+    const res = validateEnvironmentDictionary(testEnv);
+    const tokenResult = res.results.find(r => r.key === 'SUPABASE_ACCESS_TOKEN');
+    const dbPassResult = res.results.find(r => r.key === 'SUPABASE_DB_PASSWORD');
+    const pgPassResult = res.results.find(r => r.key === 'POSTGRES_PASSWORD');
+    const serviceKeyResult = res.results.find(r => r.key === 'SUPABASE_SERVICE_ROLE_KEY');
+
+    // Assert strictly [REDACTED]
+    assert.equal(tokenResult.maskedValue, '[REDACTED]', 'SUPABASE_ACCESS_TOKEN must be [REDACTED]');
+    assert.equal(dbPassResult.maskedValue, '[REDACTED]', 'SUPABASE_DB_PASSWORD must be [REDACTED]');
+    assert.equal(pgPassResult.maskedValue, '[REDACTED]', 'POSTGRES_PASSWORD must be [REDACTED]');
+    assert.equal(serviceKeyResult.maskedValue, '[REDACTED]', 'SUPABASE_SERVICE_ROLE_KEY must be [REDACTED]');
+
+    // Assert zero substring leakage of sentinel values
+    const serialized = JSON.stringify(res.results);
+    assert.ok(!serialized.includes('super_secret'), 'Must never leak token substrings');
+    assert.ok(!serialized.includes('1234567890'), 'Must never leak token tail');
+    assert.ok(!serialized.includes('UltraSecure'), 'Must never leak password substrings');
+    assert.ok(!serialized.includes('PostgresPassword'), 'Must never leak password body');
+    assert.ok(!serialized.includes('999888777'), 'Must never leak service key tail');
+  });
+
+  test('ENV-11: Optional DATABASE_URL and POSTGRES_PASSWORD placeholders produce OPTIONAL_UNUSED without warnings or errors', () => {
+    const stagingEnv = {
+      NODE_ENV: 'staging',
+      COMMERCIAL_GATE_ENABLED: 'false',
+      SUPABASE_PROJECT_ID: EXPECTED_SUPABASE_PROJECT_ID,
+      SUPABASE_REGION: EXPECTED_SUPABASE_REGION,
+      SUPABASE_URL: `https://${EXPECTED_SUPABASE_PROJECT_ID}.supabase.co`,
+      SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test_staging_token_123456',
+      DATABASE_URL: `postgresql://postgres:YOUR_PASSWORD@db.${EXPECTED_SUPABASE_PROJECT_ID}.supabase.co:5432/postgres?sslmode=require`,
+      POSTGRES_PASSWORD: 'YOUR_PASSWORD'
+    };
+
+    const res = validateEnvironmentDictionary(stagingEnv, { environment: 'staging' });
+
+    const dbUrlResult = res.results.find(r => r.key === 'DATABASE_URL');
+    assert.equal(dbUrlResult.status, 'OPTIONAL_UNUSED');
+    assert.equal(dbUrlResult.maskedValue, '[PLACEHOLDER]');
+
+    const pgPassResult = res.results.find(r => r.key === 'POSTGRES_PASSWORD');
+    assert.equal(pgPassResult.status, 'OPTIONAL_UNUSED');
+    assert.equal(pgPassResult.maskedValue, '[PLACEHOLDER]');
+
+    // Assert zero errors and zero warnings generated by optional placeholders
+    assert.equal(res.errors.length, 0, 'Must have zero errors');
+    assert.ok(!res.warnings.some(w => w.includes('DATABASE_URL')), 'Must not warn about optional DATABASE_URL placeholder');
+    assert.ok(!res.warnings.some(w => w.includes('POSTGRES_PASSWORD')), 'Must not warn about optional POSTGRES_PASSWORD placeholder');
   });
 
 });

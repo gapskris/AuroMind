@@ -226,4 +226,39 @@ describe('Supabase Migration Workflow & Preflight Guard Suite', () => {
     assert.equal(output, '3.4.0', 'npx supabase --version must return 3.4.0');
   });
 
+  test('PREFLIGHT-11: Credential model accepts SUPABASE_PUBLISHABLE_KEY (sb_publishable_...) and rejects sb_secret_', () => {
+    // 1. Valid publishable key format
+    const validPublishable = {
+      SUPABASE_URL: CANONICAL_REST_URL,
+      SUPABASE_PROJECT_ID: CANONICAL_PROJECT_REF,
+      SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_abcdef12345678901234'
+    };
+    const resValid = checkCredentialModel(validPublishable);
+    assert.equal(resValid.valid, true, 'SUPABASE_PUBLISHABLE_KEY must be valid');
+    assert.equal(resValid.credentials.SUPABASE_PUBLISHABLE_KEY.status, 'CONFIGURED');
+    assert.equal(resValid.credentials.SUPABASE_PUBLISHABLE_KEY.preview, '[REDACTED]');
+
+    // 2. Reject sb_secret_ format as publishable key
+    const toxicSecretKey = {
+      SUPABASE_URL: CANONICAL_REST_URL,
+      SUPABASE_PROJECT_ID: CANONICAL_PROJECT_REF,
+      SUPABASE_PUBLISHABLE_KEY: 'sb_secret_developer_admin_token_99999'
+    };
+    const resToxic = checkCredentialModel(toxicSecretKey);
+    assert.equal(resToxic.valid, false, 'sb_secret_ format must be rejected');
+    assert.ok(resToxic.violations.some(v => v.includes('SECURITY_VIOLATION')));
+
+    // 3. Precedence: SUPABASE_PUBLISHABLE_KEY overrides SUPABASE_ANON_KEY
+    const dualKeyEnv = {
+      SUPABASE_URL: CANONICAL_REST_URL,
+      SUPABASE_PROJECT_ID: CANONICAL_PROJECT_REF,
+      SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_canonical_precedence_123',
+      SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiJ9.sig'
+    };
+    const resDual = checkCredentialModel(dualKeyEnv);
+    assert.equal(resDual.valid, true);
+    assert.equal(resDual.credentials.SUPABASE_PUBLISHABLE_KEY.status, 'CONFIGURED');
+    assert.equal(resDual.credentials.SUPABASE_ANON_KEY.status, 'CONFIGURED');
+  });
+
 });

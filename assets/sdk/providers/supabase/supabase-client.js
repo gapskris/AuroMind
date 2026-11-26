@@ -17,7 +17,13 @@ export class SupabaseClientError extends Error {
 
 export function createSupabaseClient(config = {}) {
   const url = (config.url || config.supabaseUrl || '').trim().replace(/\/+$/, '');
-  const anonKey = (config.anonKey || config.supabaseAnonKey || '').trim();
+  const anonKey = (
+    config.publishableKey ||
+    config.supabasePublishableKey ||
+    config.anonKey ||
+    config.supabaseAnonKey ||
+    ''
+  ).trim();
   const fetchApi = config.fetch || globalThis.fetch?.bind(globalThis);
   const storage = config.storage || (typeof localStorage !== 'undefined' ? localStorage : null);
   const sessionKey = config.sessionKey || 'auromind.platform.v1.supabase_session';
@@ -45,15 +51,16 @@ export function createSupabaseClient(config = {}) {
 
   function containsServiceRoleKey(key) {
     if (typeof key !== 'string' || !key) return false;
+    if (key.startsWith('sb_secret_')) return true;
     if (key.includes('service_role')) return true;
     const claims = decodeJwtPayload(key);
     return Boolean(claims && (claims.role === 'service_role' || claims.user_role === 'service_role'));
   }
 
-  // Strict security check: NEVER accept a service-role key (literal or base64url JWT) in client configuration
+  // Strict security check: NEVER accept a service-role key or secret key in client configuration
   if (containsServiceRoleKey(anonKey)) {
     const err = new SupabaseClientError(
-      'SECURITY_VIOLATION: SUPABASE_SERVICE_ROLE_KEY cannot be used in browser client code.',
+      'SECURITY_VIOLATION: SUPABASE_SERVICE_ROLE_KEY or secret key cannot be used in browser client code.',
       403
     );
     err.code = 'SERVICE_ROLE_KEY_FORBIDDEN';
@@ -1019,6 +1026,7 @@ export function createSupabaseClient(config = {}) {
   return Object.freeze({
     url,
     anonKey,
+    publishableKey: anonKey,
     getUrl: () => url,
     getSupabaseUrl: () => url,
     isConfigured,

@@ -98,12 +98,12 @@ export function runSecretExposureScan(rootDir = REPO_ROOT) {
         const trimmed = line.trim();
         if (!trimmed || trimmed.startsWith('#')) continue;
 
-        // Check for real JWT anon keys
-        const match = trimmed.match(/SUPABASE_ANON_KEY\s*=\s*(.+)/);
+        // Check for real JWT anon keys or publishable keys
+        const match = trimmed.match(/(?:SUPABASE_ANON_KEY|SUPABASE_PUBLISHABLE_KEY)\s*=\s*(.+)/);
         if (match) {
           const val = match[1].trim();
-          if (val.startsWith('eyJ') && !val.includes('YOUR_')) {
-            violations.push(`REAL_KEY_IN_EXAMPLE: ${ef} contains what appears to be a real Supabase Anon key instead of a placeholder.`);
+          if ((val.startsWith('eyJ') || val.startsWith('sb_publishable_')) && !val.includes('YOUR_')) {
+            violations.push(`REAL_KEY_IN_EXAMPLE: ${ef} contains what appears to be a real Supabase key instead of a placeholder.`);
           }
         }
 

@@ -28,7 +28,7 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { loadEnvironment, maskSecret, isServiceRoleJwt } from './load-env.mjs';
+import { loadEnvironment, maskSecret, isServiceRoleJwt, isPrivilegedKey, isValidPublishableKey } from './load-env.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -146,19 +146,29 @@ export function checkCredentialModel(rawEnv = {}) {
   const env = rawEnv || {};
   const violations = [];
 
+  const pubKey = env.SUPABASE_PUBLISHABLE_KEY || '';
   const anonKey = env.SUPABASE_ANON_KEY || '';
+  const effectivePublishable = pubKey || anonKey;
   const accessToken = env.SUPABASE_ACCESS_TOKEN || '';
   const dbPassword = env.SUPABASE_DB_PASSWORD || '';
   const projUrl = env.SUPABASE_URL || '';
   const projId = env.SUPABASE_PROJECT_ID || '';
 
+  const isPubConfigured = Boolean(pubKey && !pubKey.startsWith('YOUR_'));
   const isAnonConfigured = Boolean(anonKey && !anonKey.startsWith('YOUR_'));
+  const isEffectiveConfigured = Boolean(effectivePublishable && !effectivePublishable.startsWith('YOUR_'));
   const isTokenConfigured = Boolean(accessToken && !accessToken.startsWith('YOUR_'));
   const isPasswordConfigured = Boolean(dbPassword && !dbPassword.startsWith('YOUR_'));
 
-  // Security checks: Reject service_role key substitution
-  if (isAnonConfigured && isServiceRoleJwt(anonKey)) {
+  // Security checks: Reject service_role / secret key substitution
+  if (isPubConfigured && isPrivilegedKey(pubKey)) {
+    violations.push('SECURITY_VIOLATION: SUPABASE_PUBLISHABLE_KEY has service_role or secret key claims! Client code must never use privileged keys.');
+  }
+  if (isAnonConfigured && (isServiceRoleJwt(anonKey) || isPrivilegedKey(anonKey))) {
     violations.push('SECURITY_VIOLATION: SUPABASE_ANON_KEY has service_role claims! Client code must never use service_role.');
+  }
+  if (isEffectiveConfigured && !isValidPublishableKey(effectivePublishable)) {
+    violations.push('INVALID_KEY: Supabase publishable key is not a valid format (expected sb_publishable_... or valid 3-segment anon JWT).');
   }
   if (isTokenConfigured && isServiceRoleJwt(accessToken)) {
     violations.push('SECURITY_VIOLATION: SUPABASE_ACCESS_TOKEN has service_role claims! Access token must be a Personal Access Token.');
@@ -191,10 +201,15 @@ export function checkCredentialModel(rawEnv = {}) {
       status: projId === CANONICAL_PROJECT_REF ? 'VALID' : (projId ? 'MISMATCH' : 'NOT_SET'),
       preview: projId || '(not set)'
     },
+    SUPABASE_PUBLISHABLE_KEY: {
+      classification: 'PUBLIC_BROWSER_KEY (Canonical, Subject to RLS)',
+      status: isPubConfigured ? 'CONFIGURED' : (pubKey ? 'PLACEHOLDER' : (isAnonConfigured ? 'CONFIGURED' : 'NOT_SET')),
+      preview: isPubConfigured ? maskSecret(pubKey) : (isAnonConfigured ? maskSecret(anonKey) : '(not configured)')
+    },
     SUPABASE_ANON_KEY: {
-      classification: 'PUBLIC_BROWSER_KEY (Subject to RLS)',
-      status: isAnonConfigured ? 'CONFIGURED' : (anonKey ? 'PLACEHOLDER' : 'NOT_SET'),
-      preview: isAnonConfigured ? maskSecret(anonKey) : '(not configured)'
+      classification: 'PUBLIC_BROWSER_KEY (Backward compatibility alias)',
+      status: isAnonConfigured ? 'CONFIGURED' : (anonKey ? 'PLACEHOLDER' : (isPubConfigured ? 'CONFIGURED' : 'NOT_SET')),
+      preview: isAnonConfigured ? maskSecret(anonKey) : (isPubConfigured ? maskSecret(pubKey) : '(not configured)')
     },
     SUPABASE_ACCESS_TOKEN: {
       classification: 'CLI_AUTH_TOKEN (Personal Access Token)',

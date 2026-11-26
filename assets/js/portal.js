@@ -129,9 +129,11 @@ function initPortalSDK() {
       } catch {
         const sbConfig = window.__AUROMIND_SUPABASE_CONFIG__ || {
           supabaseUrl: window.AUROMIND_SUPABASE_URL || null,
-          supabaseAnonKey: window.AUROMIND_SUPABASE_ANON_KEY || null
+          supabasePublishableKey: window.AUROMIND_SUPABASE_PUBLISHABLE_KEY || window.AUROMIND_SUPABASE_ANON_KEY || null,
+          supabaseAnonKey: window.AUROMIND_SUPABASE_PUBLISHABLE_KEY || window.AUROMIND_SUPABASE_ANON_KEY || null
         };
-        if (sbConfig.supabaseUrl && sbConfig.supabaseAnonKey) {
+        const activeKey = sbConfig.supabasePublishableKey || sbConfig.supabaseAnonKey;
+        if (sbConfig.supabaseUrl && activeKey) {
           const mod = await import('../sdk/providers/supabase/index.js');
           if (mod && mod.createSupabaseProviders) {
             customProviders = mod.createSupabaseProviders(sbConfig);

@@ -47,7 +47,7 @@ export function detectEnvironment(env = {}) {
  * 2. window.__AUROMIND_BACKEND_CONFIG__
  * 3. window.__AUROMIND_SUPABASE_CONFIG__
  * 4. window.__AUROMIND_FIREBASE_CONFIG__ (only if provider === 'firebase')
- * 5. window.AUROMIND_SUPABASE_URL / window.AUROMIND_SUPABASE_ANON_KEY
+ * 5. window.AUROMIND_SUPABASE_URL / window.AUROMIND_SUPABASE_PUBLISHABLE_KEY / window.AUROMIND_SUPABASE_ANON_KEY
  */
 export function resolveBackendConfig(explicitConfig = null) {
   const globalObj = typeof window !== 'undefined' ? window : globalThis;
@@ -57,16 +57,18 @@ export function resolveBackendConfig(explicitConfig = null) {
               (globalObj.__AUROMIND_FIREBASE_CONFIG__ && globalObj.__AUROMIND_FIREBASE_CONFIG__.provider === SUPPORTED_PROVIDERS.FIREBASE ? globalObj.__AUROMIND_FIREBASE_CONFIG__ : null) || {
                 provider: SUPPORTED_PROVIDERS.SUPABASE,
                 supabaseUrl: globalObj.AUROMIND_SUPABASE_URL || null,
-                supabaseAnonKey: globalObj.AUROMIND_SUPABASE_ANON_KEY || null
+                supabasePublishableKey: globalObj.AUROMIND_SUPABASE_PUBLISHABLE_KEY || globalObj.AUROMIND_SUPABASE_ANON_KEY || null,
+                supabaseAnonKey: globalObj.AUROMIND_SUPABASE_PUBLISHABLE_KEY || globalObj.AUROMIND_SUPABASE_ANON_KEY || null
               };
 
   // The existing Supabase selection must remain default unless explicitly set to firebase or null
   const provider = raw.provider || (raw.supabaseUrl ? SUPPORTED_PROVIDERS.SUPABASE : (raw.projectId && raw.provider === SUPPORTED_PROVIDERS.FIREBASE ? SUPPORTED_PROVIDERS.FIREBASE : SUPPORTED_PROVIDERS.SUPABASE));
 
-  // Strict defense-in-depth: Rejection of Supabase service role key in frontend configuration
-  // Inspect both literal markers and base64url-decoded JWT claims so real service_role JWTs cannot bypass.
+  // Strict defense-in-depth: Rejection of Supabase service role key or secret key in frontend configuration
+  // Inspect literal markers (sb_secret_...), serviceRoleKey properties, and base64url-decoded JWT claims.
   const supabaseUrl = raw.url || raw.supabaseUrl || null;
-  const supabaseAnonKey = raw.anonKey || raw.supabaseAnonKey || null;
+  const supabasePublishableKey = raw.publishableKey || raw.supabasePublishableKey || raw.anonKey || raw.supabaseAnonKey || null;
+  const supabaseAnonKey = supabasePublishableKey;
 
   function isJwtServiceRole(token) {
     if (typeof token !== 'string') return false;
@@ -91,8 +93,9 @@ export function resolveBackendConfig(explicitConfig = null) {
     }
   }
 
-  if (raw.serviceRoleKey || isJwtServiceRole(supabaseAnonKey)) {
-    const err = new Error('SECURITY VIOLATION: Service role key must NEVER be passed to frontend configuration');
+  const isSecretKey = typeof supabasePublishableKey === 'string' && supabasePublishableKey.startsWith('sb_secret_');
+  if (raw.serviceRoleKey || isSecretKey || isJwtServiceRole(supabasePublishableKey)) {
+    const err = new Error('SECURITY VIOLATION: Service role key or secret key must NEVER be passed to frontend configuration');
     err.code = 'SERVICE_ROLE_KEY_FORBIDDEN';
     throw err;
   }
@@ -129,7 +132,7 @@ export function resolveBackendConfig(explicitConfig = null) {
 
   const isConfigured = (provider === SUPPORTED_PROVIDERS.FIREBASE)
     ? Boolean(firebaseConfig && firebaseConfig.projectId && (firebaseConfig.apiKey || firebaseConfig.emulatorAuthHost))
-    : Boolean(supabaseUrl && supabaseAnonKey);
+    : Boolean(supabaseUrl && supabasePublishableKey);
 
   return Object.freeze({
     environment: env,
@@ -137,7 +140,10 @@ export function resolveBackendConfig(explicitConfig = null) {
     isConfigured,
     commercialGateEnabled: COMMERCIAL_GATE_ENABLED,
     supabaseUrl,
+    supabasePublishableKey,
     supabaseAnonKey,
+    publishableKey: supabasePublishableKey,
+    anonKey: supabasePublishableKey,
     firebaseConfig
   });
 }

@@ -79,30 +79,37 @@ export function loadEnvFile(filePath) {
 
 /**
  * Redacts sensitive credentials for logging, error reports, and console outputs.
+ * Strict zero-character-leakage guarantee: never prints prefixes, suffixes,
+ * head/tail characters, or length information.
  *
  * @param {string} val
- * @param {number} [preserveHead=6]
- * @param {number} [preserveTail=4]
+ * @param {number} [_preserveHead] Deprecated - ignored to ensure zero leakage
+ * @param {number} [_preserveTail] Deprecated - ignored to ensure zero leakage
  * @returns {string}
  */
-export function maskSecret(val, preserveHead = 6, preserveTail = 4) {
+export function maskSecret(val, _preserveHead, _preserveTail) {
   if (typeof val !== 'string' || !val) return '';
-  if (val.length <= (preserveHead + preserveTail)) return '[REDACTED]';
-  const head = val.slice(0, preserveHead);
-  const tail = val.slice(-preserveTail);
-  return `${head}...[REDACTED]...${tail}`;
+  const trimmed = val.trim();
+  if (!trimmed) return '';
+  if (trimmed.includes('YOUR_') || trimmed.startsWith('<') || trimmed.toLowerCase().includes('placeholder')) {
+    return '[PLACEHOLDER]';
+  }
+  return '[REDACTED]';
 }
 
 /**
  * Inspects a candidate JWT token to determine if it has service_role claims.
+ * Also detects new Supabase secret format (sb_secret_...).
  *
  * @param {string} token
  * @returns {boolean}
  */
 export function isServiceRoleJwt(token) {
   if (typeof token !== 'string') return false;
-  if (token.includes('service_role')) return true;
-  const parts = token.split('.');
+  const trimmed = token.trim();
+  if (trimmed.startsWith('sb_secret_')) return true;
+  if (trimmed.includes('service_role')) return true;
+  const parts = trimmed.split('.');
   if (parts.length !== 3) return false;
   try {
     const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
@@ -117,6 +124,50 @@ export function isServiceRoleJwt(token) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Checks if a token is a privileged secret credential (service_role or sb_secret_).
+ *
+ * @param {string} token
+ * @returns {boolean}
+ */
+export function isPrivilegedKey(token) {
+  if (typeof token !== 'string') return false;
+  const trimmed = token.trim();
+  if (trimmed.startsWith('sb_secret_')) return true;
+  if (isServiceRoleJwt(trimmed)) return true;
+  return false;
+}
+
+/**
+ * Validates whether a token is a valid Supabase publishable key.
+ * Supports:
+ * 1. New Supabase publishable key format: sb_publishable_...
+ * 2. Legacy three-segment anon JWT (role: anon)
+ * Strictly rejects privileged credentials (sb_secret_... and service_role JWTs).
+ *
+ * @param {string} token
+ * @returns {boolean}
+ */
+export function isValidPublishableKey(token) {
+  if (typeof token !== 'string') return false;
+  const trimmed = token.trim();
+  if (!trimmed) return false;
+  if (isPrivilegedKey(trimmed)) return false;
+
+  // Format 1: New Supabase publishable key format
+  if (trimmed.startsWith('sb_publishable_')) {
+    return trimmed.length >= 20;
+  }
+
+  // Format 2: Legacy three-segment anon JWT
+  const parts = trimmed.split('.');
+  if (parts.length === 3) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -163,6 +214,20 @@ export function loadEnvironment({
     }
   }
 
+  // Canonical precedence resolution between SUPABASE_PUBLISHABLE_KEY and SUPABASE_ANON_KEY
+  const pubKey = merged.SUPABASE_PUBLISHABLE_KEY;
+  const anonKey = merged.SUPABASE_ANON_KEY;
+  const hasPub = typeof pubKey === 'string' && pubKey.trim() !== '' && !pubKey.startsWith('YOUR_');
+  const hasAnon = typeof anonKey === 'string' && anonKey.trim() !== '' && !anonKey.startsWith('YOUR_');
+
+  if (hasPub) {
+    // Canonical SUPABASE_PUBLISHABLE_KEY takes precedence; sync to SUPABASE_ANON_KEY for backward compatibility
+    merged.SUPABASE_ANON_KEY = pubKey;
+  } else if (hasAnon) {
+    // Backward compatibility: populate SUPABASE_PUBLISHABLE_KEY from legacy SUPABASE_ANON_KEY
+    merged.SUPABASE_PUBLISHABLE_KEY = anonKey;
+  }
+
   // Inject into process.env if requested
   if (injectProcessEnv) {
     for (const [k, v] of Object.entries(merged)) {
@@ -183,5 +248,7 @@ export default {
   loadEnvFile,
   maskSecret,
   isServiceRoleJwt,
+  isPrivilegedKey,
+  isValidPublishableKey,
   loadEnvironment
 };

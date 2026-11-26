@@ -12,7 +12,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadEnvFile, maskSecret, isServiceRoleJwt, loadEnvironment } from './load-env.mjs';
+import {
+  loadEnvFile,
+  maskSecret,
+  isServiceRoleJwt,
+  isPrivilegedKey,
+  isValidPublishableKey,
+  loadEnvironment
+} from './load-env.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -25,6 +32,48 @@ export const EXPECTED_SUPABASE_URL = `https://${EXPECTED_SUPABASE_PROJECT_ID}.su
 export const EXPECTED_POSTGRES_HOST = `db.${EXPECTED_SUPABASE_PROJECT_ID}.supabase.co`;
 export const EXPECTED_CLOUDFLARE_PROJECT_NAME = 'auromasti';
 export const EXPECTED_STAGING_URL = 'https://staging.auromasti.pages.dev';
+
+/**
+ * Determines whether a variable is sensitive and must be strictly redacted.
+ * Zero-leakage policy: all credentials, tokens, passwords, database URLs,
+ * and service keys are redacted.
+ *
+ * @param {string} key
+ * @param {object} [spec]
+ * @returns {boolean}
+ */
+export function isSensitiveVariable(key, spec = {}) {
+  const k = (key || '').toUpperCase();
+  const c = ((spec && spec.classification) || '').toUpperCase();
+
+  if (
+    c.includes('SECRET') ||
+    c.includes('ONLY') ||
+    c.includes('TOKEN') ||
+    c.includes('PASSWORD') ||
+    c.includes('CREDENTIAL') ||
+    c.includes('PRIVATE') ||
+    c.includes('CLI') ||
+    c.includes('DATABASE')
+  ) {
+    return true;
+  }
+
+  if (
+    k.includes('TOKEN') ||
+    k.includes('PASSWORD') ||
+    k.includes('SECRET') ||
+    k.includes('SERVICE_ROLE') ||
+    k.includes('PRIVATE_KEY') ||
+    k.includes('ACCESS_TOKEN') ||
+    k.includes('DATABASE_URL') ||
+    k.includes('KEY')
+  ) {
+    return true;
+  }
+
+  return false;
+}
 
 export const VARIABLE_SPECIFICATION = Object.freeze({
   NODE_ENV: {
@@ -69,18 +118,29 @@ export const VARIABLE_SPECIFICATION = Object.freeze({
     },
     hint: `Must be a valid Supabase URL: https://${EXPECTED_SUPABASE_PROJECT_ID}.supabase.co`
   },
+  SUPABASE_PUBLISHABLE_KEY: {
+    category: 'SUPABASE',
+    classification: 'PUBLIC',
+    required: false,
+    validator: v => {
+      if (!v || v.startsWith('YOUR_')) return 'PLACEHOLDER';
+      if (isPrivilegedKey(v)) return 'SECURITY_VIOLATION_PRIVILEGED';
+      if (!isValidPublishableKey(v)) return false;
+      return true;
+    },
+    hint: "Canonical publishable key ('sb_publishable_...' or legacy 3-segment anon JWT). Must NEVER be a secret or service_role key!"
+  },
   SUPABASE_ANON_KEY: {
     category: 'SUPABASE',
     classification: 'PUBLIC',
-    required: true,
+    required: false,
     validator: v => {
       if (!v || v.startsWith('YOUR_')) return 'PLACEHOLDER';
-      if (typeof v !== 'string' || v.split('.').length !== 3) return false;
-      // Strict Security Check: Anon key MUST NEVER have service_role claims
-      if (isServiceRoleJwt(v)) return 'SECURITY_VIOLATION_SERVICE_ROLE';
+      if (isPrivilegedKey(v)) return 'SECURITY_VIOLATION_PRIVILEGED';
+      if (!isValidPublishableKey(v)) return false;
       return true;
     },
-    hint: "Must be a valid Supabase anon JWT (3 segments). Must NEVER be a service_role key!"
+    hint: "Backward-compatible alias for publishable key. Must NEVER be a service_role key or secret key!"
   },
   SUPABASE_SERVICE_ROLE_KEY: {
     category: 'SUPABASE',
@@ -88,7 +148,7 @@ export const VARIABLE_SPECIFICATION = Object.freeze({
     required: false,
     validator: (v, all) => {
       if (!v || v.startsWith('YOUR_')) return 'PLACEHOLDER';
-      if (v === all.SUPABASE_ANON_KEY) return 'IDENTICAL_TO_ANON_KEY';
+      if (v === all.SUPABASE_PUBLISHABLE_KEY || v === all.SUPABASE_ANON_KEY) return 'IDENTICAL_TO_ANON_KEY';
       if (typeof v !== 'string' || v.length < 20) return false;
       return true;
     },
@@ -125,7 +185,8 @@ export const VARIABLE_SPECIFICATION = Object.freeze({
     classification: 'SERVER_ONLY',
     required: false,
     validator: v => {
-      if (!v || v.includes('YOUR_')) return 'PLACEHOLDER';
+      if (!v) return true;
+      if (v.includes('YOUR_')) return 'OPTIONAL_UNUSED';
       try {
         const u = new URL(v);
         return (u.protocol === 'postgres:' || u.protocol === 'postgresql:') && Boolean(u.hostname && u.port);
@@ -133,7 +194,18 @@ export const VARIABLE_SPECIFICATION = Object.freeze({
         return false;
       }
     },
-    hint: `Format: postgresql://postgres:[PASSWORD]@db.${EXPECTED_SUPABASE_PROJECT_ID}.supabase.co:5432/postgres?sslmode=require`
+    hint: `Optional direct connection URL: postgresql://postgres:[PASSWORD]@db.${EXPECTED_SUPABASE_PROJECT_ID}.supabase.co:5432/postgres?sslmode=require`
+  },
+  POSTGRES_PASSWORD: {
+    category: 'DATABASE',
+    classification: 'DATABASE_SECRET',
+    required: false,
+    validator: v => {
+      if (!v) return true;
+      if (v.startsWith('YOUR_')) return 'OPTIONAL_UNUSED';
+      return typeof v === 'string' && v.length >= 8;
+    },
+    hint: 'Optional hosted PostgreSQL password alias for direct connection.'
   },
   POSTGRES_HOST: {
     category: 'DATABASE',
@@ -202,6 +274,18 @@ export function validateEnvironmentDictionary(env, options = {}) {
   const warnings = [];
   const results = [];
 
+  const hasPublishable = Boolean(env.SUPABASE_PUBLISHABLE_KEY && !env.SUPABASE_PUBLISHABLE_KEY.startsWith('YOUR_'));
+  const hasAnon = Boolean(env.SUPABASE_ANON_KEY && !env.SUPABASE_ANON_KEY.startsWith('YOUR_'));
+  const hasAnyPublishable = Boolean(
+    (env.SUPABASE_PUBLISHABLE_KEY && env.SUPABASE_PUBLISHABLE_KEY.trim()) ||
+    (env.SUPABASE_ANON_KEY && env.SUPABASE_ANON_KEY.trim())
+  );
+
+  // If neither key is provided in any form, report missing publishable key
+  if (!hasAnyPublishable) {
+    errors.push('[SUPABASE_PUBLISHABLE_KEY] MISSING: Missing required Supabase publishable key. Provide SUPABASE_PUBLISHABLE_KEY or SUPABASE_ANON_KEY.');
+  }
+
   for (const [key, spec] of Object.entries(VARIABLE_SPECIFICATION)) {
     const val = env[key];
     const isRequired = spec.required;
@@ -210,7 +294,16 @@ export function validateEnvironmentDictionary(env, options = {}) {
     let detail = '';
 
     if (val === undefined || val === '') {
-      if (isRequired) {
+      if (key === 'SUPABASE_PUBLISHABLE_KEY' && (hasAnon || env.SUPABASE_ANON_KEY)) {
+        status = 'NOT_SET';
+        detail = 'Backward-compatible configuration active (satisfied by SUPABASE_ANON_KEY)';
+      } else if (key === 'SUPABASE_ANON_KEY' && (hasPublishable || env.SUPABASE_PUBLISHABLE_KEY)) {
+        status = 'NOT_SET';
+        detail = 'Canonical configuration active (satisfied by SUPABASE_PUBLISHABLE_KEY)';
+      } else if (key === 'SUPABASE_PUBLISHABLE_KEY' || key === 'SUPABASE_ANON_KEY') {
+        status = 'MISSING';
+        detail = spec.hint;
+      } else if (isRequired) {
         status = 'MISSING';
         detail = `Missing required variable. ${spec.hint}`;
         errors.push(`[${key}] MISSING: ${detail}`);
@@ -220,19 +313,22 @@ export function validateEnvironmentDictionary(env, options = {}) {
       }
     } else {
       const checkRes = spec.validator(val, env);
-      if (checkRes === 'PLACEHOLDER') {
+      if (checkRes === 'OPTIONAL_UNUSED') {
+        status = 'OPTIONAL_UNUSED';
+        detail = 'Optional direct-connection configuration unused in CLI migration workflow';
+      } else if (checkRes === 'PLACEHOLDER') {
         status = 'PLACEHOLDER';
         detail = 'Value contains placeholder text. Replace with actual credential.';
-        if (isStaging) {
+        if (isStaging && isRequired) {
           warnings.push(`[${key}] PLACEHOLDER: Action required before staging deployment.`);
         }
-      } else if (checkRes === 'SECURITY_VIOLATION_SERVICE_ROLE') {
+      } else if (checkRes === 'SECURITY_VIOLATION_SERVICE_ROLE' || checkRes === 'SECURITY_VIOLATION_PRIVILEGED') {
         status = 'SECURITY_VIOLATION';
-        detail = 'CRITICAL: Anon key contains service_role claims! This would expose admin access to users.';
+        detail = 'CRITICAL: Key contains service_role claims or secret format! This would expose admin access to users.';
         errors.push(`[${key}] SECURITY_VIOLATION: ${detail}`);
       } else if (checkRes === 'IDENTICAL_TO_ANON_KEY') {
         status = 'INVALID';
-        detail = 'Service role key cannot be identical to anon key.';
+        detail = 'Service role key cannot be identical to publishable or anon key.';
         errors.push(`[${key}] INVALID: ${detail}`);
       } else if (checkRes === false) {
         status = 'INVALID';
@@ -244,7 +340,7 @@ export function validateEnvironmentDictionary(env, options = {}) {
       }
     }
 
-    const masked = spec.classification.includes('SECRET') || spec.classification.includes('ONLY')
+    const masked = isSensitiveVariable(key, spec)
       ? maskSecret(val)
       : (val || '');
 
@@ -259,8 +355,11 @@ export function validateEnvironmentDictionary(env, options = {}) {
   }
 
   // Cross-variable security checks
-  if (env.SUPABASE_ANON_KEY && env.SUPABASE_SERVICE_ROLE_KEY) {
-    if (env.SUPABASE_ANON_KEY === env.SUPABASE_SERVICE_ROLE_KEY) {
+  if (env.SUPABASE_SERVICE_ROLE_KEY) {
+    if (env.SUPABASE_PUBLISHABLE_KEY && env.SUPABASE_PUBLISHABLE_KEY === env.SUPABASE_SERVICE_ROLE_KEY) {
+      errors.push('CRITICAL: SUPABASE_PUBLISHABLE_KEY and SUPABASE_SERVICE_ROLE_KEY cannot have the same value!');
+    }
+    if (env.SUPABASE_ANON_KEY && env.SUPABASE_ANON_KEY === env.SUPABASE_SERVICE_ROLE_KEY) {
       errors.push('CRITICAL: SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY cannot have the same value!');
     }
   }
@@ -354,6 +453,7 @@ export function runCli() {
   console.log(`SUMMARY:`);
   console.log(`- Total Checked: ${results.length}`);
   console.log(`- Passed: ${results.filter(r => r.status === 'VALID' || r.status === 'OK').length}`);
+  console.log(`- Optional / Not Set: ${results.filter(r => r.status === 'OPTIONAL_UNUSED' || r.status === 'NOT_SET').length}`);
   console.log(`- Placeholders: ${results.filter(r => r.status === 'PLACEHOLDER').length}`);
   console.log(`- Warnings: ${warnings.length}`);
   console.log(`- Errors: ${errors.length}\n`);
