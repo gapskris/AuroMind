@@ -1,0 +1,63 @@
+# ==============================================================================
+# AuroMasti — Supabase CLI Configuration (supabase/config.toml)
+# Project: AuroMasti (ap-southeast-1)
+# ==============================================================================
+
+project_id = "rlqrtbjynaihdspbqtce"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[db.pooler]
+enabled = true
+port = 54329
+pool_mode = "transaction"
+default_pool_size = 20
+max_client_conn = 100
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = [
+  "http://localhost:3000/**",
+  "http://localhost:8080/**",
+  "http://127.0.0.1:3342/**",
+  "https://staging.auromasti.pages.dev/**",
+  "https://auromasti.com/**"
+]
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false
+
+[storage]
+enabled = true
+file_size_limit = "5MiB"
+
+[storage.buckets.avatars]
+public = false
+file_size_limit = "2MiB"
+allowed_mime_types = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"]
+
+[storage.buckets.user-artwork]
+public = false
+file_size_limit = "5MiB"
+allowed_mime_types = ["image/png", "image/jpeg", "image/webp", "image/svg+xml", "application/json"]
+
+[edge_runtime]
+enabled = true
+port = 54323
+inspector_port = 8083
+policy = "per_worker"

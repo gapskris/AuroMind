@@ -14,8 +14,14 @@ Thumbs.db
 .aistudio/
 .playwright-cli/
 
-# Local Environment & Secrets (Quarantined)
+# Local Environment & Secrets (Strictly Quarantined)
 .env
 .env.*
 *.env
+!.env.example
+!.env.*.example
+.env.local
+.env.*.local
+*.local
+supabase/.temp/
 test-results/
