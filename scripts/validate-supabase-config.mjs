@@ -15,6 +15,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -139,6 +140,60 @@ export function validateSupabaseInfrastructure(rootDir = REPO_ROOT) {
     if (missingFunctions.length > 0) {
       issues.push(`Missing edge functions: ${missingFunctions.join(', ')}`);
     }
+  }
+
+  // 4. Project-Level Supabase CLI & Node.js Runtime
+  const pkgPath = path.join(rootDir, 'package.json');
+  if (fs.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      const cliDep = pkg.devDependencies && pkg.devDependencies.supabase;
+      checks.push({
+        item: 'Project Supabase CLI devDependency',
+        status: cliDep ? 'PASS' : 'FAIL',
+        detail: cliDep ? `Pinned to ${cliDep}` : 'Missing supabase in devDependencies'
+      });
+      if (!cliDep) {
+        issues.push("CRITICAL: supabase is missing from package.json devDependencies.");
+      }
+    } catch {
+      issues.push("CRITICAL: Failed to parse package.json.");
+    }
+  }
+
+  // Node.js runtime compatibility check (>= 18 required for Supabase CLI)
+  const nodeMajor = parseInt(process.versions.node.split('.')[0], 10);
+  const isNodeCompatible = nodeMajor >= 18;
+  checks.push({
+    item: 'Node.js Runtime Compatibility',
+    status: isNodeCompatible ? 'PASS' : 'FAIL',
+    detail: `Node ${process.version} (v18+ required for Supabase CLI)`
+  });
+  if (!isNodeCompatible) {
+    issues.push(`Node.js version ${process.version} is not compatible with Supabase CLI (>=18 required).`);
+  }
+
+  // Probe npx supabase invocation
+  try {
+    const isWindows = process.platform === 'win32';
+    const cliOutput = execFileSync(isWindows ? 'npx.cmd' : 'npx', ['supabase', '--version'], {
+      cwd: rootDir,
+      encoding: 'utf8',
+      shell: isWindows,
+      stdio: ['ignore', 'pipe', 'ignore']
+    }).trim();
+    checks.push({
+      item: 'Supabase CLI Execution (npx)',
+      status: 'PASS',
+      detail: `Successfully invoked local CLI: ${cliOutput}`
+    });
+  } catch (err) {
+    checks.push({
+      item: 'Supabase CLI Execution (npx)',
+      status: 'FAIL',
+      detail: `Failed to execute npx supabase: ${err.message}`
+    });
+    issues.push(`Failed to invoke local Supabase CLI via npx: ${err.message}`);
   }
 
   return {

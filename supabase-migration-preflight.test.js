@@ -26,7 +26,9 @@ import {
   validateTargetProject,
   checkCredentialModel,
   detectRemoteDrift,
-  runPreflight
+  runPreflight,
+  probeCliTools,
+  runSupabaseCli
 } from './scripts/migration-workflow.mjs';
 
 const REPO_ROOT = process.cwd();
@@ -210,6 +212,18 @@ describe('Supabase Migration Workflow & Preflight Guard Suite', () => {
 
     assert.ok(!creds.SUPABASE_ANON_KEY.preview.includes('secretanonkey'));
     assert.ok(creds.SUPABASE_ANON_KEY.preview.includes('[REDACTED]'));
+  });
+
+  test('PREFLIGHT-10: Project-level Supabase CLI is detected and reliably invoked via npx supabase', () => {
+    const tools = probeCliTools(REPO_ROOT);
+    assert.equal(tools.hasSupabaseCli, true, 'Project-level Supabase CLI must be detected');
+    assert.equal(tools.supabaseInvocation, 'npx supabase', 'Invocation must use npx supabase');
+    assert.ok(tools.supabaseVersion, 'Supabase CLI version must be reported');
+    assert.equal(tools.supabaseVersion, '3.4.0', 'Pinned version must be 3.4.0');
+
+    // Run execution test via runSupabaseCli
+    const output = runSupabaseCli(['--version'], { rootDir: REPO_ROOT }).trim();
+    assert.equal(output, '3.4.0', 'npx supabase --version must return 3.4.0');
   });
 
 });

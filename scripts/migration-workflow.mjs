@@ -219,9 +219,9 @@ export function checkCredentialModel(rawEnv = {}) {
 }
 
 /**
- * Probes local system for CLI tools (Supabase CLI, psql).
+ * Probes local system for CLI tools (Supabase CLI via npx, psql).
  */
-export function probeCliTools() {
+export function probeCliTools(rootDir = REPO_ROOT) {
   function findCommand(cmd) {
     const probeCmd = process.platform === 'win32' ? 'where' : 'which';
     try {
@@ -232,15 +232,67 @@ export function probeCliTools() {
     }
   }
 
-  const supabasePath = findCommand('supabase');
+  let hasSupabaseCli = false;
+  let supabasePath = null;
+  let supabaseVersion = null;
+  let supabaseInvocation = null;
+
+  // 1. Probe local project-level Supabase CLI via npx supabase
+  try {
+    const isWindows = process.platform === 'win32';
+    const npxCmd = isWindows ? 'npx.cmd' : 'npx';
+    const ver = execFileSync(npxCmd, ['supabase', '--version'], {
+      cwd: rootDir,
+      encoding: 'utf8',
+      shell: isWindows,
+      stdio: ['ignore', 'pipe', 'ignore']
+    }).trim();
+    if (ver) {
+      hasSupabaseCli = true;
+      supabasePath = path.join(rootDir, 'node_modules', '.bin', isWindows ? 'supabase.cmd' : 'supabase');
+      supabaseVersion = ver;
+      supabaseInvocation = 'npx supabase';
+    }
+  } catch {
+    // 2. Fallback to global PATH
+    const globalSupabase = findCommand('supabase');
+    if (globalSupabase) {
+      hasSupabaseCli = true;
+      supabasePath = globalSupabase;
+      supabaseInvocation = 'supabase';
+      try {
+        supabaseVersion = execFileSync(globalSupabase, ['--version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      } catch {}
+    }
+  }
+
   const psqlPath = findCommand('psql');
 
   return {
-    hasSupabaseCli: Boolean(supabasePath),
+    hasSupabaseCli,
     supabasePath,
+    supabaseVersion,
+    supabaseInvocation,
     hasPsql: Boolean(psqlPath),
     psqlPath
   };
+}
+
+/**
+ * Invokes project-level Supabase CLI reliably through npx supabase.
+ */
+export function runSupabaseCli(args = [], { env = {}, rootDir = REPO_ROOT } = {}) {
+  const isWindows = process.platform === 'win32';
+  const npxCmd = isWindows ? 'npx.cmd' : 'npx';
+  const cliEnv = { ...process.env, ...env };
+
+  return execFileSync(npxCmd, ['supabase', ...args], {
+    cwd: rootDir,
+    env: cliEnv,
+    encoding: 'utf8',
+    shell: isWindows,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
 }
 
 /**
@@ -394,7 +446,8 @@ $$;
  */
 export function runPreflight({
   env: customEnv = null,
-  rootDir = REPO_ROOT
+  rootDir = REPO_ROOT,
+  allowRemote = false
 } = {}) {
   const loaded = loadEnvironment({ rootDir, injectProcessEnv: false });
   const activeEnv = customEnv || loaded.env;
@@ -402,7 +455,7 @@ export function runPreflight({
   const target = validateTargetProject(rootDir);
   const migrations = loadMigrationHistory(path.join(rootDir, 'supabase', 'migrations'));
   const creds = checkCredentialModel(activeEnv);
-  const tools = probeCliTools();
+  const tools = probeCliTools(rootDir);
 
   const blockers = [];
   if (!target.valid) blockers.push(...target.issues);
@@ -414,6 +467,13 @@ export function runPreflight({
     }
   }
 
+  // Node runtime check
+  const nodeMajor = parseInt(process.versions.node.split('.')[0], 10);
+  const isNodeCompatible = nodeMajor >= 18;
+  if (!isNodeCompatible) {
+    blockers.push(`INCOMPATIBLE_NODE_VERSION: Node.js ${process.version} is not supported. Required: >= 18.`);
+  }
+
   let authenticatedPreflightRan = false;
   let remoteOutput = '';
   let drift = {
@@ -423,8 +483,8 @@ export function runPreflight({
     driftIssues: []
   };
 
-  // Run non-mutating Supabase CLI checks if CLI is available and access token is configured
-  if (tools.hasSupabaseCli && creds.hasCliAuth) {
+  // Only execute remote preflight if explicitly authorized (allowRemote = true)
+  if (allowRemote && tools.hasSupabaseCli && creds.hasCliAuth) {
     try {
       const cliEnv = {
         ...process.env,
@@ -435,19 +495,15 @@ export function runPreflight({
       }
 
       // 1. Run supabase migration list --remote
-      const listOutput = execFileSync(tools.supabasePath, ['migration', 'list', '--remote'], {
-        cwd: rootDir,
-        env: cliEnv,
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe']
+      const listOutput = runSupabaseCli(['migration', 'list', '--remote'], {
+        rootDir,
+        env: cliEnv
       });
 
       // 2. Run supabase db push --dry-run
-      const dryRunOutput = execFileSync(tools.supabasePath, ['db', 'push', '--dry-run'], {
-        cwd: rootDir,
-        env: cliEnv,
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe']
+      const dryRunOutput = runSupabaseCli(['db', 'push', '--dry-run'], {
+        rootDir,
+        env: cliEnv
       });
 
       remoteOutput = `${listOutput}\n${dryRunOutput}`;
@@ -467,6 +523,8 @@ export function runPreflight({
     target,
     creds,
     tools,
+    nodeVersion: process.version,
+    isNodeCompatible,
     migrations,
     drift,
     authenticatedPreflightRan,
@@ -556,7 +614,8 @@ export function runCli() {
   console.log('-----------------------------------------------------------------------------------------------------\n');
 
   console.log('3. CLI & RUNTIME ENVIRONMENT:');
-  console.log(`   - Supabase CLI:   ${preflight.tools.hasSupabaseCli ? `AVAILABLE (${preflight.tools.supabasePath})` : 'NOT_INSTALLED in PATH'}`);
+  console.log(`   - Supabase CLI:   ${preflight.tools.hasSupabaseCli ? `AVAILABLE (v${preflight.tools.supabaseVersion} via ${preflight.tools.supabaseInvocation})` : 'NOT_INSTALLED'}`);
+  console.log(`   - Node.js Runtime: ${preflight.nodeVersion} (${preflight.isNodeCompatible ? 'COMPATIBLE' : 'INCOMPATIBLE'})`);
   console.log(`   - PostgreSQL psql: ${preflight.tools.hasPsql ? `AVAILABLE (${preflight.tools.psqlPath})` : 'NOT_INSTALLED in PATH'}\n`);
 
   console.log('4. LOCAL MIGRATION INTEGRITY & SAFETY:');

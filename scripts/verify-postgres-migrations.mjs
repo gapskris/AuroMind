@@ -45,12 +45,21 @@ function commandExists(cmd) {
 }
 
 export function probeLocalDatabaseRuntime() {
+  let supabaseCli = commandExists('supabase');
+  if (!supabaseCli) {
+    const isWindows = process.platform === 'win32';
+    const localBin = path.join(REPO_ROOT, 'node_modules', '.bin', isWindows ? 'supabase.cmd' : 'supabase');
+    if (fs.existsSync(localBin)) {
+      supabaseCli = 'npx supabase';
+    }
+  }
+
   const tools = {
     psql: commandExists('psql'),
     createdb: commandExists('createdb'),
     dropdb: commandExists('dropdb'),
     docker: commandExists('docker'),
-    supabase: commandExists('supabase')
+    supabase: supabaseCli
   };
   return {
     hasPsql: Boolean(tools.psql),
