@@ -820,12 +820,12 @@ test('TASK-SDK-01 / Telemetry: Telemetry opt-out purges queue and blocks unconse
     assert.equal(dropped, null);
     assert.equal(sdk.telemetry.getQueueLength(), 0);
 
-    // 2. Grant consent and track events for all 6 games
+    // 2. Grant consent and track events for all games
     sdk.telemetry.setConsent(true);
     for (const gid of KNOWN_GAME_IDS) {
       sdk.telemetry.track('game_session_start', { gameId: gid }, { category: 'engagement', gameId: gid });
     }
-    assert.equal(sdk.telemetry.getQueueLength(), 6);
+    assert.equal(sdk.telemetry.getQueueLength(), KNOWN_GAME_IDS.length);
 
     // 3. Sensitive fields are stripped from all events
     const sensitiveTracked = sdk.telemetry.track('user_action', {
