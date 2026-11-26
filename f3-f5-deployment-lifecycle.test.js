@@ -231,6 +231,57 @@ describe('F3 & F5 Deployment Lifecycle & Release Automation', () => {
     assert.ok(fs.existsSync(path.join(rollbackTargetDir, 'index.html')));
   });
 
+  test('Windows filesystem failure resilience: interrupted promotion or rollback never corrupts active deployment', () => {
+    const testReleasesDir = path.join(tempTestDir, '.releases');
+    const rollbackTargetDir = path.join(tempTestDir, 'rollback_site');
+
+    // Verify current known-good active state
+    assert.ok(fs.existsSync(path.join(rollbackTargetDir, 'index.html')));
+    const knownGoodHtml = fs.readFileSync(path.join(rollbackTargetDir, 'index.html'), 'utf8');
+
+    // 1. Corrupt the target release in releases directory (tamper build-manifest.json)
+    const releaseV2Dir = path.join(testReleasesDir, 'v2.0.0');
+    const manifestPath = path.join(releaseV2Dir, 'build-manifest.json');
+    const realManifest = fs.readFileSync(manifestPath, 'utf8');
+
+    try {
+      // Intentionally tamper manifest to simulate corrupted release
+      fs.writeFileSync(manifestPath, JSON.stringify({ bundleVersion: '2.0.0', files: { 'index.html': 'bad_hash_123' } }), 'utf8');
+
+      assert.throws(
+        () => rollbackRelease({
+          targetVersion: '2.0.0',
+          releasesDir: testReleasesDir,
+          targetDeployDir: rollbackTargetDir
+        }),
+        /RELEASE_INTEGRITY_FAILED/
+      );
+
+      // Invariant: Failed rollback did NOT corrupt active deployment
+      assert.ok(fs.existsSync(path.join(rollbackTargetDir, 'index.html')), 'Active deployment must remain intact after failed rollback');
+      assert.equal(fs.readFileSync(path.join(rollbackTargetDir, 'index.html'), 'utf8'), knownGoodHtml, 'Active content unchanged');
+    } finally {
+      // Restore valid manifest
+      fs.writeFileSync(manifestPath, realManifest, 'utf8');
+    }
+
+    // 2. Test promotion failure when bundle is missing required files
+    const fakeBundleDir = path.join(tempTestDir, 'empty_bundle');
+    fs.mkdirSync(fakeBundleDir, { recursive: true });
+
+    assert.throws(
+      () => promoteRelease({
+        version: '3.0.0',
+        bundleDir: fakeBundleDir,
+        releasesDir: testReleasesDir
+      }),
+      /MANIFEST_NOT_FOUND/
+    );
+
+    // Release v3.0.0 was NOT created
+    assert.equal(fs.existsSync(path.join(testReleasesDir, 'v3.0.0')), false, 'Incomplete release must not exist');
+  });
+
   test('Health check: canonical workspace passes full health check cleanly', () => {
     const health = executeFullHealthCheck(workspaceDir);
 

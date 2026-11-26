@@ -247,7 +247,11 @@ html, body {
   color: var(--text-secondary);
   font-size: 1.3rem;
   cursor: pointer;
-  padding: 4px;
+  padding: 8px;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
 }
 
 .header-search {
@@ -1039,7 +1043,7 @@ body.in-game-mode .portal-main-area {
     padding: 0.65rem 0.9rem;
   }
   .menu-toggle-btn {
-    display: block;
+    display: flex;
   }
   .portal-content-scroll {
     padding: 0.85rem 0.85rem 1.75rem;

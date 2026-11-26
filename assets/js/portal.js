@@ -769,15 +769,20 @@ function initTheaterMode() {
   });
 
   // Auto-launch game if arrived via deep link or standalone redirect (e.g., #play-vak or #play-auromatch)
-  if (window.location.hash.startsWith('#play-')) {
-    const deepGameId = window.location.hash.replace('#play-', '').trim();
-    const deepBtn = document.querySelector(`.play-game-btn[data-game-id="${deepGameId}"]`);
-    if (deepBtn) {
-      setTimeout(() => {
-        deepBtn.click();
-      }, 80);
+  function handleDeepLinkHash() {
+    if (window.location.hash.startsWith('#play-')) {
+      const deepGameId = window.location.hash.replace('#play-', '').trim();
+      const deepBtn = document.querySelector(`.play-game-btn[data-game-id="${deepGameId}"]`);
+      if (deepBtn) {
+        setTimeout(() => {
+          deepBtn.click();
+        }, 80);
+      }
     }
   }
+
+  handleDeepLinkHash();
+  window.addEventListener('hashchange', handleDeepLinkHash);
 
   // Listen to browser Back button
   window.addEventListener('popstate', (e) => {

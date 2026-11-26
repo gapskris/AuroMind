@@ -334,16 +334,23 @@ export function promoteRelease({
     // If overwriting an existing release, move existing to backup first
     let backupDir = null;
     if (fs.existsSync(targetReleaseDir)) {
-      backupDir = path.join(releasesDir, `.backup-v${version}-${Date.now()}`);
+      backupDir = path.join(releasesDir, `.backup-v${version}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
       fs.renameSync(targetReleaseDir, backupDir);
     }
 
-    // Atomic move into final location
-    fs.renameSync(stagingDir, targetReleaseDir);
+    try {
+      // Atomic move into final location
+      fs.renameSync(stagingDir, targetReleaseDir);
+    } catch (swapErr) {
+      if (backupDir && fs.existsSync(backupDir) && !fs.existsSync(targetReleaseDir)) {
+        try { fs.renameSync(backupDir, targetReleaseDir); } catch {}
+      }
+      throw swapErr;
+    }
 
     // Remove backup after successful swap
     if (backupDir && fs.existsSync(backupDir)) {
-      fs.rmSync(backupDir, { recursive: true, force: true });
+      try { fs.rmSync(backupDir, { recursive: true, force: true }); } catch {}
     }
 
     return {
@@ -355,7 +362,7 @@ export function promoteRelease({
   } catch (err) {
     // Clean up staging directory on any failure to guarantee no incomplete release is left
     if (fs.existsSync(stagingDir)) {
-      fs.rmSync(stagingDir, { recursive: true, force: true });
+      try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch {}
     }
     throw err;
   }
@@ -408,14 +415,21 @@ export function rollbackRelease({
     // Atomic swap: move existing deploy dir to backup, move temp to deploy dir, remove backup
     let backupDir = null;
     if (fs.existsSync(targetDeployDir)) {
-      backupDir = path.join(path.dirname(targetDeployDir), `.deploy-backup-${Date.now()}`);
+      backupDir = path.join(path.dirname(targetDeployDir), `.deploy-backup-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
       fs.renameSync(targetDeployDir, backupDir);
     }
 
-    fs.renameSync(tempRestoreDir, targetDeployDir);
+    try {
+      fs.renameSync(tempRestoreDir, targetDeployDir);
+    } catch (swapErr) {
+      if (backupDir && fs.existsSync(backupDir) && !fs.existsSync(targetDeployDir)) {
+        try { fs.renameSync(backupDir, targetDeployDir); } catch {}
+      }
+      throw swapErr;
+    }
 
     if (backupDir && fs.existsSync(backupDir)) {
-      fs.rmSync(backupDir, { recursive: true, force: true });
+      try { fs.rmSync(backupDir, { recursive: true, force: true }); } catch {}
     }
 
     return {
@@ -425,9 +439,13 @@ export function rollbackRelease({
       zeroDowntimeAtomicSwap: true
     };
   } catch (err) {
+    // If targetDeployDir was moved to backup and is missing, ensure backup is restored
+    if (backupDir && fs.existsSync(backupDir) && !fs.existsSync(targetDeployDir)) {
+      try { fs.renameSync(backupDir, targetDeployDir); } catch {}
+    }
     // Clean up temporary restore directory on failure so active deploy dir remains intact
     if (fs.existsSync(tempRestoreDir)) {
-      fs.rmSync(tempRestoreDir, { recursive: true, force: true });
+      try { fs.rmSync(tempRestoreDir, { recursive: true, force: true }); } catch {}
     }
     throw err;
   }
