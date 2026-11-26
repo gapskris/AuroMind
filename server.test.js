@@ -451,6 +451,9 @@ test('Root service worker precaches shared SDK files, serves them offline, and i
 
   function makeCacheObj(map) {
     return {
+      async add(url) {
+        return this.addAll([url]);
+      },
       async addAll(urls) {
         for (const u of urls) {
           const full = normalizeUrl(u);

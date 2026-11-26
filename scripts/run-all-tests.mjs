@@ -2,8 +2,12 @@
  * AuroMasti Automated Test Suite Runner & Regression Matrix Generator
  *
  * Runs all *.test.js files sequentially via child_process, capturing:
- * - Total tests, pass, fail, skip, todo, duration_ms
- * - Test suite name
+ * - Total tests, pass, fail, skip, flaky, duration_ms
+ * - Test suite name and execution status
+ *
+ * Strict Error Detection:
+ * - Never reports a passing suite if the command produced unparseable output or exited silently.
+ * - Accurately catches timeouts, non-zero exits, assertion errors, and missing summaries.
  */
 
 import { readdirSync, writeFileSync } from 'node:fs';
@@ -21,6 +25,7 @@ const results = [];
 let overallPass = 0;
 let overallFail = 0;
 let overallSkip = 0;
+let overallFlaky = 0;
 let overallTotal = 0;
 
 for (const file of files) {
@@ -28,6 +33,7 @@ for (const file of files) {
   const startTime = Date.now();
   let stdout = '';
   let status = 'PASSED';
+  let failureReason = null;
 
   try {
     stdout = execSync(`agy-node --test ${file}`, {
@@ -38,6 +44,7 @@ for (const file of files) {
     });
   } catch (err) {
     status = 'FAILED';
+    failureReason = err.message || 'PROCESS_NON_ZERO_EXIT';
     stdout = (err.stdout || '') + '\n' + (err.stderr || '') + '\n' + err.message;
   }
 
@@ -50,32 +57,45 @@ for (const file of files) {
   const skipMatch = stdout.match(/ℹ skipped\s+(\d+)/);
   const durationMatch = stdout.match(/ℹ duration_ms\s+([\d.]+)/);
 
-  const tests = testsMatch ? parseInt(testsMatch[1], 10) : (status === 'PASSED' ? 1 : 0);
-  const pass = passMatch ? parseInt(passMatch[1], 10) : (status === 'PASSED' ? 1 : 0);
-  const fail = failMatch ? parseInt(failMatch[1], 10) : (status === 'FAILED' ? 1 : 0);
-  const skip = skipMatch ? parseInt(skipMatch[1], 10) : 0;
+  // Strict validation: Require parseable test summary
+  const hasSummary = Boolean(testsMatch && passMatch);
+  if (!hasSummary) {
+    status = 'FAILED';
+    failureReason = failureReason || 'MISSING_OR_UNPARSEABLE_TEST_SUMMARY';
+  }
+
+  const parsedTests = testsMatch ? parseInt(testsMatch[1], 10) : 0;
+  const parsedPass = passMatch ? parseInt(passMatch[1], 10) : 0;
+  const parsedFail = failMatch ? parseInt(failMatch[1], 10) : (status === 'FAILED' ? Math.max(1, parsedTests - parsedPass) : 0);
+  const parsedSkip = skipMatch ? parseInt(skipMatch[1], 10) : 0;
   const duration = durationMatch ? parseFloat(durationMatch[1]) : elapsed;
 
-  overallTotal += tests;
-  overallPass += pass;
-  overallFail += fail;
-  overallSkip += skip;
+  if (parsedFail > 0 || status === 'FAILED') {
+    status = 'FAILED';
+  }
 
-  console.log(`${status} (${pass}/${tests} passed in ${duration.toFixed(1)}ms)`);
+  overallTotal += parsedTests;
+  overallPass += parsedPass;
+  overallFail += parsedFail;
+  overallSkip += parsedSkip;
+
+  console.log(`${status} (${parsedPass}/${parsedTests} passed, ${parsedFail} failed in ${duration.toFixed(1)}ms)`);
   if (status === 'FAILED') {
-    console.error(`--- OUTPUT FOR ${file} ---`);
-    console.error(stdout.slice(0, 2000));
-    console.error('--- END OUTPUT ---');
+    console.error(`--- FAILURE IN ${file} (${failureReason || 'TESTS_FAILED'}) ---`);
+    console.error(stdout.slice(0, 3000));
+    console.error('--- END FAILURE OUTPUT ---');
   }
 
   results.push({
     file,
     status,
-    tests,
-    pass,
-    fail,
-    skip,
+    tests: parsedTests,
+    pass: parsedPass,
+    fail: parsedFail,
+    skip: parsedSkip,
+    flaky: 0,
     duration_ms: duration,
+    failureReason,
     outputPreview: stdout.slice(-500)
   });
 }
@@ -87,6 +107,7 @@ const summary = {
   overallPass,
   overallFail,
   overallSkip,
+  overallFlaky,
   results
 };
 
@@ -98,6 +119,7 @@ console.log(`Total Tests: ${overallTotal}`);
 console.log(`Passed: ${overallPass}`);
 console.log(`Failed: ${overallFail}`);
 console.log(`Skipped: ${overallSkip}`);
+console.log(`Flaky: ${overallFlaky}`);
 console.log(`========================================`);
 
 if (overallFail > 0) {

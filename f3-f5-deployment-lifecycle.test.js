@@ -2,13 +2,14 @@
  * F3 & F5 Automated Deployment Lifecycle & Health Check Test Suite
  *
  * Verifies:
- * 1. Environment configuration validation and separation.
+ * 1. Environment configuration validation and separation (genuinely distinct configs).
  * 2. Static release bundle assembly with strict allowlist and forbidden pattern exclusion.
- * 3. Release promotion to versioned archive (.releases/v2.0.0/).
- * 4. Safe rollback restoration from archived release.
+ * 3. Release promotion to versioned archive (.releases/v2.0.0/) with atomic staging & overwrite protection.
+ * 4. Safe rollback restoration from archived release with pre-validation and zero-downtime swap.
  * 5. Full health check execution on canonical workspace.
  * 6. Fail-closed detection on tampered sacred invariants or enabled commercial gate.
  * 7. Cloudflare Pages routing (_routes.json) and security headers (_headers) validation.
+ * 8. Release integrity verification via build manifest SHA-256 and compatibility checking.
  */
 
 import { test, describe, before, after } from 'node:test';
@@ -22,6 +23,8 @@ import {
   APPROVED_RUNTIME_DIRS,
   FORBIDDEN_DEPLOY_PATTERNS,
   validateEnvironmentConfiguration,
+  verifyReleaseIntegrity,
+  validateReleaseCompatibility,
   buildReleaseBundle,
   promoteRelease,
   rollbackRelease
@@ -49,13 +52,29 @@ describe('F3 & F5 Deployment Lifecycle & Release Automation', () => {
     }
   });
 
-  test('Environment validation: strictly allows valid environments with commercial gate disabled', () => {
-    const validEnvs = ['local-preview', 'staging', 'production'];
-    for (const env of validEnvs) {
-      const config = validateEnvironmentConfiguration(env);
-      assert.equal(config.environment, env);
-      assert.equal(config.commercialGateEnabled, false, 'Commercial gate must be strictly disabled');
-    }
+  test('Environment validation: strictly allows valid environments with distinct properties & commercial gate disabled', () => {
+    const preview = validateEnvironmentConfiguration('local-preview');
+    assert.equal(preview.environment, 'local-preview');
+    assert.equal(preview.targetHost, 'localhost:8080');
+    assert.equal(preview.mockProviders, true);
+    assert.equal(preview.commercialGateEnabled, false);
+    assert.equal(preview.strictHeadersEnforced, false);
+
+    const staging = validateEnvironmentConfiguration('staging');
+    assert.equal(staging.environment, 'staging');
+    assert.equal(staging.targetHost, 'staging.auromasti.pages.dev');
+    assert.equal(staging.mockProviders, false);
+    assert.equal(staging.cspMode, 'staging-report-only');
+    assert.equal(staging.commercialGateEnabled, false);
+    assert.equal(staging.strictHeadersEnforced, true);
+
+    const prod = validateEnvironmentConfiguration('production');
+    assert.equal(prod.environment, 'production');
+    assert.equal(prod.targetHost, 'auromasti.com');
+    assert.equal(prod.cspMode, 'strict-enforcing');
+    assert.equal(prod.mockProviders, false);
+    assert.equal(prod.commercialGateEnabled, false);
+    assert.equal(prod.strictHeadersEnforced, true);
 
     assert.throws(
       () => validateEnvironmentConfiguration('development'),
@@ -79,6 +98,8 @@ describe('F3 & F5 Deployment Lifecycle & Release Automation', () => {
 
     assert.equal(result.success, true);
     assert.equal(result.environment, 'staging');
+    assert.equal(result.deploymentType, 'local-static-artifact-bundle');
+    assert.equal(result.externalHostingTriggered, false);
     assert.ok(result.fileCount > 0);
 
     // Verify all approved runtime files exist in bundle
@@ -115,9 +136,19 @@ describe('F3 & F5 Deployment Lifecycle & Release Automation', () => {
       }
     }
     scanDirForForbidden(testSiteDir);
+
+    // Verify release integrity of built bundle
+    const integrity = verifyReleaseIntegrity(testSiteDir);
+    assert.equal(integrity.valid, true);
+    assert.equal(integrity.fileCount, Object.keys(manifest.files).length);
+
+    // Verify release compatibility of built bundle
+    const compatibility = validateReleaseCompatibility(testSiteDir, '2.0.0');
+    assert.equal(compatibility.compatible, true);
+    assert.equal(compatibility.version, '2.0.0');
   });
 
-  test('Release promotion: archives release bundle to versioned directory', () => {
+  test('Release promotion: enforces overwrite protection and atomic staging', () => {
     const testSiteDir = path.join(tempTestDir, '_site');
     const testReleasesDir = path.join(tempTestDir, '.releases');
 
@@ -129,6 +160,7 @@ describe('F3 & F5 Deployment Lifecycle & Release Automation', () => {
 
     assert.equal(result.success, true);
     assert.equal(result.version, '2.0.0');
+    assert.equal(result.atomicPromotion, true);
 
     const promotedReleaseDir = path.join(testReleasesDir, 'v2.0.0');
     assert.ok(fs.existsSync(promotedReleaseDir));
@@ -138,11 +170,36 @@ describe('F3 & F5 Deployment Lifecycle & Release Automation', () => {
     const meta = JSON.parse(fs.readFileSync(path.join(promotedReleaseDir, 'release-meta.json'), 'utf8'));
     assert.equal(meta.version, '2.0.0');
     assert.equal(meta.status, 'promoted');
+    assert.equal(meta.integrityVerified, true);
+
+    // Attempting to overwrite existing release WITHOUT overwrite flag must throw
+    assert.throws(
+      () => promoteRelease({
+        version: '2.0.0',
+        bundleDir: testSiteDir,
+        releasesDir: testReleasesDir,
+        overwrite: false
+      }),
+      /RELEASE_ALREADY_EXISTS/
+    );
+
+    // Promoting with overwrite: true succeeds
+    const overwriteResult = promoteRelease({
+      version: '2.0.0',
+      bundleDir: testSiteDir,
+      releasesDir: testReleasesDir,
+      overwrite: true
+    });
+    assert.equal(overwriteResult.success, true);
   });
 
-  test('Release rollback: safely restores target version to deploy directory', () => {
+  test('Release rollback: validates restored bundle and performs zero-downtime atomic swap', () => {
     const testReleasesDir = path.join(tempTestDir, '.releases');
     const rollbackTargetDir = path.join(tempTestDir, 'rollback_site');
+
+    // Initial deployment
+    fs.mkdirSync(rollbackTargetDir, { recursive: true });
+    fs.writeFileSync(path.join(rollbackTargetDir, 'dummy.txt'), 'old-content');
 
     const result = rollbackRelease({
       targetVersion: '2.0.0',
@@ -152,10 +209,16 @@ describe('F3 & F5 Deployment Lifecycle & Release Automation', () => {
 
     assert.equal(result.success, true);
     assert.equal(result.rolledBackToVersion, '2.0.0');
+    assert.equal(result.zeroDowntimeAtomicSwap, true);
     assert.ok(fs.existsSync(path.join(rollbackTargetDir, 'index.html')));
     assert.ok(fs.existsSync(path.join(rollbackTargetDir, 'manifest.json')));
+    assert.equal(fs.existsSync(path.join(rollbackTargetDir, 'dummy.txt')), false);
 
-    // Should fail if non-existent version requested
+    // Verify integrity of restored target
+    const integrity = verifyReleaseIntegrity(rollbackTargetDir);
+    assert.equal(integrity.valid, true);
+
+    // Should fail if non-existent version requested without modifying deploy target
     assert.throws(
       () => rollbackRelease({
         targetVersion: '9.9.9',
@@ -164,6 +227,8 @@ describe('F3 & F5 Deployment Lifecycle & Release Automation', () => {
       }),
       /ROLLBACK_VERSION_NOT_FOUND/
     );
+    // Active deploy target must remain intact
+    assert.ok(fs.existsSync(path.join(rollbackTargetDir, 'index.html')));
   });
 
   test('Health check: canonical workspace passes full health check cleanly', () => {
@@ -191,7 +256,7 @@ describe('F3 & F5 Deployment Lifecycle & Release Automation', () => {
     assert.equal(health.deploy.manifest.valid, true);
   });
 
-  test('Fail-closed verification: tampered sacred invariants or enabled commercial gate trigger UNHEALTHY', () => {
+  test('Fail-closed verification: tampered sacred invariants, manifest hashes, or commercial gate trigger UNHEALTHY', () => {
     const mockDir = path.join(tempTestDir, 'mock-tampered');
     fs.mkdirSync(mockDir, { recursive: true });
 
@@ -227,6 +292,20 @@ describe('F3 & F5 Deployment Lifecycle & Release Automation', () => {
     assert.equal(tamperedHealth.sacred.vakHtmlMatch, false);
     assert.equal(tamperedHealth.sacred.floraDbMatch, false);
     assert.equal(tamperedHealth.sacred.commercialGateDisabled, false);
+
+    // Test verifyReleaseIntegrity detects tampered file
+    const testSiteDir = path.join(tempTestDir, '_site');
+    const tamperedFile = path.join(testSiteDir, 'manifest.json');
+    const originalContent = fs.readFileSync(tamperedFile, 'utf8');
+    try {
+      fs.writeFileSync(tamperedFile, originalContent + '/* TAMPERED */', 'utf8');
+      assert.throws(
+        () => verifyReleaseIntegrity(testSiteDir),
+        /RELEASE_INTEGRITY_FAILED/
+      );
+    } finally {
+      fs.writeFileSync(tamperedFile, originalContent, 'utf8');
+    }
   });
 
   test('Deployment configuration: _routes.json and _headers have required security policies', () => {

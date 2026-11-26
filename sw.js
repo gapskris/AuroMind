@@ -18,15 +18,18 @@ const PORTAL_SDK_REL_PATHS = new Set([
   'assets/sdk/auromind-adapters.js'
 ]);
 
-const PORTAL_SHELL_ASSETS = [
+const CRITICAL_SHELL_ASSETS = [
   './',
   './index.html',
   './manifest.json',
   './assets/css/portal.css',
-  './assets/css/portal.css?v=2.8',
   './assets/js/portal.js',
+  ...PORTAL_SDK_ASSETS
+];
+
+const OPTIONAL_MEDIA_ASSETS = [
+  './assets/css/portal.css?v=2.8',
   './assets/js/portal.js?v=3.7',
-  ...PORTAL_SDK_ASSETS,
   './assets/icons/auromind-logo.svg',
   './assets/icons/icon-192.png',
   './assets/icons/icon-512.png',
@@ -38,6 +41,11 @@ const PORTAL_SHELL_ASSETS = [
   './assets/thumbnails/auroblocks.webp'
 ];
 
+const PORTAL_SHELL_ASSETS = [
+  ...CRITICAL_SHELL_ASSETS,
+  ...OPTIONAL_MEDIA_ASSETS
+];
+
 const PORTAL_FONT_URLS = [
   'https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Cinzel:wght@600;700&display=swap'
 ];
@@ -46,13 +54,20 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
       const shellCache = await caches.open(PORTAL_CACHE_NAME);
-      try {
-        await shellCache.addAll(PORTAL_SHELL_ASSETS);
-      } catch (_addAllErr) {
-        await Promise.allSettled(
-          PORTAL_SHELL_ASSETS.map((assetUrl) => shellCache.add(assetUrl).catch(() => {}))
-        );
-      }
+      
+      // 1. Critical shell assets MUST succeed. If any critical shell asset fails,
+      // reject installation so a broken worker cannot replace a working offline shell.
+      await shellCache.addAll(CRITICAL_SHELL_ASSETS);
+
+      // 2. Optional media assets use Promise.allSettled so individual image/media failures do not abort install.
+      await Promise.allSettled(
+        OPTIONAL_MEDIA_ASSETS.map((assetUrl) => {
+          if (typeof shellCache.add === 'function') {
+            return shellCache.add(assetUrl).catch(() => {});
+          }
+          return shellCache.addAll([assetUrl]).catch(() => {});
+        })
+      );
 
       // Warm Google Fonts CSS and referenced woff2 font files without failing installation if offline (AURO-34)
       try {
@@ -93,8 +108,16 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
+    (async () => {
+      // Guard: Only prune old caches if current PORTAL_CACHE_NAME has been successfully opened and verified
+      const shellCache = await caches.open(PORTAL_CACHE_NAME);
+      const hasIndex = Boolean(await shellCache.match('./index.html') || await shellCache.match('./'));
+      if (!hasIndex) {
+        // If critical shell is missing from new cache, do NOT delete old caches!
+        return;
+      }
+      const keys = await caches.keys();
+      await Promise.all(
         keys
           .filter(
             (key) =>
@@ -103,10 +126,10 @@ self.addEventListener('activate', (event) => {
               key !== FONT_CACHE_NAME
           )
           .map((key) => caches.delete(key))
-      )
-    )
+      );
+      await self.clients.claim();
+    })()
   );
-  self.clients.claim();
 });
 
 self.addEventListener('fetch', (event) => {
