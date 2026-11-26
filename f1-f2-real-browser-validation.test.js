@@ -376,7 +376,7 @@ describe('F2: Real Browser Storage & Service Worker Execution on HTTP Origin', (
         const c1 = await window.caches.open('auro-portal-v1.0.0');
         await c1.put('/fake', new Response('old'));
 
-        const c2 = await window.caches.open('auroblocks-v1.0.0');
+        const c2 = await window.caches.open('auromandala-v1.0.0');
         await c2.put('/fake', new Response('old'));
 
         // Re-run root SW activation
@@ -389,7 +389,7 @@ describe('F2: Real Browser Storage & Service Worker Execution on HTTP Origin', (
         const remainingKeys = await window.caches.keys();
         return {
           hasPortalV2: remainingKeys.includes('auro-portal-v2.0.0'),
-          hasAuroBlocksV1: remainingKeys.includes('auroblocks-v1.0.0'),
+          hasMandalaV1: remainingKeys.includes('auromandala-v1.0.0'),
           hasAuroBlocksActive: remainingKeys.some(k => k.startsWith('auroblocks-v1.5')),
           hasAuroMatchActive: remainingKeys.some(k => k.startsWith('auro-match-v8'))
         };
@@ -397,7 +397,7 @@ describe('F2: Real Browser Storage & Service Worker Execution on HTTP Origin', (
 
       // Sibling game caches MUST remain untouched by portal SW
       assert.equal(isolationResult.hasPortalV2, true);
-      assert.equal(isolationResult.hasAuroBlocksV1, true, 'AuroBlocks cache must not be deleted by portal SW');
+      assert.equal(isolationResult.hasMandalaV1, true, 'Sibling game cache must not be deleted by portal SW');
       assert.equal(isolationResult.hasAuroBlocksActive, true);
       assert.equal(isolationResult.hasAuroMatchActive, true);
     } finally {
