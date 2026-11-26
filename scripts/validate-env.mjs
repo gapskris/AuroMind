@@ -94,12 +94,38 @@ export const VARIABLE_SPECIFICATION = Object.freeze({
     },
     hint: 'Privileged server-side key. NEVER pass to browser bundles or public environment.'
   },
+  SUPABASE_ACCESS_TOKEN: {
+    category: 'MIGRATION_AUTH',
+    classification: 'CLI_TOKEN',
+    required: false,
+    validator: (v, all) => {
+      if (!v || v.startsWith('YOUR_')) return 'PLACEHOLDER';
+      if (typeof v !== 'string' || v.length < 20) return false;
+      if (isServiceRoleJwt(v)) return 'SECURITY_VIOLATION_SERVICE_ROLE';
+      if (all.SUPABASE_DB_PASSWORD && v === all.SUPABASE_DB_PASSWORD) return 'TOKEN_EQUALS_PASSWORD';
+      return true;
+    },
+    hint: "Personal Access Token for Supabase CLI (e.g. 'sbp_...'). Separate from database password."
+  },
+  SUPABASE_DB_PASSWORD: {
+    category: 'MIGRATION_AUTH',
+    classification: 'DATABASE_SECRET',
+    required: false,
+    validator: (v, all) => {
+      if (!v || v.startsWith('YOUR_')) return 'PLACEHOLDER';
+      if (typeof v !== 'string' || v.length < 8) return false;
+      if (isServiceRoleJwt(v)) return 'SECURITY_VIOLATION_SERVICE_ROLE';
+      if (all.SUPABASE_ACCESS_TOKEN && v === all.SUPABASE_ACCESS_TOKEN) return 'PASSWORD_EQUALS_TOKEN';
+      return true;
+    },
+    hint: "Hosted PostgreSQL database password for rlqrtbjynaihdspbqtce. Kept separate from CLI token."
+  },
   DATABASE_URL: {
     category: 'DATABASE',
     classification: 'SERVER_ONLY',
     required: false,
     validator: v => {
-      if (!v || v.includes('YOUR_DB_PASSWORD')) return 'PLACEHOLDER';
+      if (!v || v.includes('YOUR_')) return 'PLACEHOLDER';
       try {
         const u = new URL(v);
         return (u.protocol === 'postgres:' || u.protocol === 'postgresql:') && Boolean(u.hostname && u.port);

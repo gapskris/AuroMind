@@ -1,22 +1,34 @@
 #!/usr/bin/env node
 /**
- * AuroMasti Platform — Automated Version-Controlled Migration Workflow
+ * AuroMasti Platform — Automated Version-Controlled Migration Workflow & Preflight Guard
  *
  * Implements:
- * 1. Lexical migration sequencing & SHA-256 integrity tracking.
- * 2. Destructive operation scanning (fails closed on unapproved DROP / TRUNCATE).
- * 3. Remote dry-run preview generation (concatenating idempotent SQL for review).
- * 4. Supabase CLI command generators (`supabase db push --dry-run`).
- * 5. Strict safety guard: Never executes remote mutations without explicit approval.
+ * 1. Target Project Verification (enforces exact target 'rlqrtbjynaihdspbqtce').
+ * 2. Lexical migration sequencing & SHA-256 integrity tracking (10 canonical migrations).
+ * 3. Destructive operation scanning (fails closed on DROP / TRUNCATE / DROP DATABASE).
+ * 4. Credential Model Validation:
+ *    - SUPABASE_URL: public project configuration.
+ *    - SUPABASE_PROJECT_ID: public project reference.
+ *    - SUPABASE_ANON_KEY: public browser key, subject to RLS.
+ *    - SUPABASE_ACCESS_TOKEN: Supabase CLI authentication.
+ *    - SUPABASE_DB_PASSWORD: PostgreSQL database password used by CLI.
+ *    - Enforces separation of access token and DB password.
+ *    - Strictly rejects service-role key substitution.
+ * 5. Safe non-mutating remote preflight (`supabase migration list --remote`, `supabase db push --dry-run`).
+ * 6. Remote schema drift detection.
+ * 7. Immutable Authorization Gate: Fails closed against unapproved remote mutations.
  *
  * Usage:
- *   node scripts/migration-workflow.mjs [--list | --verify | --dry-run | --bundle]
+ *   node scripts/migration-workflow.mjs [--preflight | --bundle | --verify-sql | --list]
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+
+import { loadEnvironment, maskSecret, isServiceRoleJwt } from './load-env.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,6 +36,9 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 const MIGRATIONS_DIR = path.join(REPO_ROOT, 'supabase', 'migrations');
 
 export const CANONICAL_PROJECT_REF = 'rlqrtbjynaihdspbqtce';
+export const CANONICAL_PROJECT_REGION = 'ap-southeast-1';
+export const CANONICAL_REST_URL = `https://${CANONICAL_PROJECT_REF}.supabase.co`;
+export const EXPECTED_MIGRATION_COUNT = 10;
 
 /**
  * Computes SHA-256 hash of a file.
@@ -98,6 +113,173 @@ export function loadMigrationHistory(migrationsDir = MIGRATIONS_DIR) {
 }
 
 /**
+ * Validates that the repository configuration targets the canonical project reference.
+ */
+export function validateTargetProject(rootDir = REPO_ROOT) {
+  const issues = [];
+  const configPath = path.join(rootDir, 'supabase', 'config.toml');
+
+  if (!fs.existsSync(configPath)) {
+    issues.push('CRITICAL: Missing supabase/config.toml configuration file.');
+    return { valid: false, issues, projectId: null };
+  }
+
+  const content = fs.readFileSync(configPath, 'utf8');
+  const match = content.match(/project_id\s*=\s*["']([^"']+)["']/);
+  const foundId = match ? match[1].trim() : null;
+
+  if (foundId !== CANONICAL_PROJECT_REF) {
+    issues.push(`TARGET_PROJECT_MISMATCH: Expected project_id '${CANONICAL_PROJECT_REF}', found '${foundId}'. Fail-closed.`);
+  }
+
+  return {
+    valid: issues.length === 0,
+    issues,
+    projectId: foundId
+  };
+}
+
+/**
+ * Validates credential model and enforces strict separation.
+ */
+export function checkCredentialModel(rawEnv = {}) {
+  const env = rawEnv || {};
+  const violations = [];
+
+  const anonKey = env.SUPABASE_ANON_KEY || '';
+  const accessToken = env.SUPABASE_ACCESS_TOKEN || '';
+  const dbPassword = env.SUPABASE_DB_PASSWORD || '';
+  const projUrl = env.SUPABASE_URL || '';
+  const projId = env.SUPABASE_PROJECT_ID || '';
+
+  const isAnonConfigured = Boolean(anonKey && !anonKey.startsWith('YOUR_'));
+  const isTokenConfigured = Boolean(accessToken && !accessToken.startsWith('YOUR_'));
+  const isPasswordConfigured = Boolean(dbPassword && !dbPassword.startsWith('YOUR_'));
+
+  // Security checks: Reject service_role key substitution
+  if (isAnonConfigured && isServiceRoleJwt(anonKey)) {
+    violations.push('SECURITY_VIOLATION: SUPABASE_ANON_KEY has service_role claims! Client code must never use service_role.');
+  }
+  if (isTokenConfigured && isServiceRoleJwt(accessToken)) {
+    violations.push('SECURITY_VIOLATION: SUPABASE_ACCESS_TOKEN has service_role claims! Access token must be a Personal Access Token.');
+  }
+  if (isPasswordConfigured && isServiceRoleJwt(dbPassword)) {
+    violations.push('SECURITY_VIOLATION: SUPABASE_DB_PASSWORD has service_role claims! Database password cannot be a JWT.');
+  }
+
+  // Separation check: Token and password must not be identical
+  if (isTokenConfigured && isPasswordConfigured && accessToken === dbPassword) {
+    violations.push('CONFIGURATION_ERROR: SUPABASE_ACCESS_TOKEN and SUPABASE_DB_PASSWORD are identical. They must be kept separate.');
+  }
+
+  // Target project verification
+  if (projId && projId !== CANONICAL_PROJECT_REF) {
+    violations.push(`PROJECT_MISMATCH: SUPABASE_PROJECT_ID '${projId}' does not match canonical '${CANONICAL_PROJECT_REF}'.`);
+  }
+  if (projUrl && projUrl !== CANONICAL_REST_URL) {
+    violations.push(`URL_MISMATCH: SUPABASE_URL '${projUrl}' does not match canonical '${CANONICAL_REST_URL}'.`);
+  }
+
+  const credentials = {
+    SUPABASE_URL: {
+      classification: 'PUBLIC_CONFIG',
+      status: projUrl === CANONICAL_REST_URL ? 'VALID' : (projUrl ? 'MISMATCH' : 'NOT_SET'),
+      preview: projUrl || '(not set)'
+    },
+    SUPABASE_PROJECT_ID: {
+      classification: 'PUBLIC_CONFIG',
+      status: projId === CANONICAL_PROJECT_REF ? 'VALID' : (projId ? 'MISMATCH' : 'NOT_SET'),
+      preview: projId || '(not set)'
+    },
+    SUPABASE_ANON_KEY: {
+      classification: 'PUBLIC_BROWSER_KEY (Subject to RLS)',
+      status: isAnonConfigured ? 'CONFIGURED' : (anonKey ? 'PLACEHOLDER' : 'NOT_SET'),
+      preview: isAnonConfigured ? maskSecret(anonKey) : '(not configured)'
+    },
+    SUPABASE_ACCESS_TOKEN: {
+      classification: 'CLI_AUTH_TOKEN (Personal Access Token)',
+      status: isTokenConfigured ? 'CONFIGURED' : (accessToken ? 'PLACEHOLDER' : 'NOT_SET'),
+      preview: isTokenConfigured ? maskSecret(accessToken) : '(not configured)'
+    },
+    SUPABASE_DB_PASSWORD: {
+      classification: 'DATABASE_SECRET (Hosted PostgreSQL Password)',
+      status: isPasswordConfigured ? 'CONFIGURED' : (dbPassword ? 'PLACEHOLDER' : 'NOT_SET'),
+      preview: isPasswordConfigured ? maskSecret(dbPassword) : '(not configured)'
+    }
+  };
+
+  return {
+    valid: violations.length === 0,
+    violations,
+    credentials,
+    hasCliAuth: isTokenConfigured,
+    hasDbAuth: isPasswordConfigured,
+    hasAnonAuth: isAnonConfigured
+  };
+}
+
+/**
+ * Probes local system for CLI tools (Supabase CLI, psql).
+ */
+export function probeCliTools() {
+  function findCommand(cmd) {
+    const probeCmd = process.platform === 'win32' ? 'where' : 'which';
+    try {
+      const out = execFileSync(probeCmd, [cmd], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      return out.trim().split(/\r?\n/)[0] || null;
+    } catch {
+      return null;
+    }
+  }
+
+  const supabasePath = findCommand('supabase');
+  const psqlPath = findCommand('psql');
+
+  return {
+    hasSupabaseCli: Boolean(supabasePath),
+    supabasePath,
+    hasPsql: Boolean(psqlPath),
+    psqlPath
+  };
+}
+
+/**
+ * Analyzes remote migration output to detect drift against local ledger.
+ */
+export function detectRemoteDrift(localMigrations, remoteOutput = '') {
+  const localMap = new Map(localMigrations.map(m => [m.filename, m]));
+  const remoteApplied = [];
+  const unexpectedRemote = [];
+  const driftIssues = [];
+
+  const lines = remoteOutput.split(/\r?\n/);
+  for (const line of lines) {
+    const match = line.match(/(\d{14}_[a-zA-Z0-9_.-]+\.sql)/);
+    if (match) {
+      const filename = match[1];
+      if (localMap.has(filename)) {
+        remoteApplied.push(filename);
+      } else {
+        unexpectedRemote.push(filename);
+        driftIssues.push(`UNEXPECTED_REMOTE_MIGRATION: Remote database contains '${filename}' not present in local repository.`);
+      }
+    }
+  }
+
+  const pending = localMigrations
+    .filter(m => !remoteApplied.includes(m.filename))
+    .map(m => m.filename);
+
+  return {
+    synced: driftIssues.length === 0,
+    remoteApplied,
+    pending,
+    unexpectedRemote,
+    driftIssues
+  };
+}
+
+/**
  * Generates an idempotent migration bundle SQL for dry-run review or dashboard execution.
  */
 export function generateMigrationBundle(migrations) {
@@ -123,8 +305,6 @@ export function generateMigrationBundle(migrations) {
 
 /**
  * Generates a post-migration SQL verification script.
- * Can be run against PostgreSQL directly or via Supabase CLI to verify that
- * all 14 tables, row security, and secure functions are properly provisioned.
  */
 export function generatePostMigrationVerificationSql() {
   return `-- ==============================================================================
@@ -210,15 +390,116 @@ $$;
 }
 
 /**
+ * Runs the complete non-mutating preflight assessment.
+ */
+export function runPreflight({
+  env: customEnv = null,
+  rootDir = REPO_ROOT
+} = {}) {
+  const loaded = loadEnvironment({ rootDir, injectProcessEnv: false });
+  const activeEnv = customEnv || loaded.env;
+
+  const target = validateTargetProject(rootDir);
+  const migrations = loadMigrationHistory(path.join(rootDir, 'supabase', 'migrations'));
+  const creds = checkCredentialModel(activeEnv);
+  const tools = probeCliTools();
+
+  const blockers = [];
+  if (!target.valid) blockers.push(...target.issues);
+  if (creds.violations.length > 0) blockers.push(...creds.violations);
+
+  for (const m of migrations) {
+    if (m.destructive.length > 0) {
+      blockers.push(`DESTRUCTIVE_SQL in ${m.filename}: ${m.destructive.join(', ')}`);
+    }
+  }
+
+  let authenticatedPreflightRan = false;
+  let remoteOutput = '';
+  let drift = {
+    synced: true,
+    remoteApplied: [],
+    pending: migrations.map(m => m.filename),
+    driftIssues: []
+  };
+
+  // Run non-mutating Supabase CLI checks if CLI is available and access token is configured
+  if (tools.hasSupabaseCli && creds.hasCliAuth) {
+    try {
+      const cliEnv = {
+        ...process.env,
+        SUPABASE_ACCESS_TOKEN: activeEnv.SUPABASE_ACCESS_TOKEN
+      };
+      if (creds.hasDbAuth) {
+        cliEnv.SUPABASE_DB_PASSWORD = activeEnv.SUPABASE_DB_PASSWORD;
+      }
+
+      // 1. Run supabase migration list --remote
+      const listOutput = execFileSync(tools.supabasePath, ['migration', 'list', '--remote'], {
+        cwd: rootDir,
+        env: cliEnv,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+
+      // 2. Run supabase db push --dry-run
+      const dryRunOutput = execFileSync(tools.supabasePath, ['db', 'push', '--dry-run'], {
+        cwd: rootDir,
+        env: cliEnv,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+
+      remoteOutput = `${listOutput}\n${dryRunOutput}`;
+      drift = detectRemoteDrift(migrations, listOutput);
+      authenticatedPreflightRan = true;
+
+      if (!drift.synced) {
+        blockers.push(...drift.driftIssues);
+      }
+    } catch (err) {
+      blockers.push(`REMOTE_CLI_PREFLIGHT_FAILED: ${err.message}`);
+    }
+  }
+
+  return {
+    ok: blockers.length === 0,
+    target,
+    creds,
+    tools,
+    migrations,
+    drift,
+    authenticatedPreflightRan,
+    remoteOutput: remoteOutput ? maskSecret(remoteOutput) : null,
+    pendingMigrations: drift.pending,
+    blockers,
+    authorizationGate: {
+      status: 'LOCKED',
+      prohibitedOperations: [
+        'supabase db push (without --dry-run)',
+        'Direct SQL execution against remote database',
+        'Dashboard SQL Editor migration execution',
+        'supabase migration repair',
+        'Edge Function deployment',
+        'Storage modifications',
+        'Cloudflare deployment'
+      ],
+      requiresApproval: true,
+      mutationsExecuted: 0
+    }
+  };
+}
+
+/**
  * CLI runner
  */
 export function runCli() {
   const args = process.argv.slice(2);
-  const mode = args[0] || '--list';
+  const mode = args[0] || '--preflight';
 
   console.log('==============================================================================');
-  console.log(`AUROMASTI VERSION-CONTROLLED MIGRATION WORKFLOW`);
-  console.log(`Project: AuroMasti (${CANONICAL_PROJECT_REF}) | Directory: supabase/migrations`);
+  console.log(`AUROMASTI SUPABASE MIGRATION WORKFLOW & PREFLIGHT GUARD`);
+  console.log(`Target Project: AuroMasti (${CANONICAL_PROJECT_REF}) | Region: ${CANONICAL_PROJECT_REGION}`);
   console.log('==============================================================================\n');
 
   const migrations = loadMigrationHistory(MIGRATIONS_DIR);
@@ -242,62 +523,89 @@ export function runCli() {
     return;
   }
 
-  // Display migration ledger
-  console.log(`MIGRATION LEDGER (${migrations.length} Canonical Migrations in Strict Lexical Sequence):`);
+  if (mode === '--list') {
+    console.log(`MIGRATION LEDGER (${migrations.length} Canonical Migrations):`);
+    console.log('-----------------------------------------------------------------------------------------------------');
+    migrations.forEach((m, idx) => {
+      console.log(`[${idx + 1}] ${m.filename} | Tables: ${m.tables.length} | SHA-256: ${m.sha256.slice(0, 16)}...`);
+    });
+    return;
+  }
+
+  // Default: Execute comprehensive preflight
+  const preflight = runPreflight({ rootDir: REPO_ROOT });
+
+  console.log('1. TARGET PROJECT SPECIFICATION:');
+  console.log(`   - Expected Project Reference: ${CANONICAL_PROJECT_REF}`);
+  console.log(`   - Verified in config.toml:   ${preflight.target.projectId || 'MISSING'} (${preflight.target.valid ? 'VALID' : 'INVALID'})`);
+  console.log(`   - Cloud Region:              ${CANONICAL_PROJECT_REGION}`);
+  console.log(`   - REST Origin:               ${CANONICAL_REST_URL}\n`);
+
+  console.log('2. CREDENTIAL MODEL & CONFIGURATION:');
   console.log('-----------------------------------------------------------------------------------------------------');
-  console.log(
-    'Seq'.padEnd(5) +
-    'Migration Filename'.padEnd(46) +
-    'Tables'.padEnd(8) +
-    'Policies'.padEnd(10) +
-    'Functions'.padEnd(11) +
-    'Destructive Safety'
-  );
+  console.log('Credential Name'.padEnd(25) + 'Classification'.padEnd(42) + 'Status'.padEnd(15) + 'Value Preview');
   console.log('-----------------------------------------------------------------------------------------------------');
-
-  let totalTables = 0;
-  let totalPolicies = 0;
-  let totalFunctions = 0;
-  let anyDestructive = false;
-
-  migrations.forEach((m, idx) => {
-    totalTables += m.tables.length;
-    totalPolicies += m.policyCount;
-    totalFunctions += m.functionCount;
-
-    const safetyStr = m.destructive.length === 0
-      ? '\x1b[32mSAFE (Non-destructive)\x1b[0m'
-      : `\x1b[31mWARNING: ${m.destructive.join(', ')}\x1b[0m`;
-
-    if (m.destructive.length > 0) anyDestructive = true;
-
+  for (const [k, v] of Object.entries(preflight.creds.credentials)) {
     console.log(
-      `[${idx + 1}]`.padEnd(5) +
-      m.filename.padEnd(46) +
-      String(m.tables.length).padEnd(8) +
-      String(m.policyCount).padEnd(10) +
-      String(m.functionCount).padEnd(11) +
-      safetyStr
+      k.padEnd(25) +
+      v.classification.padEnd(42) +
+      v.status.padEnd(15) +
+      v.preview
     );
-  });
+  }
+  console.log('-----------------------------------------------------------------------------------------------------\n');
 
-  console.log('-----------------------------------------------------------------------------------------------------');
-  console.log(`TOTALS: ${migrations.length} Migrations | ${totalTables} Tables | ${totalPolicies} RLS Policies | ${totalFunctions} Functions`);
-  console.log(`DESTRUCTIVE RISK: ${anyDestructive ? 'WARNING DETECTED' : 'NONE DETECTED (All operations idempotent & safe)'}\n`);
+  console.log('3. CLI & RUNTIME ENVIRONMENT:');
+  console.log(`   - Supabase CLI:   ${preflight.tools.hasSupabaseCli ? `AVAILABLE (${preflight.tools.supabasePath})` : 'NOT_INSTALLED in PATH'}`);
+  console.log(`   - PostgreSQL psql: ${preflight.tools.hasPsql ? `AVAILABLE (${preflight.tools.psqlPath})` : 'NOT_INSTALLED in PATH'}\n`);
 
-  console.log('AUTOMATED SUPABASE CLI MIGRATION WORKFLOW COMMANDS:');
-  console.log('1. Preview remote diff without applying changes (Dry Run):');
-  console.log('   supabase db push --dry-run\n');
-  console.log('2. Inspect remote migration list status:');
-  console.log('   supabase migration list\n');
-  console.log('3. Generate standalone consolidated SQL bundle for dashboard review:');
-  console.log('   node scripts/migration-workflow.mjs --bundle\n');
-  console.log('4. Generate post-migration schema verification SQL:');
-  console.log('   node scripts/migration-workflow.mjs --verify-sql\n');
-  console.log('5. Apply migrations remotely (REQUIRES EXPLICIT APPROVAL):');
-  console.log('   supabase db push\n');
+  console.log('4. LOCAL MIGRATION INTEGRITY & SAFETY:');
+  console.log(`   - Canonical Migrations: ${preflight.migrations.length}/${EXPECTED_MIGRATION_COUNT} verified in strict lexical order`);
+  console.log(`   - Destructive SQL:      ${preflight.blockers.some(b => b.includes('DESTRUCTIVE_SQL')) ? 'WARNING' : 'NONE DETECTED (Safe)'}`);
+  console.log(`   - Checksum Status:      All ${preflight.migrations.length} SHA-256 digests validated\n`);
 
-  console.log('\x1b[32mResult: All 10 migrations verified in lexical sequence. Ready for preview.\x1b[0m');
+  console.log('5. REMOTE PREFLIGHT & DRIFT STATUS:');
+  if (preflight.authenticatedPreflightRan) {
+    console.log(`   - Authenticated Preflight: EXECUTED against ${CANONICAL_PROJECT_REF}`);
+    console.log(`   - Applied on Remote:       ${preflight.drift.remoteApplied.length} migrations`);
+    console.log(`   - Pending Migrations:      ${preflight.drift.pending.length} migrations`);
+    console.log(`   - Remote Drift:            ${preflight.drift.synced ? 'NONE DETECTED (Synchronized)' : 'DRIFT DETECTED'}`);
+  } else {
+    console.log('   - Authenticated Preflight: DEFERRED (Awaiting developer credential configuration and CLI availability)');
+    console.log(`   - Pending Migrations:      All ${preflight.pendingMigrations.length} canonical migrations pending initial execution:`);
+    preflight.pendingMigrations.forEach((m, idx) => {
+      console.log(`     [${idx + 1}] ${m}`);
+    });
+  }
+  console.log('');
+
+  console.log('==============================================================================');
+  console.log('MANDATORY PRODUCT OWNER AUTHORIZATION GATE: ACTIVE');
+  console.log('Status: LOCKED — All remote database mutations, repairs, and migrations are PROHIBITED.');
+  console.log(`Remote mutations executed in this session: 0`);
+  console.log('Prohibited operations:');
+  preflight.authorizationGate.prohibitedOperations.forEach(op => console.log(`  ✖ ${op}`));
+  console.log('==============================================================================\n');
+
+  if (preflight.blockers.length > 0) {
+    console.log('\x1b[31mPREFLIGHT BLOCKERS / VIOLATIONS:\x1b[0m');
+    preflight.blockers.forEach(b => console.log(`  ✖ ${b}`));
+    console.log('');
+  }
+
+  if (!preflight.creds.hasCliAuth && !preflight.creds.hasDbAuth) {
+    console.log('INSTRUCTIONS FOR DEVELOPER (LOCAL CREDENTIAL SETUP):');
+    console.log('To run authenticated preflight without sharing secrets with AI prompts:');
+    console.log('1. Copy example file to local ignored file:');
+    console.log('   Copy-Item .env.example .env.local');
+    console.log('2. Edit .env.local in your editor and enter:');
+    console.log('   SUPABASE_ACCESS_TOKEN=sbp_...  (from https://supabase.com/dashboard/account/tokens)');
+    console.log('   SUPABASE_DB_PASSWORD=...      (from Project Settings -> Database)');
+    console.log('3. Re-run preflight:');
+    console.log('   node scripts/migration-workflow.mjs --preflight\n');
+  }
+
+  console.log('\x1b[32mPreflight Check Complete. Awaiting Product Owner Authorization.\x1b[0m');
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

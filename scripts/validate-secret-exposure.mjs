@@ -107,9 +107,19 @@ export function runSecretExposureScan(rootDir = REPO_ROOT) {
           }
         }
 
-        // Check for real database passwords
-        if (trimmed.includes('DATABASE_URL=') && !trimmed.includes('YOUR_DB_PASSWORD')) {
+        // Check for real database passwords or URLs
+        if (trimmed.includes('DATABASE_URL=') && !trimmed.includes('YOUR_')) {
           violations.push(`REAL_PASSWORD_IN_EXAMPLE: ${ef} contains an unredacted database URL without placeholder.`);
+        }
+
+        // Check for real CLI access tokens
+        if (trimmed.includes('SUPABASE_ACCESS_TOKEN=') && !trimmed.includes('YOUR_')) {
+          violations.push(`REAL_TOKEN_IN_EXAMPLE: ${ef} contains a Supabase Access Token without placeholder.`);
+        }
+
+        // Check for real database passwords
+        if (trimmed.includes('SUPABASE_DB_PASSWORD=') && !trimmed.includes('YOUR_')) {
+          violations.push(`REAL_DB_PASSWORD_IN_EXAMPLE: ${ef} contains a database password without placeholder.`);
         }
       }
     }
