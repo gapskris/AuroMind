@@ -13,6 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
 export const SACRED_EXPECTATIONS = Object.freeze({
   vakHtmlSha256: 'A8E2EF8B9B5E7F95B231C75B185C3DDEB61EA8FCB4C25C85FABC6872FA780360',
@@ -155,4 +156,29 @@ export function executeFullHealthCheck(rootDir = process.cwd()) {
     apps,
     deploy
   };
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  const result = executeFullHealthCheck();
+  console.log('==============================================================================');
+  console.log('AUROMASTI DEPLOYMENT HEALTH CHECK & INVARIANT VERIFICATION');
+  console.log(`Status: ${result.status} | Timestamp: ${result.timestamp}`);
+  console.log('==============================================================================');
+  console.log(`Sacred Invariants:`);
+  console.log(`  - VAK Full HTML SHA-256:        ${result.sacred.vakHtmlMatch ? 'PASS' : 'FAIL'}`);
+  console.log(`  - VAK Corpus SHA-256:           ${result.sacred.vakCorpusMatch ? 'PASS' : 'FAIL'}`);
+  console.log(`  - Flora Database SHA-256:       ${result.sacred.floraDbMatch ? 'PASS' : 'FAIL'}`);
+  console.log(`  - Commercial Gate Disabled:     ${result.sacred.commercialGateDisabled ? 'PASS (false)' : 'FAIL'}`);
+  console.log(`Consolidated Applications:`);
+  console.log(`  - Portal Exposes Exactly Three: ${result.apps.portalConsolidatedExactlyThree ? 'PASS (3)' : 'FAIL'}`);
+  for (const [k, v] of Object.entries(result.apps.games)) {
+    console.log(`  - Game '${k}':`.padEnd(34) + (v.healthy ? 'PASS' : 'FAIL'));
+  }
+  console.log(`Deployment Configuration:`);
+  console.log(`  - _headers:                     ${result.deploy.headers.valid ? 'PASS' : 'FAIL'}`);
+  console.log(`  - _routes.json:                 ${result.deploy.routes.valid ? 'PASS' : 'FAIL'}`);
+  console.log(`  - release-manifest.json:        ${result.deploy.manifest.valid ? 'PASS' : 'FAIL'}`);
+  console.log('==============================================================================');
+  console.log(`Overall Health Status: ${result.healthy ? 'HEALTHY' : 'UNHEALTHY'}`);
+  process.exit(result.healthy ? 0 : 1);
 }

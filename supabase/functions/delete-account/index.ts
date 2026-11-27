@@ -50,7 +50,7 @@ serve(async (req: Request) => {
 
     const { error: deleteUserError } = await adminClient.auth.admin.deleteUser(user.id);
     if (deleteUserError) {
-      return new Response(JSON.stringify({ ok: false, error: deleteUserError.message }), {
+      return new Response(JSON.stringify({ ok: false, error: 'ACCOUNT_DELETION_FAILED' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
@@ -60,8 +60,8 @@ serve(async (req: Request) => {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
-  } catch (err: any) {
-    return new Response(JSON.stringify({ ok: false, error: err.message || 'INTERNAL_ERROR' }), {
+  } catch (_err: any) {
+    return new Response(JSON.stringify({ ok: false, error: 'INTERNAL_ERROR' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });

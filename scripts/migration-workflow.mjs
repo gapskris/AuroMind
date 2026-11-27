@@ -41,6 +41,146 @@ export const CANONICAL_REST_URL = `https://${CANONICAL_PROJECT_REF}.supabase.co`
 export const EXPECTED_MIGRATION_COUNT = 10;
 
 /**
+ * Canonical Preflight State Classifications (BLK-01 / B19.7)
+ */
+export const PREFLIGHT_STATES = Object.freeze({
+  UNVERIFIED: 'UNVERIFIED',                                 // State 1: Network / IPv6 failure / connection timeout / offline
+  CLEAN_INITIAL_STATE: 'CLEAN_INITIAL_STATE',               // State 2: schema_migrations is empty, zero tables exist
+  MIGRATIONS_PENDING: 'MIGRATIONS_PENDING',                 // State 3: Remote applied is subset of local migrations (behind)
+  DRIFT_AHEAD: 'DRIFT_AHEAD',                               // State 4: Remote contains migrations not in local repository
+  SCHEMA_HISTORY_DIVERGENCE: 'SCHEMA_HISTORY_DIVERGENCE',   // State 5: schema_migrations says applied, but required tables missing
+  OBJECT_COLLISION_DETECTED: 'OBJECT_COLLISION_DETECTED'    // State 6: schema_migrations says not applied, but objects already exist in public schema
+});
+
+/**
+ * Deterministically classifies the remote migration state into one of the canonical states.
+ * Fails closed and guarantees zero reliance on PostgREST PGRST205 missing-table responses.
+ */
+export function classifyPreflightState({
+  localMigrations = [],
+  remoteApplied = [],
+  unexpectedRemote = [],
+  remoteReachable = false,
+  networkError = null,
+  schemaTables = null,
+  schemaError = null
+} = {}) {
+  // State 1: Remote unavailable (network, IPv6 unreachable, timeout, or offline deferral)
+  if (!remoteReachable || networkError) {
+    return {
+      state: PREFLIGHT_STATES.UNVERIFIED,
+      statusCode: 'UNVERIFIED',
+      description: 'Remote migration history unavailable (network/IPv6 failure, connection timeout, or offline deferral).',
+      details: networkError ? String(networkError) : 'Remote preflight deferred or unreachable.',
+      pendingMigrations: localMigrations.map(m => typeof m === 'string' ? m : m.filename),
+      appliedMigrations: [],
+      readyForMigration: false,
+      requiresIntervention: false
+    };
+  }
+
+  const localNames = localMigrations.map(m => typeof m === 'string' ? m : m.filename);
+  const pending = localNames.filter(name => !remoteApplied.includes(name));
+
+  // State 4: Remote migrations ahead of local (untracked migrations exist on remote)
+  if (unexpectedRemote && unexpectedRemote.length > 0) {
+    return {
+      state: PREFLIGHT_STATES.DRIFT_AHEAD,
+      statusCode: 'DRIFT_AHEAD',
+      description: 'Remote database contains migrations not present in local repository.',
+      details: `Found ${unexpectedRemote.length} untracked remote migration(s): ${unexpectedRemote.join(', ')}`,
+      pendingMigrations: pending,
+      appliedMigrations: remoteApplied,
+      unexpectedRemote,
+      readyForMigration: false,
+      requiresIntervention: true
+    };
+  }
+
+  // State 5 & 6: Schema inspection validations (when schema object list is provided)
+  if (Array.isArray(schemaTables)) {
+    // If remoteApplied has migrations claiming tables are created, but expected tables are missing
+    if (remoteApplied.length > 0) {
+      const expectedTables = [];
+      for (const m of localMigrations) {
+        if (remoteApplied.includes(typeof m === 'string' ? m : m.filename) && Array.isArray(m.tables)) {
+          expectedTables.push(...m.tables);
+        }
+      }
+      const missingTables = expectedTables.filter(t => !schemaTables.includes(t.replace(/^public\./, '')));
+      if (missingTables.length > 0) {
+        return {
+          state: PREFLIGHT_STATES.SCHEMA_HISTORY_DIVERGENCE,
+          statusCode: 'SCHEMA_HISTORY_DIVERGENCE',
+          description: 'Migration history in schema_migrations records applied migrations, but expected public tables are missing.',
+          details: `Missing tables: ${missingTables.join(', ')}`,
+          pendingMigrations: pending,
+          appliedMigrations: remoteApplied,
+          missingTables,
+          readyForMigration: false,
+          requiresIntervention: true
+        };
+      }
+    }
+
+    // State 6: schema_migrations is clean/empty, but tables already exist in public schema
+    if (remoteApplied.length === 0 && schemaTables.length > 0) {
+      return {
+        state: PREFLIGHT_STATES.OBJECT_COLLISION_DETECTED,
+        statusCode: 'OBJECT_COLLISION_DETECTED',
+        description: 'schema_migrations is empty, but conflicting objects already exist in the public schema.',
+        details: `Pre-existing tables: ${schemaTables.join(', ')}`,
+        pendingMigrations: pending,
+        appliedMigrations: [],
+        conflictingTables: schemaTables,
+        readyForMigration: false,
+        requiresIntervention: true
+      };
+    }
+  }
+
+  // State 2: Remote migration history empty (from schema_migrations, verified clean)
+  if (remoteApplied.length === 0) {
+    return {
+      state: PREFLIGHT_STATES.CLEAN_INITIAL_STATE,
+      statusCode: 'CLEAN_INITIAL_STATE',
+      description: 'Remote database has clean migration history (0 applied). All local migrations are pending initial execution.',
+      details: `Ready to apply all ${localMigrations.length} canonical migrations in sequence.`,
+      pendingMigrations: localNames,
+      appliedMigrations: [],
+      readyForMigration: true,
+      requiresIntervention: false
+    };
+  }
+
+  // State 3: Remote migrations behind local
+  if (pending.length > 0) {
+    return {
+      state: PREFLIGHT_STATES.MIGRATIONS_PENDING,
+      statusCode: 'MIGRATIONS_PENDING',
+      description: `Remote database is behind local repository. ${remoteApplied.length} applied, ${pending.length} pending.`,
+      details: `Pending migrations: ${pending.join(', ')}`,
+      pendingMigrations: pending,
+      appliedMigrations: remoteApplied,
+      readyForMigration: true,
+      requiresIntervention: false
+    };
+  }
+
+  // Fully synchronized
+  return {
+    state: 'SYNCHRONIZED',
+    statusCode: 'SYNCHRONIZED',
+    description: `All ${localMigrations.length} canonical migrations are applied on remote database. Zero drift detected.`,
+    details: 'Schema is up to date.',
+    pendingMigrations: [],
+    appliedMigrations: remoteApplied,
+    readyForMigration: false,
+    requiresIntervention: false
+  };
+}
+
+/**
  * Computes SHA-256 hash of a file.
  */
 export function computeSha256(filePath) {
@@ -497,6 +637,7 @@ export function runPreflight({
     pending: migrations.map(m => m.filename),
     driftIssues: []
   };
+  let remoteError = null;
 
   // Only execute remote preflight if explicitly authorized (allowRemote = true)
   if (allowRemote && tools.hasSupabaseCli && creds.hasCliAuth) {
@@ -529,9 +670,19 @@ export function runPreflight({
         blockers.push(...drift.driftIssues);
       }
     } catch (err) {
+      remoteError = err.message;
       blockers.push(`REMOTE_CLI_PREFLIGHT_FAILED: ${err.message}`);
     }
   }
+
+  // Classify preflight state deterministically across the 6 canonical states
+  const preflightState = classifyPreflightState({
+    localMigrations: migrations,
+    remoteApplied: drift.remoteApplied,
+    unexpectedRemote: drift.unexpectedRemote,
+    remoteReachable: authenticatedPreflightRan,
+    networkError: remoteError || (allowRemote ? null : 'OFFLINE_MODE_ACTIVE (Remote mutation & execution prohibited)')
+  });
 
   return {
     ok: blockers.length === 0,
@@ -542,6 +693,7 @@ export function runPreflight({
     isNodeCompatible,
     migrations,
     drift,
+    state: preflightState,
     authenticatedPreflightRan,
     remoteOutput: remoteOutput ? maskSecret(remoteOutput) : null,
     pendingMigrations: drift.pending,
@@ -639,13 +791,15 @@ export function runCli() {
   console.log(`   - Checksum Status:      All ${preflight.migrations.length} SHA-256 digests validated\n`);
 
   console.log('5. REMOTE PREFLIGHT & DRIFT STATUS:');
+  console.log(`   - Preflight State:         ${preflight.state.state} (${preflight.state.statusCode})`);
+  console.log(`   - State Description:       ${preflight.state.description}`);
   if (preflight.authenticatedPreflightRan) {
     console.log(`   - Authenticated Preflight: EXECUTED against ${CANONICAL_PROJECT_REF}`);
     console.log(`   - Applied on Remote:       ${preflight.drift.remoteApplied.length} migrations`);
     console.log(`   - Pending Migrations:      ${preflight.drift.pending.length} migrations`);
     console.log(`   - Remote Drift:            ${preflight.drift.synced ? 'NONE DETECTED (Synchronized)' : 'DRIFT DETECTED'}`);
   } else {
-    console.log('   - Authenticated Preflight: DEFERRED (Awaiting developer credential configuration and CLI availability)');
+    console.log(`   - Authenticated Preflight: DEFERRED (Offline-first policy; remote operations prohibited)`);
     console.log(`   - Pending Migrations:      All ${preflight.pendingMigrations.length} canonical migrations pending initial execution:`);
     preflight.pendingMigrations.forEach((m, idx) => {
       console.log(`     [${idx + 1}] ${m}`);

@@ -21,6 +21,8 @@ import {
   CANONICAL_PROJECT_REF,
   CANONICAL_REST_URL,
   EXPECTED_MIGRATION_COUNT,
+  PREFLIGHT_STATES,
+  classifyPreflightState,
   loadMigrationHistory,
   scanDestructiveSql,
   validateTargetProject,
@@ -259,6 +261,98 @@ describe('Supabase Migration Workflow & Preflight Guard Suite', () => {
     assert.equal(resDual.valid, true);
     assert.equal(resDual.credentials.SUPABASE_PUBLISHABLE_KEY.status, 'CONFIGURED');
     assert.equal(resDual.credentials.SUPABASE_ANON_KEY.status, 'CONFIGURED');
+  });
+
+  test('PREFLIGHT-12: Deterministic classification of all 6 canonical remote preflight states', () => {
+    const migrations = loadMigrationHistory();
+    const localNames = migrations.map(m => m.filename);
+
+    // State 1: Remote history unavailable (network/IPv6/timeout/offline)
+    const state1 = classifyPreflightState({
+      localMigrations: migrations,
+      remoteReachable: false,
+      networkError: 'ENETUNREACH: Network is unreachable'
+    });
+    assert.equal(state1.state, PREFLIGHT_STATES.UNVERIFIED);
+    assert.equal(state1.statusCode, 'UNVERIFIED');
+    assert.equal(state1.readyForMigration, false);
+    assert.equal(state1.requiresIntervention, false);
+    assert.equal(state1.pendingMigrations.length, EXPECTED_MIGRATION_COUNT);
+
+    // State 2: Remote history empty (clean initial state)
+    const state2 = classifyPreflightState({
+      localMigrations: migrations,
+      remoteApplied: [],
+      unexpectedRemote: [],
+      remoteReachable: true,
+      schemaTables: []
+    });
+    assert.equal(state2.state, PREFLIGHT_STATES.CLEAN_INITIAL_STATE);
+    assert.equal(state2.statusCode, 'CLEAN_INITIAL_STATE');
+    assert.equal(state2.readyForMigration, true);
+    assert.equal(state2.requiresIntervention, false);
+    assert.equal(state2.pendingMigrations.length, EXPECTED_MIGRATION_COUNT);
+
+    // State 3: Remote migrations behind local
+    const appliedSubset = [localNames[0], localNames[1], localNames[2]];
+    const state3 = classifyPreflightState({
+      localMigrations: migrations,
+      remoteApplied: appliedSubset,
+      unexpectedRemote: [],
+      remoteReachable: true
+    });
+    assert.equal(state3.state, PREFLIGHT_STATES.MIGRATIONS_PENDING);
+    assert.equal(state3.statusCode, 'MIGRATIONS_PENDING');
+    assert.equal(state3.readyForMigration, true);
+    assert.equal(state3.requiresIntervention, false);
+    assert.equal(state3.appliedMigrations.length, 3);
+    assert.equal(state3.pendingMigrations.length, 7);
+
+    // State 4: Remote migrations ahead of local (untracked remote migrations)
+    const state4 = classifyPreflightState({
+      localMigrations: migrations,
+      remoteApplied: [localNames[0]],
+      unexpectedRemote: ['20269999999999_rogue_migration.sql'],
+      remoteReachable: true
+    });
+    assert.equal(state4.state, PREFLIGHT_STATES.DRIFT_AHEAD);
+    assert.equal(state4.statusCode, 'DRIFT_AHEAD');
+    assert.equal(state4.readyForMigration, false);
+    assert.equal(state4.requiresIntervention, true);
+    assert.equal(state4.unexpectedRemote.length, 1);
+
+    // State 5: Migration history inconsistent with actual schema (divergence)
+    const state5 = classifyPreflightState({
+      localMigrations: migrations,
+      remoteApplied: [localNames[0]], // migration 1 creates user_profiles, guest_identity_links, game_saves
+      unexpectedRemote: [],
+      remoteReachable: true,
+      schemaTables: [] // schema table query returned empty
+    });
+    assert.equal(state5.state, PREFLIGHT_STATES.SCHEMA_HISTORY_DIVERGENCE);
+    assert.equal(state5.statusCode, 'SCHEMA_HISTORY_DIVERGENCE');
+    assert.equal(state5.readyForMigration, false);
+    assert.equal(state5.requiresIntervention, true);
+    assert.ok(state5.missingTables.length > 0);
+
+    // State 6: Schema already containing conflicting objects
+    const state6 = classifyPreflightState({
+      localMigrations: migrations,
+      remoteApplied: [], // schema_migrations says nothing applied
+      unexpectedRemote: [],
+      remoteReachable: true,
+      schemaTables: ['user_profiles', 'game_saves'] // but tables exist
+    });
+    assert.equal(state6.state, PREFLIGHT_STATES.OBJECT_COLLISION_DETECTED);
+    assert.equal(state6.statusCode, 'OBJECT_COLLISION_DETECTED');
+    assert.equal(state6.readyForMigration, false);
+    assert.equal(state6.requiresIntervention, true);
+    assert.equal(state6.conflictingTables.length, 2);
+
+    // Verify preflight report includes the classified state object
+    const preflight = runPreflight({ rootDir: REPO_ROOT });
+    assert.ok(preflight.state);
+    assert.equal(preflight.state.state, PREFLIGHT_STATES.UNVERIFIED);
   });
 
 });

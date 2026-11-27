@@ -48,7 +48,7 @@ serve(async (req: Request) => {
       .eq('status', 'active');
 
     if (entError) {
-      return new Response(JSON.stringify({ ok: false, error: entError.message }), {
+      return new Response(JSON.stringify({ ok: false, error: 'ENTITLEMENT_QUERY_FAILED' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
@@ -70,8 +70,8 @@ serve(async (req: Request) => {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
-  } catch (err: any) {
-    return new Response(JSON.stringify({ ok: false, error: err.message || 'INTERNAL_ERROR' }), {
+  } catch (_err: any) {
+    return new Response(JSON.stringify({ ok: false, error: 'INTERNAL_ERROR' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
