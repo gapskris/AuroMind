@@ -1133,7 +1133,7 @@ window.addEventListener('load', async () => {
             const targetOrigin = (window.location.origin && window.location.origin !== 'null' && (window.location.origin.startsWith('http:') || window.location.origin.startsWith('https:')))
                 ? window.location.origin
                 : '*';
-            window.parent.postMessage({ type: 'AUROMIND_CLOSE_THEATER' }, targetOrigin);
+            window.parent.postMessage({ type: 'AUROMIND_CLOSE_THEATER', gameId: 'auromatch' }, targetOrigin);
         } else {
             window.location.href = new URL('../../index.html', window.location.href).href;
         }

@@ -176,12 +176,12 @@ self.addEventListener('fetch', (event) => {
   if (!url.pathname.startsWith(scopePath)) return;
 
   // 3. Strictly bypass /games/* routes and requests originating from game iframes (AURO-01)
-  // Note: Platform SDK assets in PORTAL_SDK_REL_PATHS remain available to game iframes when offline (B17-GAP-06)
+  // Note: Platform SDK assets in PORTAL_SDK_REL_PATHS and assets/sdk/ remain available to game iframes when offline (B17-GAP-06)
   const relPath = url.pathname.slice(scopePath.length).replace(/^\/+/, '');
   if (
     relPath.startsWith('games/') ||
     url.pathname.includes('/games/') ||
-    (!PORTAL_SDK_REL_PATHS.has(relPath) && request.referrer && request.referrer.includes('/games/'))
+    (!relPath.startsWith('assets/sdk/') && !PORTAL_SDK_REL_PATHS.has(relPath) && request.referrer && request.referrer.includes('/games/'))
   ) {
     return;
   }
@@ -200,7 +200,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   // 3b. Narrowly scoped Shared SDK offline caching (strictly after /games/* isolation bypass)
-  if (PORTAL_SDK_REL_PATHS.has(relPath)) {
+  if (relPath.startsWith('assets/sdk/') || PORTAL_SDK_REL_PATHS.has(relPath)) {
     event.respondWith(
       (async () => {
         const cache = await caches.open(PORTAL_CACHE_NAME);

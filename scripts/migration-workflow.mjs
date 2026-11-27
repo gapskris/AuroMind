@@ -243,8 +243,8 @@ export function loadMigrationHistory(migrationsDir = MIGRATIONS_DIR) {
     const sha256 = computeSha256(fullPath);
     const destructive = scanDestructiveSql(content);
 
-    // Extract table creations
-    const tableMatches = [...content.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z0-9_.]+)/gi)]
+    // Extract table creations (both standard logged and unlogged tables)
+    const tableMatches = [...content.matchAll(/CREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z0-9_.]+)/gi)]
       .map(m => m[1]);
 
     // Extract policy creations
@@ -535,7 +535,7 @@ export function generatePostMigrationVerificationSql() {
 -- Target Project: AuroMasti (${CANONICAL_PROJECT_REF})
 -- ==============================================================================
 -- Non-mutating read-only transaction. Verifies:
--- 1. All 14 expected public tables exist.
+-- 1. All 15 expected public tables exist.
 -- 2. Row Level Security (RLS) is ENABLED on every public table.
 -- 3. All SECURITY DEFINER functions have search_path hardened.
 -- 4. Storage buckets and policies exist.
@@ -557,6 +557,7 @@ DECLARE
     'telemetry_rate_limits',
     'telemetry_daily_aggregates',
     'user_private_settings',
+    'telemetry_rate_buckets',
     'storage_deletion_queue'
   ];
   v_missing_tables TEXT[];
@@ -606,10 +607,91 @@ BEGIN
     RAISE EXCEPTION 'VERIFICATION_FAILED: SECURITY DEFINER functions missing hardened search_path: %', v_unpinned_functions;
   END IF;
 
-  RAISE NOTICE 'SUCCESS: All 14 public tables verified with RLS enabled and hardened function search_paths.';
+  RAISE NOTICE 'SUCCESS: All 15 public tables verified with RLS enabled and hardened function search_paths.';
 END;
 $$;
 `;
+}
+
+/**
+ * Validates the 8 mandatory gates before permitting remote migration execution.
+ * Fails closed if any condition is unsatisfied.
+ */
+export function validateMigrationExecutionGate({
+  remoteMigrationHistoryVerified = false,
+  remoteConnectivityConfirmed = false,
+  remoteSchemaInspected = false,
+  localMigrationsCompared = false,
+  migrationDivergenceResolved = false,
+  executionPreviewGenerated = false,
+  backupReadinessConfirmed = false,
+  productOwnerApproved = false
+} = {}) {
+  const gates = [
+    {
+      id: 'GATE_1_REMOTE_HISTORY',
+      name: 'Remote migration history verified',
+      satisfied: Boolean(remoteMigrationHistoryVerified),
+      description: 'supabase_migrations schema ledger queried and compared against canonical local files'
+    },
+    {
+      id: 'GATE_2_REMOTE_CONNECTIVITY',
+      name: 'Remote connectivity confirmed',
+      satisfied: Boolean(remoteConnectivityConfirmed),
+      description: 'Active authenticated reachability confirmed to Supabase REST and PostgreSQL endpoints'
+    },
+    {
+      id: 'GATE_3_REMOTE_SCHEMA_INSPECTED',
+      name: 'Remote schema inspected',
+      satisfied: Boolean(remoteSchemaInspected),
+      description: 'Existing remote public schema inspected for conflicting tables, types, or policies'
+    },
+    {
+      id: 'GATE_4_LOCAL_MIGRATIONS_COMPARED',
+      name: '10 local migrations compared',
+      satisfied: Boolean(localMigrationsCompared),
+      description: 'All 10 canonical migration files present, lexically ordered, and SHA-256 verified'
+    },
+    {
+      id: 'GATE_5_DIVERGENCE_RESOLVED',
+      name: 'Migration divergence resolved',
+      satisfied: Boolean(migrationDivergenceResolved),
+      description: 'Zero unresolved migration drift, unapplied historical gaps, or checksum divergence'
+    },
+    {
+      id: 'GATE_6_PREVIEW_GENERATED',
+      name: 'Execution preview generated',
+      satisfied: Boolean(executionPreviewGenerated),
+      description: 'Consolidated preview bundle generated and reviewed before execution'
+    },
+    {
+      id: 'GATE_7_BACKUP_READINESS',
+      name: 'Backup readiness confirmed',
+      satisfied: Boolean(backupReadinessConfirmed),
+      description: 'Pre-migration point-in-time backup or rollback posture validated'
+    },
+    {
+      id: 'GATE_8_PRODUCT_OWNER_APPROVAL',
+      name: 'Explicit Product Owner approval',
+      satisfied: Boolean(productOwnerApproved),
+      description: 'Formal Product Owner approval recorded with commercial gate and scope signoff'
+    }
+  ];
+
+  const failedGates = gates.filter(g => !g.satisfied);
+  const authorized = failedGates.length === 0;
+
+  return {
+    authorized,
+    status: authorized ? 'UNLOCKED' : 'LOCKED',
+    gateCount: gates.length,
+    satisfiedCount: gates.filter(g => g.satisfied).length,
+    gates,
+    failedGates,
+    summary: authorized
+      ? 'All 8 migration execution gates satisfied. Migration execution permitted.'
+      : `MIGRATION_EXECUTION_GATE_BLOCKED: ${failedGates.length} of ${gates.length} conditions unsatisfied.`
+  };
 }
 
 /**

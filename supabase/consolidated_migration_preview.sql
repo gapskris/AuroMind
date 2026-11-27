@@ -1,6 +1,6 @@
 -- ==============================================================================
 -- AuroMasti Consolidated Idempotent Migration Bundle
--- Generated: 2026-11-26T12:06:37.617Z
+-- Generated: 2026-11-27T03:02:40.668Z
 -- Target Project: AuroMasti (rlqrtbjynaihdspbqtce)
 -- Total Migrations: 10
 -- ==============================================================================

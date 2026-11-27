@@ -3,7 +3,7 @@
 -- Target Project: AuroMasti (rlqrtbjynaihdspbqtce)
 -- ==============================================================================
 -- Non-mutating read-only transaction. Verifies:
--- 1. All 14 expected public tables exist.
+-- 1. All 15 expected public tables exist.
 -- 2. Row Level Security (RLS) is ENABLED on every public table.
 -- 3. All SECURITY DEFINER functions have search_path hardened.
 -- 4. Storage buckets and policies exist.
@@ -25,6 +25,7 @@ DECLARE
     'telemetry_rate_limits',
     'telemetry_daily_aggregates',
     'user_private_settings',
+    'telemetry_rate_buckets',
     'storage_deletion_queue'
   ];
   v_missing_tables TEXT[];
@@ -74,6 +75,6 @@ BEGIN
     RAISE EXCEPTION 'VERIFICATION_FAILED: SECURITY DEFINER functions missing hardened search_path: %', v_unpinned_functions;
   END IF;
 
-  RAISE NOTICE 'SUCCESS: All 14 public tables verified with RLS enabled and hardened function search_paths.';
+  RAISE NOTICE 'SUCCESS: All 15 public tables verified with RLS enabled and hardened function search_paths.';
 END;
 $$;

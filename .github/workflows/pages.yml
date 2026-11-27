@@ -1,14 +1,13 @@
-name: Deploy AuroMind Static Site to GitHub Pages (Allowlist)
+name: CI Static Allowlist Verification & Optional GitHub Pages Preview
 
 # ------------------------------------------------------------------------------
-# AuroMind — Controlled GitHub Pages Allowlist Deployment Workflow (B0 Closeout)
+# AuroMind — Static Artifact Verification & Optional Preview Workflow
 # ------------------------------------------------------------------------------
-# Safety posture:
-# - Automatically deploys pushes to `dev/studio-integration` while retaining
-#   manual `workflow_dispatch` triggers.
-# - Copies ONLY approved static runtime assets into `_site/`.
-# - Excludes architecture-design/, phase0-audit/, server.js, *.test.js,
-#   package.json, README.md, bun.lock, dotfiles, and development metadata.
+# Hosting Architecture:
+# - Canonical Production & Staging: Cloudflare Pages (auromasti.com / staging.auromasti.pages.dev)
+# - GitHub Actions: Runs allowlist verification on all pushes to `dev/studio-integration`.
+# - GitHub Pages: Optional manual-only preview fallback via `workflow_dispatch`.
+# - Automatic deployment to GitHub Pages on push is disabled to prevent hosting conflicts.
 # ------------------------------------------------------------------------------
 
 on:
@@ -26,7 +25,7 @@ concurrency:
 
 jobs:
   build:
-    name: Assemble Allowlisted Static Artifact
+    name: Assemble & Verify Allowlisted Static Artifact
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -123,7 +122,8 @@ jobs:
           path: _site
 
   deploy:
-    name: Deploy to GitHub Pages
+    name: Deploy to GitHub Pages (Manual Preview Only)
+    if: github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: ubuntu-latest
     permissions:
