@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-11-27T03:13:16.665Z",
-  "totalSuites": 41,
-  "overallTotal": 666,
-  "overallPass": 666,
+  "timestamp": "2026-11-27T03:30:06.757Z",
+  "totalSuites": 42,
+  "overallTotal": 688,
+  "overallPass": 688,
   "overallFail": 0,
   "overallSkip": 0,
   "overallFlaky": 0,
@@ -15,9 +15,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 7188.0367,
+      "duration_ms": 7005.3269,
       "failureReason": null,
-      "outputPreview": "roblocks/ (1087.6811ms)\n  ✔ Real Browser: Sibling game requests are not intercepted by AuroBlocks SW (1068.613ms)\n  ✔ Real Browser: Genuinely new SW version installs, activates, and controls page while preserving foreign caches (2767.2057ms)\n  ✔ Real Browser: AuroBlocks loads offline via service worker cache (1125.012ms)\n✔ AuroBlocks SW Scope Security - Real Browser E2E Verification (7105.9993ms)\nℹ tests 16\nℹ suites 4\nℹ pass 16\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 7188.0367\n"
+      "outputPreview": "oblocks/ (1034.8285ms)\n  ✔ Real Browser: Sibling game requests are not intercepted by AuroBlocks SW (1025.0894ms)\n  ✔ Real Browser: Genuinely new SW version installs, activates, and controls page while preserving foreign caches (2759.449ms)\n  ✔ Real Browser: AuroBlocks loads offline via service worker cache (1116.5329ms)\n✔ AuroBlocks SW Scope Security - Real Browser E2E Verification (6917.2718ms)\nℹ tests 16\nℹ suites 4\nℹ pass 16\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 7005.3269\n"
     },
     {
       "file": "auromind-sdk.test.js",
@@ -27,9 +27,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 2492.0031,
+      "duration_ms": 2524.8399,
       "failureReason": null,
-      "outputPreview": "tify on init and peer reconciliation, isolate errors, and support unsubscribe (38.6598ms)\n✔ 29. Platform metadata APIs persist, read, remove, fall back cleanly, and protect reserved keys (1.3678ms)\n✔ 30. D-1: storage.getOfflineState(), subscribeOfflineState(), and dispose() listener cleanup (0.6146ms)\n✔ 31. UUIDv4 generation fallback paths (randomUUID, getRandomValues, and Math.random) (0.1953ms)\nℹ tests 31\nℹ suites 0\nℹ pass 31\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 2492.0031\n"
+      "outputPreview": "tify on init and peer reconciliation, isolate errors, and support unsubscribe (34.1405ms)\n✔ 29. Platform metadata APIs persist, read, remove, fall back cleanly, and protect reserved keys (1.2644ms)\n✔ 30. D-1: storage.getOfflineState(), subscribeOfflineState(), and dispose() listener cleanup (0.9137ms)\n✔ 31. UUIDv4 generation fallback paths (randomUUID, getRandomValues, and Math.random) (0.1804ms)\nℹ tests 31\nℹ suites 0\nℹ pass 31\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 2524.8399\n"
     },
     {
       "file": "b10-analytics.test.js",
@@ -39,9 +39,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 113.4582,
+      "duration_ms": 114.8835,
       "failureReason": null,
-      "outputPreview": "vents (1.6904ms)\n✔ B10 Suite 3: Standardized gameplay events across all six launch titles (2.2677ms)\n✔ B10 Suite 4: Owner metrics aggregation computes DAU, WAU, MAU, game breakdown, and error rates (0.3485ms)\n✔ B10 Suite 5: Server-side authorization blocks unauthorized requests and serves owner (15.1368ms)\n✔ B10 Suite 6: Supabase Free tier capacity, storage estimation, and batching safety (0.1872ms)\nℹ tests 6\nℹ suites 0\nℹ pass 6\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 113.4582\n"
+      "outputPreview": "events (2.1014ms)\n✔ B10 Suite 3: Standardized gameplay events across all six launch titles (2.407ms)\n✔ B10 Suite 4: Owner metrics aggregation computes DAU, WAU, MAU, game breakdown, and error rates (0.3764ms)\n✔ B10 Suite 5: Server-side authorization blocks unauthorized requests and serves owner (15.8534ms)\n✔ B10 Suite 6: Supabase Free tier capacity, storage estimation, and batching safety (0.1823ms)\nℹ tests 6\nℹ suites 0\nℹ pass 6\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 114.8835\n"
     },
     {
       "file": "b11-game-integration.test.js",
@@ -51,9 +51,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 171.2822,
+      "duration_ms": 123.558,
       "failureReason": null,
-      "outputPreview": " Save schemas remain isolated; cache clearing does not erase game saves (0.6358ms)\n✔ B11 Suite 4: Root service worker strictly bypasses /games/* routes, preserving nested game SW isolation (0.9781ms)\n✔ B11 Suite 5: Theater session start/end duration, progression events, and error capture (2.0865ms)\n✔ B11 Suite 6: Consent lifecycle, opt-out queue wipe, and strict Sankalpa privacy exclusion (4.7538ms)\nℹ tests 6\nℹ suites 0\nℹ pass 6\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 171.2822\n"
+      "outputPreview": ": Save schemas remain isolated; cache clearing does not erase game saves (0.5646ms)\n✔ B11 Suite 4: Root service worker strictly bypasses /games/* routes, preserving nested game SW isolation (0.7179ms)\n✔ B11 Suite 5: Theater session start/end duration, progression events, and error capture (1.7766ms)\n✔ B11 Suite 6: Consent lifecycle, opt-out queue wipe, and strict Sankalpa privacy exclusion (6.0597ms)\nℹ tests 6\nℹ suites 0\nℹ pass 6\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 123.558\n"
     },
     {
       "file": "b13a-remediation.test.js",
@@ -63,9 +63,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 114.5119,
+      "duration_ms": 116.8253,
       "failureReason": null,
-      "outputPreview": "IT-SEC-06 Test 14: Attacker rotating x-forwarded-for is blocked by rate limiter on unverified network (3.4516ms)\n✔ Sacred Invariant Test 15: VAK speech corpus SHA-256 matches frozen baseline (3.7016ms)\n✔ Sacred Invariant Test 16: AuroMatch Flora database is exactly 2,002,176 bytes (0.2934ms)\n✔ Sacred Invariant Test 17: Sankalpa contemplation vault is 100% local-only with zero cloud sync (4.4869ms)\nℹ tests 17\nℹ suites 0\nℹ pass 17\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 114.5119\n"
+      "outputPreview": "IT-SEC-06 Test 14: Attacker rotating x-forwarded-for is blocked by rate limiter on unverified network (3.7162ms)\n✔ Sacred Invariant Test 15: VAK speech corpus SHA-256 matches frozen baseline (2.2269ms)\n✔ Sacred Invariant Test 16: AuroMatch Flora database is exactly 2,002,176 bytes (0.2173ms)\n✔ Sacred Invariant Test 17: Sankalpa contemplation vault is 100% local-only with zero cloud sync (4.4306ms)\nℹ tests 17\nℹ suites 0\nℹ pass 17\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 116.8253\n"
     },
     {
       "file": "b13b-operational-hardening.test.js",
@@ -75,9 +75,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 282.7407,
+      "duration_ms": 288.2283,
       "failureReason": null,
-      "outputPreview": "k bucket (2.7797ms)\n✔ SEC-06 Independent Verification 16: Zero raw IP persistence or logging guarantee (0.3129ms)\n✔ Sacred Invariant Test 17: VAK speech corpus SHA-256 matches frozen baseline (3.761ms)\n✔ Sacred Invariant Test 18: AuroMatch Flora database is exactly 2,002,176 bytes (0.2665ms)\n✔ Sacred Invariant Test 19: Sankalpa contemplation vault is 100% local-only with zero cloud sync (3.8544ms)\nℹ tests 19\nℹ suites 0\nℹ pass 19\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 282.7407\n"
+      "outputPreview": "k bucket (3.312ms)\n✔ SEC-06 Independent Verification 16: Zero raw IP persistence or logging guarantee (0.4667ms)\n✔ Sacred Invariant Test 17: VAK speech corpus SHA-256 matches frozen baseline (2.2112ms)\n✔ Sacred Invariant Test 18: AuroMatch Flora database is exactly 2,002,176 bytes (0.2537ms)\n✔ Sacred Invariant Test 19: Sankalpa contemplation vault is 100% local-only with zero cloud sync (3.9755ms)\nℹ tests 19\nℹ suites 0\nℹ pass 19\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 288.2283\n"
     },
     {
       "file": "b17-3-e2e.test.js",
@@ -87,9 +87,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 28928.127,
+      "duration_ms": 27614.5873,
       "failureReason": null,
-      "outputPreview": "uite G - 1: Mobile viewport renders usable layout with zero horizontal overflow (589.6191ms)\n✔ E2E Suite G - 2: Mobile edge-tab trigger has accessible touch target size (>= 44x44px) (718.2887ms)\n✔ E2E Suite H - 1: Stopped audio remains stopped when opening and closing game theater (1418.416ms)\n✔ E2E Suite H - 2: Active audio is suspended on theater launch and restored on theater exit (908.2709ms)\nℹ tests 27\nℹ suites 0\nℹ pass 27\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 28928.127\n"
+      "outputPreview": "e G - 1: Mobile viewport renders usable layout with zero horizontal overflow (585.9451ms)\n✔ E2E Suite G - 2: Mobile edge-tab trigger has accessible touch target size (>= 44x44px) (839.6324ms)\n✔ E2E Suite H - 1: Stopped audio remains stopped when opening and closing game theater (1369.5792ms)\n✔ E2E Suite H - 2: Active audio is suspended on theater launch and restored on theater exit (1190.5422ms)\nℹ tests 27\nℹ suites 0\nℹ pass 27\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 27614.5873\n"
     },
     {
       "file": "b17-4-remediation.test.js",
@@ -99,9 +99,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 109.1077,
+      "duration_ms": 105.8605,
       "failureReason": null,
-      "outputPreview": " string gameId and validates against exact alias map, rejecting opaque null & empty origins (0.642ms)\n✔ B19.5-01D Test 3: auromatch-sdk-bridge.js resolveParentPortalOrigin resolves same-origin and cross-origin parent, rejecting null, empty and wildcard (0.4152ms)\n✔ B19.5-01D Test 4: games/auromatch/src/main.js delegates return-to-portal exclusively to authoritative bridge implementation (0.4002ms)\nℹ tests 25\nℹ suites 0\nℹ pass 25\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 109.1077\n"
+      "outputPreview": "string gameId and validates against exact alias map, rejecting opaque null & empty origins (0.2389ms)\n✔ B19.5-01D Test 3: auromatch-sdk-bridge.js resolveParentPortalOrigin resolves same-origin and cross-origin parent, rejecting null, empty and wildcard (0.2437ms)\n✔ B19.5-01D Test 4: games/auromatch/src/main.js delegates return-to-portal exclusively to authoritative bridge implementation (0.2612ms)\nℹ tests 25\nℹ suites 0\nℹ pass 25\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 105.8605\n"
     },
     {
       "file": "b17-remediation.test.js",
@@ -111,9 +111,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 117.613,
+      "duration_ms": 110.6885,
       "failureReason": null,
-      "outputPreview": "811ms)\n✔ B17.2 Test 12: Portal tracks ambient audio state and restores on theater exit (0.6399ms)\n✔ Sacred Invariant Test 13: VAK Speech Corpus CL array SHA-256 remains exact (2.3171ms)\n✔ Sacred Invariant Test 14: AuroMatch Flora database is exactly 2,002,176 bytes and 46,321 lines (4.4907ms)\n✔ Sacred Invariant Test 15: Sankalpa contemplation vault is 100% local-only with zero cloud sync (1.9863ms)\nℹ tests 15\nℹ suites 0\nℹ pass 15\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 117.613\n"
+      "outputPreview": "17ms)\n✔ B17.2 Test 12: Portal tracks ambient audio state and restores on theater exit (0.4105ms)\n✔ Sacred Invariant Test 13: VAK Speech Corpus CL array SHA-256 remains exact (2.0713ms)\n✔ Sacred Invariant Test 14: AuroMatch Flora database is exactly 2,002,176 bytes and 46,321 lines (5.7029ms)\n✔ Sacred Invariant Test 15: Sankalpa contemplation vault is 100% local-only with zero cloud sync (2.2924ms)\nℹ tests 15\nℹ suites 0\nℹ pass 15\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 110.6885\n"
     },
     {
       "file": "b18-b2-shared-sdk-and-adapters.test.js",
@@ -123,9 +123,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 158.9972,
+      "duration_ms": 141.6147,
       "failureReason": null,
-      "outputPreview": "port hasLocalProgress() accurately on empty vs populated states (0.3611ms)\n✔ TASK-ADP-01..05: All six game adapters execute exportEnvelope -> applyEnvelope round-trip (2.4299ms)\n✔ TASK-SDK-01 / Telemetry: Telemetry opt-out purges queue and blocks unconsented tracking across all games (1.105ms)\n✔ TASK-ADP-01..05: All six game bridge files have valid import paths to shared adapters module (1.4434ms)\nℹ tests 22\nℹ suites 0\nℹ pass 22\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 158.9972\n"
+      "outputPreview": "port hasLocalProgress() accurately on empty vs populated states (0.3219ms)\n✔ TASK-ADP-01..05: All six game adapters execute exportEnvelope -> applyEnvelope round-trip (1.5757ms)\n✔ TASK-SDK-01 / Telemetry: Telemetry opt-out purges queue and blocks unconsented tracking across all games (0.5812ms)\n✔ TASK-ADP-01..05: All six game bridge files have valid import paths to shared adapters module (1.162ms)\nℹ tests 22\nℹ suites 0\nℹ pass 22\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 141.6147\n"
     },
     {
       "file": "b18-b3-sync-art-achievements.test.js",
@@ -135,9 +135,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 155.1135,
+      "duration_ms": 144.4811,
       "failureReason": null,
-      "outputPreview": " crash gameplay (0.3859ms)\n✔ TASK-ACH-01: Standalone mock bridge exposes complete offline achievements surface (0.2255ms)\n✔ TASK-ACH-01: Game-specific achievement isolation tags achievements by gameId (1.6897ms)\n✔ Sacred Invariant: VAK 1,368-level speech training corpus matches frozen SHA-256 (2.5169ms)\n✔ Sacred Invariant: AuroMatch Flora database matches exact size, lines, and SHA-256 (11.5989ms)\nℹ tests 24\nℹ suites 0\nℹ pass 24\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 155.1135\n"
+      "outputPreview": "r crash gameplay (0.3892ms)\n✔ TASK-ACH-01: Standalone mock bridge exposes complete offline achievements surface (0.2043ms)\n✔ TASK-ACH-01: Game-specific achievement isolation tags achievements by gameId (1.7136ms)\n✔ Sacred Invariant: VAK 1,368-level speech training corpus matches frozen SHA-256 (2.3683ms)\n✔ Sacred Invariant: AuroMatch Flora database matches exact size, lines, and SHA-256 (10.548ms)\nℹ tests 24\nℹ suites 0\nℹ pass 24\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 144.4811\n"
     },
     {
       "file": "b18-b4-commerce-and-telemetry.test.js",
@@ -147,9 +147,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 211.6847,
+      "duration_ms": 225.2452,
       "failureReason": null,
-      "outputPreview": "81ms)\n✔ TASK-TEL-02: Sacred Invariant — Sankalpa Vault is local-only E2EE and excluded from telemetry (0.4077ms)\n✔ TASK-TEL-02: Non-blocking telemetry — invalid inputs or circular payloads never throw (0.0728ms)\n✔ Sacred Invariant: VAK 1,368-level speech training corpus matches frozen SHA-256 (3.9099ms)\n✔ Sacred Invariant: AuroMatch Flora database matches exact size, lines, and SHA-256 (10.9878ms)\nℹ tests 24\nℹ suites 0\nℹ pass 24\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 211.6847\n"
+      "outputPreview": "05ms)\n✔ TASK-TEL-02: Sacred Invariant — Sankalpa Vault is local-only E2EE and excluded from telemetry (0.3256ms)\n✔ TASK-TEL-02: Non-blocking telemetry — invalid inputs or circular payloads never throw (0.0657ms)\n✔ Sacred Invariant: VAK 1,368-level speech training corpus matches frozen SHA-256 (4.2381ms)\n✔ Sacred Invariant: AuroMatch Flora database matches exact size, lines, and SHA-256 (10.2793ms)\nℹ tests 24\nℹ suites 0\nℹ pass 24\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 225.2452\n"
     },
     {
       "file": "b18-b5-csp.test.js",
@@ -159,9 +159,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 281.8445,
+      "duration_ms": 280.8255,
       "failureReason": null,
-      "outputPreview": "1: index.html meta tag provides valid CSP protection for static hosting (0.6073ms)\n✔ TASK-CSP-01: Architectural Limitation Invariant — frame-ancestors is disallowed in meta tags (0.495ms)\n✔ TASK-REG-01: Sacred Invariant — VAK 1,368-level speech training corpus matches frozen SHA-256 (3.4097ms)\n✔ TASK-REG-01: Sacred Invariant — AuroMatch Flora database matches exact size, lines, and SHA-256 (7.505ms)\nℹ tests 8\nℹ suites 0\nℹ pass 8\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 281.8445\n"
+      "outputPreview": " index.html meta tag provides valid CSP protection for static hosting (0.8373ms)\n✔ TASK-CSP-01: Architectural Limitation Invariant — frame-ancestors is disallowed in meta tags (0.3549ms)\n✔ TASK-REG-01: Sacred Invariant — VAK 1,368-level speech training corpus matches frozen SHA-256 (2.2401ms)\n✔ TASK-REG-01: Sacred Invariant — AuroMatch Flora database matches exact size, lines, and SHA-256 (4.9241ms)\nℹ tests 8\nℹ suites 0\nℹ pass 8\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 280.8255\n"
     },
     {
       "file": "b18-c-security-remediation.test.js",
@@ -171,9 +171,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 327.9008,
+      "duration_ms": 310.6052,
       "failureReason": null,
-      "outputPreview": " emergency revocation (3.5601ms)\n✔ BATCH-G: Operational safety scripts block destructive reset commands in production (0.2738ms)\n✔ BATCH-G: Non-transactional DDL nesting is detected and prevented (0.6275ms)\n✔ BATCH-G: Pre-migration backup validation requires fresh timestamp and integrity hash (0.2424ms)\n✔ SACRED-INVARIANTS: VAK speech corpus & Flora database match exact frozen baselines (6.5013ms)\nℹ tests 17\nℹ suites 0\nℹ pass 17\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 327.9008\n"
+      "outputPreview": " emergency revocation (4.8547ms)\n✔ BATCH-G: Operational safety scripts block destructive reset commands in production (0.2327ms)\n✔ BATCH-G: Non-transactional DDL nesting is detected and prevented (0.3678ms)\n✔ BATCH-G: Pre-migration backup validation requires fresh timestamp and integrity hash (0.1072ms)\n✔ SACRED-INVARIANTS: VAK speech corpus & Flora database match exact frozen baselines (5.5768ms)\nℹ tests 17\nℹ suites 0\nℹ pass 17\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 310.6052\n"
     },
     {
       "file": "b18-d-rls-jwt-simulation.test.js",
@@ -183,9 +183,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 87.9531,
+      "duration_ms": 84.947,
       "failureReason": null,
-      "outputPreview": "ings (0.0887ms)\n  ✔ Authenticated User A cannot access User B private settings (0.0783ms)\n  ✔ Authenticated User A sees User B in profiles ONLY IF is_public = true (0.1495ms)\n  ✔ Storage object isolation enforces folder ownership matching auth.uid() (0.1707ms)\n  ✔ Service role bypasses RLS for administrative ingestion (0.0934ms)\n✔ B18-D RLS & PostgREST — Behavioral Policy Simulation Matrix (1.2913ms)\nℹ tests 9\nℹ suites 2\nℹ pass 9\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 87.9531\n"
+      "outputPreview": "tings (0.0875ms)\n  ✔ Authenticated User A cannot access User B private settings (0.0708ms)\n  ✔ Authenticated User A sees User B in profiles ONLY IF is_public = true (0.1605ms)\n  ✔ Storage object isolation enforces folder ownership matching auth.uid() (0.1878ms)\n  ✔ Service role bypasses RLS for administrative ingestion (0.0924ms)\n✔ B18-D RLS & PostgREST — Behavioral Policy Simulation Matrix (1.2901ms)\nℹ tests 9\nℹ suites 2\nℹ pass 9\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 84.947\n"
     },
     {
       "file": "b18-d-token-bucket-validation.test.js",
@@ -195,9 +195,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 91.7029,
+      "duration_ms": 91.3859,
       "failureReason": null,
-      "outputPreview": "with ERR_IP_HASH_EXCEEDS_MAX_LENGTH (0.1947ms)\n  ✔ NaN capacity and fill rate are rejected with ERR_NON_FINITE_NUMERIC_PARAMETER (0.3794ms)\n  ✔ Infinity and -Infinity are rejected with ERR_NON_FINITE_NUMERIC_PARAMETER (0.1572ms)\n  ✔ Out-of-bounds capacity is rejected (0.1567ms)\n  ✔ Out-of-bounds fill rate is rejected (0.1302ms)\n✔ B18-D Migration 8 — Behavioral Validation Logic Simulation (2.0506ms)\nℹ tests 13\nℹ suites 2\nℹ pass 13\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 91.7029\n"
+      "outputPreview": "d with ERR_IP_HASH_EXCEEDS_MAX_LENGTH (0.0985ms)\n  ✔ NaN capacity and fill rate are rejected with ERR_NON_FINITE_NUMERIC_PARAMETER (0.137ms)\n  ✔ Infinity and -Infinity are rejected with ERR_NON_FINITE_NUMERIC_PARAMETER (0.0624ms)\n  ✔ Out-of-bounds capacity is rejected (0.0627ms)\n  ✔ Out-of-bounds fill rate is rejected (0.053ms)\n✔ B18-D Migration 8 — Behavioral Validation Logic Simulation (1.0549ms)\nℹ tests 13\nℹ suites 2\nℹ pass 13\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 91.3859\n"
     },
     {
       "file": "b19-5-02-identity-auth-profile.test.js",
@@ -207,9 +207,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 6228.1688,
+      "duration_ms": 5253.9774,
       "failureReason": null,
-      "outputPreview": "consistency (1210.8347ms)\n  ✔ Real Browser 3: Consolidated launch games in portal theater receive identical guestId and live auth/logout propagation without stale userId (1690.4863ms)\n  ✔ Real Browser 4: Portal survives completely blocked localStorage and IndexedDB via ephemeral memory mode + amber banner (731.5832ms)\n✔ B19.5-02 Part 2 — Real Browser E2E Verification (Chromium/Edge) (5844.3319ms)\nℹ tests 18\nℹ suites 2\nℹ pass 18\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 6228.1688\n"
+      "outputPreview": "consistency (1020.4091ms)\n  ✔ Real Browser 3: Consolidated launch games in portal theater receive identical guestId and live auth/logout propagation without stale userId (1299.8783ms)\n  ✔ Real Browser 4: Portal survives completely blocked localStorage and IndexedDB via ephemeral memory mode + amber banner (702.0516ms)\n✔ B19.5-02 Part 2 — Real Browser E2E Verification (Chromium/Edge) (4900.6752ms)\nℹ tests 18\nℹ suites 2\nℹ pass 18\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 5253.9774\n"
     },
     {
       "file": "b19-5-03-sync-artwork-flora.test.js",
@@ -219,9 +219,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 9737.5305,
+      "duration_ms": 8773.7867,
       "failureReason": null,
-      "outputPreview": "45.2166ms)\n  ✔ Browser-3: Real Chromium/Edge preserves local-only Sankalpa E2EE vault and offline save access with zero cloud dependency (1588.9064ms)\n  ✔ Browser-4: Real Chromium/Edge Web Crypto rejects tampered remote checksum and aborts delayed applyEnvelope on account switch with zero localStorage metadata leakage (1667.086ms)\n✔ Part 2 — Real Browser Verification (Chromium/Edge) (9202.7216ms)\nℹ tests 81\nℹ suites 6\nℹ pass 81\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 9737.5305\n"
+      "outputPreview": "5.4224ms)\n  ✔ Browser-3: Real Chromium/Edge preserves local-only Sankalpa E2EE vault and offline save access with zero cloud dependency (1408.9337ms)\n  ✔ Browser-4: Real Chromium/Edge Web Crypto rejects tampered remote checksum and aborts delayed applyEnvelope on account switch with zero localStorage metadata leakage (1260.0907ms)\n✔ Part 2 — Real Browser Verification (Chromium/Edge) (8331.7963ms)\nℹ tests 81\nℹ suites 6\nℹ pass 81\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 8773.7867\n"
     },
     {
       "file": "b19-5-04-sankalpa-privacy-crypto.test.js",
@@ -231,9 +231,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 6941.4932,
+      "duration_ms": 6015.1926,
       "failureReason": null,
-      "outputPreview": "rt 4 — Real Browser Verification (Chromium/Edge)\n  ✔ Browser-1: Real Chromium/Edge executes sankalpa-vault-lifecycle.js with real WebCrypto & IndexedDB key handles and survives page.reload() (2775.9006ms)\n  ✔ Browser-2: Two real Chromium/Edge tabs coordinate Sankalpa lock via BroadcastChannel with zero secret leakage (2476.3643ms)\n✔ Part 4 — Real Browser Verification (Chromium/Edge) (6474.6778ms)\nℹ tests 21\nℹ suites 4\nℹ pass 21\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 6941.4932\n"
+      "outputPreview": "rt 4 — Real Browser Verification (Chromium/Edge)\n  ✔ Browser-1: Real Chromium/Edge executes sankalpa-vault-lifecycle.js with real WebCrypto & IndexedDB key handles and survives page.reload() (2356.5723ms)\n  ✔ Browser-2: Two real Chromium/Edge tabs coordinate Sankalpa lock via BroadcastChannel with zero secret leakage (2300.6082ms)\n✔ Part 4 — Real Browser Verification (Chromium/Edge) (5653.7185ms)\nℹ tests 21\nℹ suites 4\nℹ pass 21\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 6015.1926\n"
     },
     {
       "file": "b19-5-05-db-migration-integrity.test.js",
@@ -243,9 +243,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 1175.1666,
+      "duration_ms": 933.6676,
       "failureReason": null,
-      "outputPreview": "ned SECURITY DEFINER functions (0.4468ms)\n✔ B19.5-05-EdgeFn-1: sync-save rejects invalid gameId, non-object payload, negative expectedRevision, and Sankalpa payload before RPC (23.6164ms)\n✔ B19.5-05-EdgeFn-2: sync-save maps RPC rejected status to HTTP 400 and conflict to HTTP 409 (1.3625ms)\n✔ B19.5-05-RuntimeProbe: PostgreSQL verification runner reports runtime availability honestly (1041.5961ms)\nℹ tests 11\nℹ suites 0\nℹ pass 11\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 1175.1666\n"
+      "outputPreview": "inned SECURITY DEFINER functions (0.2414ms)\n✔ B19.5-05-EdgeFn-1: sync-save rejects invalid gameId, non-object payload, negative expectedRevision, and Sankalpa payload before RPC (18.0206ms)\n✔ B19.5-05-EdgeFn-2: sync-save maps RPC rejected status to HTTP 400 and conflict to HTTP 409 (1.0121ms)\n✔ B19.5-05-RuntimeProbe: PostgreSQL verification runner reports runtime availability honestly (828.0528ms)\nℹ tests 11\nℹ suites 0\nℹ pass 11\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 933.6676\n"
     },
     {
       "file": "b19-5-06-auth-profile-storage.test.js",
@@ -255,9 +255,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 174.1776,
+      "duration_ms": 141.3524,
       "failureReason": null,
-      "outputPreview": " and malformed/contradictory responses with zero fallback table deletes or sign-out; cleans dependent records only on confirmed success (2.2026ms)\n  ✔ 10. Static DDL: Migration 10 configures private avatars & user-artwork buckets with owner-folder RLS and portal provider wiring excludes raw client handle (2.4723ms)\n✔ B19.5-06 Part 4 — Account Deletion Consistency & Storage RLS Migration (4.8226ms)\nℹ tests 10\nℹ suites 4\nℹ pass 10\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 174.1776\n"
+      "outputPreview": " and malformed/contradictory responses with zero fallback table deletes or sign-out; cleans dependent records only on confirmed success (2.0895ms)\n  ✔ 10. Static DDL: Migration 10 configures private avatars & user-artwork buckets with owner-folder RLS and portal provider wiring excludes raw client handle (1.4202ms)\n✔ B19.5-06 Part 4 — Account Deletion Consistency & Storage RLS Migration (3.6097ms)\nℹ tests 10\nℹ suites 4\nℹ pass 10\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 141.3524\n"
     },
     {
       "file": "b19-5-07-pwa-offline-recovery.test.js",
@@ -267,9 +267,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 118.1253,
+      "duration_ms": 98.7444,
       "failureReason": null,
-      "outputPreview": ".061ms)\n✔ B19.5-07: Offline Outbox Account Isolation & Durability (16.3164ms)\n▶ B19.5-07: AuroMasti Branding & Visual Hierarchy\n  ✔ index.html contains AuroMasti title and brand tagline (0.8157ms)\n  ✔ manifest.json reflects AuroMasti identity (0.5616ms)\n  ✔ portal.css styles hero-banner with warm cream palette and brand lockup (0.4292ms)\n✔ B19.5-07: AuroMasti Branding & Visual Hierarchy (2.1293ms)\nℹ tests 10\nℹ suites 3\nℹ pass 10\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 118.1253\n"
+      "outputPreview": " (0.216ms)\n✔ B19.5-07: Offline Outbox Account Isolation & Durability (14.3392ms)\n▶ B19.5-07: AuroMasti Branding & Visual Hierarchy\n  ✔ index.html contains AuroMasti title and brand tagline (0.842ms)\n  ✔ manifest.json reflects AuroMasti identity (0.3266ms)\n  ✔ portal.css styles hero-banner with warm cream palette and brand lockup (0.293ms)\n✔ B19.5-07: AuroMasti Branding & Visual Hierarchy (1.7615ms)\nℹ tests 10\nℹ suites 3\nℹ pass 10\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 98.7444\n"
     },
     {
       "file": "b19-5-07a-outbox-isolation.test.js",
@@ -279,9 +279,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 150.8544,
+      "duration_ms": 127.4672,
       "failureReason": null,
-      "outputPreview": " ALREADY_AUTHENTICATED (2.1264ms)\n    ✔ 07A1-7: Failed auth preserves source guest mutation in guest state (1.0493ms)\n    ✔ 07A1-8: authInFlight buffers external provider events and applies them on settlement without state loss (0.7049ms)\n  ✔ B19.5-07A1: Outbox Migration Argument Propagation & Edge Cases (10.2599ms)\n✔ B19.5-07A: Offline Outbox Identity Isolation & Ownership Enforcement (41.3165ms)\nℹ tests 15\nℹ suites 2\nℹ pass 15\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 150.8544\n"
+      "outputPreview": "les ALREADY_AUTHENTICATED (0.7003ms)\n    ✔ 07A1-7: Failed auth preserves source guest mutation in guest state (1.166ms)\n    ✔ 07A1-8: authInFlight buffers external provider events and applies them on settlement without state loss (0.9569ms)\n  ✔ B19.5-07A1: Outbox Migration Argument Propagation & Edge Cases (8.175ms)\n✔ B19.5-07A: Offline Outbox Identity Isolation & Ownership Enforcement (36.2581ms)\nℹ tests 15\nℹ suites 2\nℹ pass 15\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 127.4672\n"
     },
     {
       "file": "b19-5-08-telemetry-operations.test.js",
@@ -291,9 +291,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 146.1271,
+      "duration_ms": 132.7375,
       "failureReason": null,
-      "outputPreview": "eters (0.0676ms)\n✔ B19.5-08: Token-Bucket Engine & Rate Limiting Hardening (0.6466ms)\n▶ B19.5-08: Retention, Operations & Non-Blocking Gameplay\n  ✔ 8.12: 30-day raw telemetry retention policy and daily rollup aggregation (0.3932ms)\n  ✔ 8.13: Telemetry transport failures never throw or block gameplay and save operations (1.2268ms)\n✔ B19.5-08: Retention, Operations & Non-Blocking Gameplay (1.6993ms)\nℹ tests 16\nℹ suites 3\nℹ pass 16\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 146.1271\n"
+      "outputPreview": "rameters (0.064ms)\n✔ B19.5-08: Token-Bucket Engine & Rate Limiting Hardening (0.5739ms)\n▶ B19.5-08: Retention, Operations & Non-Blocking Gameplay\n  ✔ 8.12: 30-day raw telemetry retention policy and daily rollup aggregation (0.3398ms)\n  ✔ 8.13: Telemetry transport failures never throw or block gameplay and save operations (1.173ms)\n✔ B19.5-08: Retention, Operations & Non-Blocking Gameplay (1.581ms)\nℹ tests 16\nℹ suites 3\nℹ pass 16\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 132.7375\n"
     },
     {
       "file": "b19-5-09-entitlements-commerce.test.js",
@@ -303,9 +303,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 143.9913,
+      "duration_ms": 152.7689,
       "failureReason": null,
-      "outputPreview": "rmed configuration (0.6444ms)\n✔ B19.5-09: Ed25519 Entitlement Verification Hardening (14.5417ms)\n▶ B19.5-09: Launch Invariant & Resilient Gameplay\n  ✔ 9.9: COMMERCIAL_GATE_ENABLED remains false; all features free in launch beta (6.476ms)\n  ✔ 9.10: Commerce network/provider errors never block offline gameplay or save operations (1.5354ms)\n✔ B19.5-09: Launch Invariant & Resilient Gameplay (8.1415ms)\nℹ tests 13\nℹ suites 3\nℹ pass 13\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 143.9913\n"
+      "outputPreview": "rmed configuration (0.8625ms)\n✔ B19.5-09: Ed25519 Entitlement Verification Hardening (15.7302ms)\n▶ B19.5-09: Launch Invariant & Resilient Gameplay\n  ✔ 9.9: COMMERCIAL_GATE_ENABLED remains false; all features free in launch beta (6.017ms)\n  ✔ 9.10: Commerce network/provider errors never block offline gameplay or save operations (1.4489ms)\n✔ B19.5-09: Launch Invariant & Resilient Gameplay (7.6362ms)\nℹ tests 13\nℹ suites 3\nℹ pass 13\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 152.7689\n"
     },
     {
       "file": "b19-5-10-backup-disaster-recovery.test.js",
@@ -315,9 +315,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 156.8477,
+      "duration_ms": 137.856,
       "failureReason": null,
-      "outputPreview": "ting runner (3.8893ms)\n  ✔ 10.16: Force production flag never authorizes production restore (0.621ms)\n  ✔ 10.17: Manifest and backup path traversal escapes approved workspace and fails closed (0.6693ms)\n  ✔ 10.18: Adversarial restore safety: symlink escape, runner failure, and connection string credential sanitization (6.2484ms)\n✔ B19.5-10: Restore CLI Confirmation & Execution Defenses (21.9598ms)\nℹ tests 20\nℹ suites 4\nℹ pass 20\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 156.8477\n"
+      "outputPreview": "ting runner (2.4174ms)\n  ✔ 10.16: Force production flag never authorizes production restore (0.4967ms)\n  ✔ 10.17: Manifest and backup path traversal escapes approved workspace and fails closed (0.6041ms)\n  ✔ 10.18: Adversarial restore safety: symlink escape, runner failure, and connection string credential sanitization (7.1902ms)\n✔ B19.5-10: Restore CLI Confirmation & Execution Defenses (19.2952ms)\nℹ tests 20\nℹ suites 4\nℹ pass 20\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 137.856\n"
     },
     {
       "file": "b3-game-integration.test.js",
@@ -327,9 +327,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 131.7387,
+      "duration_ms": 126.1588,
       "failureReason": null,
-      "outputPreview": "e databases (1.4057ms)\n✔ Suite 4: Save envelopes conform to RFC UUIDv4 and merge invariants protect progress (4.187ms)\n✔ Suite 5: Game initialization degrades gracefully if SDK is unavailable or throws (0.218ms)\n✔ Suite 6: Service worker scopes and cache configurations remain strictly isolated (0.822ms)\n✔ Suite 7: 1,368-level VAK corpus and protected game databases remain 100% byte-intact (2.8059ms)\nℹ tests 7\nℹ suites 0\nℹ pass 7\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 131.7387\n"
+      "outputPreview": "atabases (1.9872ms)\n✔ Suite 4: Save envelopes conform to RFC UUIDv4 and merge invariants protect progress (6.2207ms)\n✔ Suite 5: Game initialization degrades gracefully if SDK is unavailable or throws (0.4171ms)\n✔ Suite 6: Service worker scopes and cache configurations remain strictly isolated (1.1638ms)\n✔ Suite 7: 1,368-level VAK corpus and protected game databases remain 100% byte-intact (2.8481ms)\nℹ tests 7\nℹ suites 0\nℹ pass 7\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 126.1588\n"
     },
     {
       "file": "b4-platform-services.test.js",
@@ -339,9 +339,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 111.2963,
+      "duration_ms": 140.6568,
       "failureReason": null,
-      "outputPreview": "\n✔ Suite 4.1: Player profile tracks preferences, stats, and provides export/delete abstractions (0.9007ms)\n✔ Suite 5.1: Entitlements handle gate inactive, local grants, and verified:false trust boundary (0.8538ms)\n✔ Suite 6.1: Owner Analytics data contract validates event schemas and aggregates live metrics (0.4033ms)\n✔ Suite 7.1: Zero network requests made by SDK platform services in B4 (0.911ms)\nℹ tests 10\nℹ suites 0\nℹ pass 10\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 111.2963\n"
+      "outputPreview": "\n✔ Suite 4.1: Player profile tracks preferences, stats, and provides export/delete abstractions (1.0231ms)\n✔ Suite 5.1: Entitlements handle gate inactive, local grants, and verified:false trust boundary (0.7974ms)\n✔ Suite 6.1: Owner Analytics data contract validates event schemas and aggregates live metrics (0.3867ms)\n✔ Suite 7.1: Zero network requests made by SDK platform services in B4 (0.778ms)\nℹ tests 10\nℹ suites 0\nℹ pass 10\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 140.6568\n"
     },
     {
       "file": "b5-supabase.test.js",
@@ -351,9 +351,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 134.7913,
+      "duration_ms": 132.6894,
       "failureReason": null,
-      "outputPreview": "13: Account provider exports user records and executes deletion (0.5185ms)\n✔ Criterion 14: Strict privacy guarantee — Sankalpa vault and private data are NEVER synced to cloud (2.0386ms)\n✔ Criterion 16: Remote config provider fetches dynamic server configuration with offline cache fallback (0.2187ms)\n✔ Criterion 17: Diagnostics export accurately captures sync status, outbox, and consent (2.2798ms)\nℹ tests 15\nℹ suites 0\nℹ pass 15\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 134.7913\n"
+      "outputPreview": "13: Account provider exports user records and executes deletion (0.5166ms)\n✔ Criterion 14: Strict privacy guarantee — Sankalpa vault and private data are NEVER synced to cloud (1.9887ms)\n✔ Criterion 16: Remote config provider fetches dynamic server configuration with offline cache fallback (0.2201ms)\n✔ Criterion 17: Diagnostics export accurately captures sync status, outbox, and consent (1.9822ms)\nℹ tests 15\nℹ suites 0\nℹ pass 15\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 132.6894\n"
     },
     {
       "file": "b6-regression.test.js",
@@ -363,9 +363,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 145.8266,
+      "duration_ms": 130.3703,
       "failureReason": null,
-      "outputPreview": " 16: SDK initializes and runs gracefully when Supabase network fails completely (0.4667ms)\n✔ Scenario 17: Owner Analytics enforces administrator login, verifies public.owner_roles, and handles session expiry and password recovery (0.2394ms)\n✔ Scenario 18: Centralized provider configuration externalizes endpoints, rejects service role keys, and decouples games from backend implementations (2.143ms)\nℹ tests 18\nℹ suites 0\nℹ pass 18\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 145.8266\n"
+      "outputPreview": "16: SDK initializes and runs gracefully when Supabase network fails completely (0.9469ms)\n✔ Scenario 17: Owner Analytics enforces administrator login, verifies public.owner_roles, and handles session expiry and password recovery (0.2548ms)\n✔ Scenario 18: Centralized provider configuration externalizes endpoints, rejects service role keys, and decouples games from backend implementations (2.2318ms)\nℹ tests 18\nℹ suites 0\nℹ pass 18\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 130.3703\n"
     },
     {
       "file": "b6-security-verification.test.js",
@@ -375,9 +375,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 273.1493,
+      "duration_ms": 226.3344,
       "failureReason": null,
-      "outputPreview": "onfiguration resolves in correct precedence order and validates format (0.7525ms)\n✔ Security Test 7: Provider switching redirects SDK services without mutating game code (7.6346ms)\n✔ Security Test 8: All six games contain zero direct Supabase, Firebase, or external backend imports (142.9071ms)\n✔ Security Test 9: VAK 1,368-level corpus byte integrity and Sankalpa zero-cloud-sync invariant (12.7385ms)\nℹ tests 9\nℹ suites 0\nℹ pass 9\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 273.1493\n"
+      "outputPreview": "onfiguration resolves in correct precedence order and validates format (0.6809ms)\n✔ Security Test 7: Provider switching redirects SDK services without mutating game code (7.9213ms)\n✔ Security Test 8: All six games contain zero direct Supabase, Firebase, or external backend imports (110.9683ms)\n✔ Security Test 9: VAK 1,368-level corpus byte integrity and Sankalpa zero-cloud-sync invariant (12.0563ms)\nℹ tests 9\nℹ suites 0\nℹ pass 9\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 226.3344\n"
     },
     {
       "file": "b8-security-remediation.test.js",
@@ -387,9 +387,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 129.4915,
+      "duration_ms": 131.0251,
       "failureReason": null,
-      "outputPreview": "8 Security Test 15: Oversized batch (>50 events) is rejected with HTTP 400 BATCH_SIZE_EXCEEDED (0.5674ms)\n✔ B8 Security Test 16: Untrusted identity or spoofed headers cannot bypass rate limits (3.6878ms)\n✔ B8 Security Test 17: HTTP 429 response provides complete standards-compliant rate-limit headers (1.4505ms)\n✔ B8 Security Test 18: No telemetry dispatch or data leakage after rejection (0.8423ms)\nℹ tests 18\nℹ suites 0\nℹ pass 18\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 129.4915\n"
+      "outputPreview": "8 Security Test 15: Oversized batch (>50 events) is rejected with HTTP 400 BATCH_SIZE_EXCEEDED (1.6385ms)\n✔ B8 Security Test 16: Untrusted identity or spoofed headers cannot bypass rate limits (3.1412ms)\n✔ B8 Security Test 17: HTTP 429 response provides complete standards-compliant rate-limit headers (0.9936ms)\n✔ B8 Security Test 18: No telemetry dispatch or data leakage after rejection (0.7589ms)\nℹ tests 18\nℹ suites 0\nℹ pass 18\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 131.0251\n"
     },
     {
       "file": "b9-firebase-provider.test.js",
@@ -399,9 +399,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 121.4941,
+      "duration_ms": 124.0703,
       "failureReason": null,
-      "outputPreview": "e Test 8: Entitlements provider queries server-verified claims from Firestore (0.4775ms)\n✔ B9 Firebase Test 9: Remote Config provider fetches flags with fallback and semver checking (0.4667ms)\n✔ B9 Firebase Test 10: Account provider exports user bundle and deletes cloud records without touching local data (2.0134ms)\n✔ B9 Firebase Test 11: Provider factory bundles all 6 provider adapters (0.2671ms)\nℹ tests 11\nℹ suites 0\nℹ pass 11\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 121.4941\n"
+      "outputPreview": "ase Test 8: Entitlements provider queries server-verified claims from Firestore (0.4552ms)\n✔ B9 Firebase Test 9: Remote Config provider fetches flags with fallback and semver checking (0.468ms)\n✔ B9 Firebase Test 10: Account provider exports user bundle and deletes cloud records without touching local data (1.489ms)\n✔ B9 Firebase Test 11: Provider factory bundles all 6 provider adapters (0.1205ms)\nℹ tests 11\nℹ suites 0\nℹ pass 11\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 124.0703\n"
     },
     {
       "file": "b9-provider-conformance.test.js",
@@ -411,9 +411,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 170.5094,
+      "duration_ms": 130.4623,
       "failureReason": null,
-      "outputPreview": "6955ms)\n✔ [FIREBASE Conformance 6] Entitlements provider queries active server-verified claims (0.2288ms)\n✔ [FIREBASE Conformance 7] Remote configuration provides fallback defaults (0.1538ms)\n✔ [FIREBASE Conformance 8] Account operations export data bundle and execute clean cloud purge (0.7671ms)\n✔ [Cross-Provider Migration] Export from Supabase -> Canonical Export -> Import to Firebase (9.7873ms)\nℹ tests 17\nℹ suites 0\nℹ pass 17\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 170.5094\n"
+      "outputPreview": "4415ms)\n✔ [FIREBASE Conformance 6] Entitlements provider queries active server-verified claims (0.187ms)\n✔ [FIREBASE Conformance 7] Remote configuration provides fallback defaults (0.1338ms)\n✔ [FIREBASE Conformance 8] Account operations export data bundle and execute clean cloud purge (0.7047ms)\n✔ [Cross-Provider Migration] Export from Supabase -> Canonical Export -> Import to Firebase (11.3032ms)\nℹ tests 17\nℹ suites 0\nℹ pass 17\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 130.4623\n"
     },
     {
       "file": "environment-configuration.test.js",
@@ -423,9 +423,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 4566.0089,
+      "duration_ms": 4136.9114,
       "failureReason": null,
-      "outputPreview": "pts sb_publishable_ and legacy anon JWTs, and enforces deterministic precedence (1.4758ms)\n  ✔ ENV-10: Sensitive credentials (tokens, passwords, service keys) are strictly redacted with zero leakage (0.3004ms)\n  ✔ ENV-11: Optional DATABASE_URL and POSTGRES_PASSWORD placeholders produce OPTIONAL_UNUSED without warnings or errors (0.1473ms)\n✔ AuroMasti Environment Configuration System (4471.6399ms)\nℹ tests 11\nℹ suites 1\nℹ pass 11\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 4566.0089\n"
+      "outputPreview": "pts sb_publishable_ and legacy anon JWTs, and enforces deterministic precedence (2.3627ms)\n  ✔ ENV-10: Sensitive credentials (tokens, passwords, service keys) are strictly redacted with zero leakage (0.4145ms)\n  ✔ ENV-11: Optional DATABASE_URL and POSTGRES_PASSWORD placeholders produce OPTIONAL_UNUSED without warnings or errors (0.1658ms)\n✔ AuroMasti Environment Configuration System (4043.0346ms)\nℹ tests 11\nℹ suites 1\nℹ pass 11\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 4136.9114\n"
     },
     {
       "file": "f1-f2-real-browser-validation.test.js",
@@ -435,9 +435,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 11649.4125,
+      "duration_ms": 12427.2142,
       "failureReason": null,
-      "outputPreview": "HTTP Origin\n  ✔ F2.5: Real browser portal storage cleanup preserves game saves, identity, and artwork byte-for-byte (690.6779ms)\n  ✔ F2.6: Real browser CacheStorage registers SWs and enforces namespace isolation (2628.7934ms)\n  ✔ F2.7: Real browser offline startup loads portal from Service Worker cache (1209.0151ms)\n✔ F2: Real Browser Storage & Service Worker Execution on HTTP Origin (4529.1506ms)\nℹ tests 7\nℹ suites 2\nℹ pass 7\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 11649.4125\n"
+      "outputPreview": "HTTP Origin\n  ✔ F2.5: Real browser portal storage cleanup preserves game saves, identity, and artwork byte-for-byte (868.3683ms)\n  ✔ F2.6: Real browser CacheStorage registers SWs and enforces namespace isolation (2726.9713ms)\n  ✔ F2.7: Real browser offline startup loads portal from Service Worker cache (1231.9364ms)\n✔ F2: Real Browser Storage & Service Worker Execution on HTTP Origin (4827.8677ms)\nℹ tests 7\nℹ suites 2\nℹ pass 7\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 12427.2142\n"
     },
     {
       "file": "f2-cache-lifecycle-safeguards.test.js",
@@ -447,9 +447,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 161.2936,
+      "duration_ms": 191.4904,
       "failureReason": null,
-      "outputPreview": "l (1.4708ms)\n  ✔ F2.6: Optional asset failure does not abort SW install (Promise.allSettled resilience) (1.1592ms)\n  ✔ F2.7: Activate event skips deletion of old caches if new cache is missing critical shell (0.761ms)\n  ✔ F2.8: Fetch handler delegates /games/* routes to child service workers without caching in portal SW (1.0065ms)\n✔ F2: Real Service Worker Execution & Namespace Isolation (28.4154ms)\nℹ tests 8\nℹ suites 3\nℹ pass 8\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 161.2936\n"
+      "outputPreview": " (2.3711ms)\n  ✔ F2.6: Optional asset failure does not abort SW install (Promise.allSettled resilience) (1.8292ms)\n  ✔ F2.7: Activate event skips deletion of old caches if new cache is missing critical shell (1.0331ms)\n  ✔ F2.8: Fetch handler delegates /games/* routes to child service workers without caching in portal SW (1.3238ms)\n✔ F2: Real Service Worker Execution & Namespace Isolation (32.7956ms)\nℹ tests 8\nℹ suites 3\nℹ pass 8\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 191.4904\n"
     },
     {
       "file": "f3-f5-deployment-lifecycle.test.js",
@@ -459,9 +459,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 19183.6288,
+      "duration_ms": 21344.2544,
       "failureReason": null,
-      "outputPreview": "tive deployment (5.0848ms)\n  ✔ Health check: canonical workspace passes full health check cleanly (28.5908ms)\n  ✔ Fail-closed verification: tampered sacred invariants, manifest hashes, or commercial gate trigger UNHEALTHY (1355.8218ms)\n  ✔ Deployment configuration: _routes.json and _headers have required security policies (0.3972ms)\n✔ F3 & F5 Deployment Lifecycle & Release Automation (19064.768ms)\nℹ tests 8\nℹ suites 1\nℹ pass 8\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 19183.6288\n"
+      "outputPreview": "ive deployment (3.2874ms)\n  ✔ Health check: canonical workspace passes full health check cleanly (36.9116ms)\n  ✔ Fail-closed verification: tampered sacred invariants, manifest hashes, or commercial gate trigger UNHEALTHY (1362.6221ms)\n  ✔ Deployment configuration: _routes.json and _headers have required security policies (0.4998ms)\n✔ F3 & F5 Deployment Lifecycle & Release Automation (21190.9009ms)\nℹ tests 8\nℹ suites 1\nℹ pass 8\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 21344.2544\n"
     },
     {
       "file": "server.test.js",
@@ -471,9 +471,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 328.5652,
+      "duration_ms": 354.1152,
       "failureReason": null,
-      "outputPreview": "alization failure gracefully without breaking startup (1.0154ms)\n✔ Portal Clear Cache clears portal preferences while strictly preserving guest identity and game data (1.1965ms)\n✔ Root service worker precaches shared SDK files, serves them offline, and isolates /games/* routes (5.2111ms)\n✔ GitHub Pages allowlist workflow deploys dev/studio-integration cleanly and verifies shared SDK files (0.3882ms)\nℹ tests 7\nℹ suites 0\nℹ pass 7\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 328.5652\n"
+      "outputPreview": "alization failure gracefully without breaking startup (1.7272ms)\n✔ Portal Clear Cache clears portal preferences while strictly preserving guest identity and game data (1.8484ms)\n✔ Root service worker precaches shared SDK files, serves them offline, and isolates /games/* routes (5.3308ms)\n✔ GitHub Pages allowlist workflow deploys dev/studio-integration cleanly and verifies shared SDK files (0.3418ms)\nℹ tests 7\nℹ suites 0\nℹ pass 7\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 354.1152\n"
     },
     {
       "file": "supabase-migration-preflight.test.js",
@@ -483,9 +483,9 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 15943.408,
+      "duration_ms": 16122.8902,
       "failureReason": null,
-      "outputPreview": "FLIGHT-11: Credential model accepts SUPABASE_PUBLISHABLE_KEY (sb_publishable_...) and rejects sb_secret_ (0.2715ms)\n  ✔ PREFLIGHT-12: Deterministic classification of all 6 canonical remote preflight states (2582.5779ms)\n  ✔ PREFLIGHT-13: Comprehensive failure & edge-case test matrix across all 10 operational scenarios (3.0546ms)\n✔ Supabase Migration Workflow & Preflight Guard Suite (15851.6386ms)\nℹ tests 13\nℹ suites 1\nℹ pass 13\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 15943.408\n"
+      "outputPreview": "FLIGHT-11: Credential model accepts SUPABASE_PUBLISHABLE_KEY (sb_publishable_...) and rejects sb_secret_ (0.272ms)\n  ✔ PREFLIGHT-12: Deterministic classification of all 6 canonical remote preflight states (2800.7028ms)\n  ✔ PREFLIGHT-13: Comprehensive failure & edge-case test matrix across all 10 operational scenarios (3.0868ms)\n✔ Supabase Migration Workflow & Preflight Guard Suite (16028.3652ms)\nℹ tests 13\nℹ suites 1\nℹ pass 13\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 16122.8902\n"
     },
     {
       "file": "test-b19-8-1-governance.test.js",
@@ -495,9 +495,21 @@
       "fail": 0,
       "skip": 0,
       "flaky": 0,
-      "duration_ms": 99.4702,
+      "duration_ms": 120.1164,
       "failureReason": null,
-      "outputPreview": " Hash Verification\n  ✔ Sacred Invariant 1: games/vak/index.html full file SHA-256 (1.4076ms)\n  ✔ Sacred Invariant 2: VAK corpus const CL substring SHA-256 (3.4338ms)\n  ✔ Sacred Invariant 3: games/auromatch/src/models/floraDatabase.js SHA-256 (2.7767ms)\n  ✔ Sacred Invariant 4: COMMERCIAL_GATE_ENABLED = false in backend-config.js (0.3466ms)\n✔ B19.8.1 Sacred Invariants and Hash Verification (8.1224ms)\nℹ tests 13\nℹ suites 5\nℹ pass 13\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 99.4702\n"
+      "outputPreview": "ash Verification\n  ✔ Sacred Invariant 1: games/vak/index.html full file SHA-256 (1.4586ms)\n  ✔ Sacred Invariant 2: VAK corpus const CL substring SHA-256 (5.1755ms)\n  ✔ Sacred Invariant 3: games/auromatch/src/models/floraDatabase.js SHA-256 (3.4792ms)\n  ✔ Sacred Invariant 4: COMMERCIAL_GATE_ENABLED = false in backend-config.js (0.4316ms)\n✔ B19.8.1 Sacred Invariants and Hash Verification (10.7523ms)\nℹ tests 13\nℹ suites 5\nℹ pass 13\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 120.1164\n"
+    },
+    {
+      "file": "test-b19-8-2-migration-safety.test.js",
+      "status": "PASSED",
+      "tests": 22,
+      "pass": 22,
+      "fail": 0,
+      "skip": 0,
+      "flaky": 0,
+      "duration_ms": 4549.0741,
+      "failureReason": null,
+      "outputPreview": "ons proceeds to CLI runner with _authorizedByGate ONLY when all conditions pass (4.882ms)\n✔ B19.8.2 Programmatic Migration Execution & 8-Gate Integration Guard (77.2777ms)\n▶ B19.8.2 Manual SQL Fallback Architectural Warnings\n  ✔ generateMigrationBundle includes explicit B82-03 warning against direct dashboard ledger bypass (3.6318ms)\n✔ B19.8.2 Manual SQL Fallback Architectural Warnings (3.7058ms)\nℹ tests 22\nℹ suites 4\nℹ pass 22\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 4549.0741\n"
     }
   ]
 }

@@ -450,12 +450,114 @@ export function probeCliTools(rootDir = REPO_ROOT) {
 }
 
 /**
- * Invokes project-level Supabase CLI reliably through npx supabase.
+ * Computes a deterministic cryptographic manifest for all canonical migrations.
  */
-export function runSupabaseCli(args = [], { env = {}, rootDir = REPO_ROOT } = {}) {
+export function computeMigrationManifest(migrations) {
+  const sorted = [...migrations].sort((a, b) => a.filename.localeCompare(b.filename));
+  const entries = sorted.map((m, idx) => {
+    const versionMatch = m.filename.match(/^(\d{14})_(.*)\.sql$/);
+    const version = versionMatch ? versionMatch[1] : '';
+    const name = versionMatch ? versionMatch[2] : m.filename;
+    return {
+      index: idx + 1,
+      version,
+      name,
+      filename: m.filename,
+      sha256: m.sha256,
+      sizeBytes: m.sizeBytes,
+      tables: m.tables || [],
+      destructive: m.destructive || []
+    };
+  });
+
+  const manifestHashInput = entries.map(e => `${e.filename}:${e.sha256}`).join('\n');
+  const manifestSha256 = crypto.createHash('sha256').update(manifestHashInput, 'utf8').digest('hex');
+
+  return {
+    manifestVersion: 1,
+    schemaVersion: '2.0.0-beta',
+    targetProjectRef: CANONICAL_PROJECT_REF,
+    expectedMigrationCount: EXPECTED_MIGRATION_COUNT,
+    migrationCount: entries.length,
+    manifestSha256,
+    migrations: entries
+  };
+}
+
+/**
+ * Verifies local migration files against the recorded manifest.
+ */
+export function verifyMigrationManifest(rootDir = REPO_ROOT) {
+  const manifestPath = path.join(rootDir, 'supabase', 'migrations_manifest.json');
+  const migrationsDir = path.join(rootDir, 'supabase', 'migrations');
+
+  if (!fs.existsSync(manifestPath)) {
+    return {
+      valid: false,
+      issues: [`MISSING_MANIFEST: migrations_manifest.json not found at ${manifestPath}`]
+    };
+  }
+
+  const currentMigrations = loadMigrationHistory(migrationsDir);
+  const currentManifest = computeMigrationManifest(currentMigrations);
+
+  let recordedManifest;
+  try {
+    recordedManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  } catch (err) {
+    return {
+      valid: false,
+      issues: [`MALFORMED_MANIFEST: Failed to parse migrations_manifest.json: ${err.message}`]
+    };
+  }
+
+  const issues = [];
+  if (currentManifest.migrationCount !== recordedManifest.migrationCount) {
+    issues.push(`MIGRATION_COUNT_MISMATCH: Expected ${recordedManifest.migrationCount} migrations, found ${currentManifest.migrationCount}`);
+  }
+
+  if (currentManifest.manifestSha256 !== recordedManifest.manifestSha256) {
+    issues.push(`MANIFEST_CHECKSUM_MISMATCH: Current files hash (${currentManifest.manifestSha256}) does not match recorded manifest (${recordedManifest.manifestSha256})`);
+  }
+
+  const recordedMap = new Map((recordedManifest.migrations || []).map(m => [m.filename, m]));
+  for (const m of currentManifest.migrations) {
+    const rec = recordedMap.get(m.filename);
+    if (!rec) {
+      issues.push(`UNRECORDED_MIGRATION: '${m.filename}' exists on disk but is not in recorded manifest`);
+    } else if (rec.sha256 !== m.sha256) {
+      issues.push(`CHECKSUM_DIVERGENCE: '${m.filename}' on-disk SHA-256 (${m.sha256}) differs from recorded manifest (${rec.sha256})`);
+    }
+  }
+
+  for (const rec of recordedManifest.migrations || []) {
+    if (!currentManifest.migrations.some(m => m.filename === rec.filename)) {
+      issues.push(`MISSING_MIGRATION: Recorded migration '${rec.filename}' is missing from migrations directory`);
+    }
+  }
+
+  return {
+    valid: issues.length === 0,
+    manifestSha256: currentManifest.manifestSha256,
+    migrationCount: currentManifest.migrationCount,
+    issues,
+    manifest: currentManifest
+  };
+}
+
+/**
+ * Invokes project-level Supabase CLI reliably through npx supabase.
+ * Guarded against unauthorized direct mutating commands (B82-01).
+ */
+export function runSupabaseCli(args = [], { env = {}, rootDir = REPO_ROOT, _authorizedByGate = false } = {}) {
   const isWindows = process.platform === 'win32';
   const npxCmd = isWindows ? 'npx.cmd' : 'npx';
   const cliEnv = { ...process.env, ...env };
+
+  const isMutatingPush = args.includes('db') && args.includes('push') && !args.includes('--dry-run');
+  if (isMutatingPush && !_authorizedByGate) {
+    throw new Error('CRITICAL_SECURITY_VIOLATION: Direct invocation of "supabase db push" without passing validateMigrationExecutionGate is strictly prohibited.');
+  }
 
   return execFileSync(npxCmd, ['supabase', ...args], {
     cwd: rootDir,
@@ -474,6 +576,20 @@ export function detectRemoteDrift(localMigrations, remoteOutput = '') {
   const remoteApplied = [];
   const unexpectedRemote = [];
   const driftIssues = [];
+
+  if (typeof remoteOutput !== 'string' || remoteOutput.trim().length === 0) {
+    return {
+      synced: false,
+      remoteApplied: [],
+      pending: localMigrations.map(m => m.filename),
+      unexpectedRemote: [],
+      driftIssues: ['UNVERIFIED_REMOTE_RESPONSE: Remote CLI output is empty or unavailable. Cannot assume clean initial state.']
+    };
+  }
+
+  if (/error|failed|fatal|unauthorized|denied|timeout/i.test(remoteOutput) && !remoteOutput.includes('0 migrations')) {
+    driftIssues.push(`REMOTE_INSPECTION_ERROR: Remote CLI returned error: ${remoteOutput.trim().split(/\r?\n/)[0]}`);
+  }
 
   const lines = remoteOutput.split(/\r?\n/);
   for (const line of lines) {
@@ -503,14 +619,23 @@ export function detectRemoteDrift(localMigrations, remoteOutput = '') {
 }
 
 /**
- * Generates an idempotent migration bundle SQL for dry-run review or dashboard execution.
+ * Generates an idempotent migration bundle SQL for dry-run code audit and offline review only.
+ * ARCHITECTURAL WARNING (B82-03): Direct manual execution in Supabase Dashboard SQL Editor
+ * bypasses supabase_migrations.schema_migrations and is NOT equivalent to supabase db push.
  */
 export function generateMigrationBundle(migrations) {
   let bundle = `-- ==============================================================================\n`;
-  bundle += `-- AuroMasti Consolidated Idempotent Migration Bundle\n`;
+  bundle += `-- AuroMasti Consolidated Idempotent Migration Bundle (OFFLINE CODE AUDIT PREVIEW)\n`;
   bundle += `-- Generated: ${new Date().toISOString()}\n`;
   bundle += `-- Target Project: AuroMasti (${CANONICAL_PROJECT_REF})\n`;
-  bundle += `-- Total Migrations: ${migrations.length}\n`;
+  bundle += `-- Total Canonical Migrations: ${migrations.length}\n`;
+  bundle += `-- ==============================================================================\n`;
+  bundle += `-- ARCHITECTURAL WARNING (B82-03):\n`;
+  bundle += `-- Direct execution of this bundle in the Supabase Dashboard SQL Editor\n`;
+  bundle += `-- DOES NOT update the Supabase CLI migration ledger (supabase_migrations.schema_migrations).\n`;
+  bundle += `-- It is strictly an offline code audit preview, NOT a drop-in alternative to 'supabase db push'.\n`;
+  bundle += `-- Any emergency manual disaster-recovery execution requires a separately approved\n`;
+  bundle += `-- operational procedure including post-execution 'supabase migration repair --status applied'.\n`;
   bundle += `-- ==============================================================================\n\n`;
 
   for (let i = 0; i < migrations.length; i++) {
@@ -695,6 +820,114 @@ export function validateMigrationExecutionGate({
 }
 
 /**
+ * Programmatic migration mutation execution path (B82-01).
+ * Strictly enforces all 8 gates, fresh preflight evidence, matching manifest checksums,
+ * and attributable Product Owner approval before invoking CLI migration commands.
+ */
+export function executeRemoteMigrations({
+  gateEvidence = null,
+  productOwnerApproval = null,
+  env = null,
+  rootDir = REPO_ROOT,
+  _cliRunner = runSupabaseCli
+} = {}) {
+  // 1. Verify local migration files and manifest integrity
+  const migrationsDir = path.join(rootDir, 'supabase', 'migrations');
+  const migrations = loadMigrationHistory(migrationsDir);
+  const currentManifest = computeMigrationManifest(migrations);
+
+  if (migrations.length !== EXPECTED_MIGRATION_COUNT) {
+    throw new Error(`MIGRATION_EXECUTION_BLOCKED: Expected ${EXPECTED_MIGRATION_COUNT} canonical migrations, found ${migrations.length}.`);
+  }
+
+  // Check destructive SQL
+  for (const m of migrations) {
+    if (m.destructive && m.destructive.length > 0) {
+      throw new Error(`MIGRATION_EXECUTION_BLOCKED: Destructive SQL detected in '${m.filename}': ${m.destructive.join(', ')}.`);
+    }
+  }
+
+  // 2. Gate evidence validation (fail-closed if missing, malformed, or stale)
+  if (!gateEvidence || typeof gateEvidence !== 'object') {
+    throw new Error('MIGRATION_EXECUTION_BLOCKED: Missing or invalid gateEvidence object.');
+  }
+
+  // Check preflight freshness: must have preflightManifestSha256 matching current manifest
+  if (!gateEvidence.preflightManifestSha256 || gateEvidence.preflightManifestSha256 !== currentManifest.manifestSha256) {
+    throw new Error(`MIGRATION_EXECUTION_BLOCKED: Stale or mismatched preflight evidence. Preflight manifest (${gateEvidence.preflightManifestSha256 || 'none'}) does not match current migration manifest (${currentManifest.manifestSha256}).`);
+  }
+
+  // Check timestamp staleness (max 30 minutes)
+  const preflightAgeMs = Date.now() - new Date(gateEvidence.preflightTimestamp || 0).getTime();
+  if (isNaN(preflightAgeMs) || preflightAgeMs < 0 || preflightAgeMs > 30 * 60 * 1000) {
+    throw new Error('MIGRATION_EXECUTION_BLOCKED: Stale preflight evidence. Preflight must be conducted within 30 minutes of execution.');
+  }
+
+  // 3. Product Owner approval validation (must be explicit, attributable, scoped to manifest and current execution)
+  if (!productOwnerApproval || typeof productOwnerApproval !== 'object') {
+    throw new Error('MIGRATION_EXECUTION_BLOCKED: Missing or invalid productOwnerApproval object. Approval cannot be inferred or defaulted.');
+  }
+
+  const {
+    approvedBy,
+    approvedAt,
+    approvedManifestSha256,
+    migrationSetCount,
+    targetProjectRef,
+    explicitStatement
+  } = productOwnerApproval;
+
+  if (!approvedBy || typeof approvedBy !== 'string' || approvedBy.trim().length === 0) {
+    throw new Error('MIGRATION_EXECUTION_BLOCKED: Product Owner approval must be explicitly attributable (missing approvedBy).');
+  }
+
+  if (targetProjectRef !== CANONICAL_PROJECT_REF) {
+    throw new Error(`MIGRATION_EXECUTION_BLOCKED: Approval targets project '${targetProjectRef}', but canonical project is '${CANONICAL_PROJECT_REF}'.`);
+  }
+
+  if (migrationSetCount !== EXPECTED_MIGRATION_COUNT) {
+    throw new Error(`MIGRATION_EXECUTION_BLOCKED: Approval scopes ${migrationSetCount} migrations, but repository requires exactly ${EXPECTED_MIGRATION_COUNT}.`);
+  }
+
+  if (approvedManifestSha256 !== currentManifest.manifestSha256) {
+    throw new Error(`MIGRATION_EXECUTION_BLOCKED: Approval manifest hash (${approvedManifestSha256}) does not match current migration manifest hash (${currentManifest.manifestSha256}). An approval for one migration set cannot authorize a modified migration set.`);
+  }
+
+  const approvalAgeMs = Date.now() - new Date(approvedAt || 0).getTime();
+  if (isNaN(approvalAgeMs) || approvalAgeMs < 0 || approvalAgeMs > 60 * 60 * 1000) {
+    throw new Error('MIGRATION_EXECUTION_BLOCKED: Stale Product Owner approval. Approval must be granted within 60 minutes of execution.');
+  }
+
+  if (!explicitStatement || !explicitStatement.includes('I AUTHORIZE MIGRATION EXECUTION FOR AUROMASTI')) {
+    throw new Error('MIGRATION_EXECUTION_BLOCKED: Missing explicit authorization statement in Product Owner approval.');
+  }
+
+  // 4. Validate the 8 mandatory gates
+  const gateResult = validateMigrationExecutionGate({
+    remoteMigrationHistoryVerified: Boolean(gateEvidence.remoteMigrationHistoryVerified),
+    remoteConnectivityConfirmed: Boolean(gateEvidence.remoteConnectivityConfirmed),
+    remoteSchemaInspected: Boolean(gateEvidence.remoteSchemaInspected),
+    localMigrationsCompared: Boolean(gateEvidence.localMigrationsCompared),
+    migrationDivergenceResolved: Boolean(gateEvidence.migrationDivergenceResolved),
+    executionPreviewGenerated: Boolean(gateEvidence.executionPreviewGenerated),
+    backupReadinessConfirmed: Boolean(gateEvidence.backupReadinessConfirmed),
+    productOwnerApproved: true // Validated rigorously above
+  });
+
+  if (!gateResult.authorized) {
+    throw new Error(`MIGRATION_EXECUTION_BLOCKED: ${gateResult.summary}`);
+  }
+
+  // 5. Execute migration mutation via CLI runner with explicit authorization flag
+  const cliEnv = env ? { ...env } : undefined;
+  return _cliRunner(['db', 'push', '--project-ref', CANONICAL_PROJECT_REF], {
+    rootDir,
+    env: cliEnv,
+    _authorizedByGate: true
+  });
+}
+
+/**
  * Runs the complete non-mutating preflight assessment.
  */
 export function runPreflight({
@@ -725,6 +958,12 @@ export function runPreflight({
   const isNodeCompatible = nodeMajor >= 18;
   if (!isNodeCompatible) {
     blockers.push(`INCOMPATIBLE_NODE_VERSION: Node.js ${process.version} is not supported. Required: >= 18.`);
+  }
+
+  // Cryptographic manifest check (B82-02)
+  const manifestVerification = verifyMigrationManifest(rootDir);
+  if (!manifestVerification.valid) {
+    blockers.push(...manifestVerification.issues);
   }
 
   let authenticatedPreflightRan = false;
@@ -790,6 +1029,7 @@ export function runPreflight({
     nodeVersion: process.version,
     isNodeCompatible,
     migrations,
+    manifest: manifestVerification,
     drift,
     state: preflightState,
     authenticatedPreflightRan,
@@ -827,13 +1067,27 @@ export function runCli() {
 
   const migrations = loadMigrationHistory(MIGRATIONS_DIR);
 
+  if (mode === '--manifest') {
+    const manifest = computeMigrationManifest(migrations);
+    const manifestPath = path.join(REPO_ROOT, 'supabase', 'migrations_manifest.json');
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+    console.log(`Migration manifest written to: ${manifestPath}`);
+    console.log(`Manifest SHA-256 Digest: ${manifest.manifestSha256}`);
+    console.log(`Canonical Migrations: ${manifest.migrationCount}`);
+    manifest.migrations.forEach(m => {
+      console.log(`  [${m.index}] ${m.filename} -> ${m.sha256}`);
+    });
+    return;
+  }
+
   if (mode === '--bundle') {
     const bundleSql = generateMigrationBundle(migrations);
     const bundlePath = path.join(REPO_ROOT, 'supabase', 'consolidated_migration_preview.sql');
     fs.writeFileSync(bundlePath, bundleSql, 'utf8');
     console.log(`Consolidated migration preview written to: ${bundlePath}`);
     console.log(`File Size: ${(bundleSql.length / 1024).toFixed(2)} KB`);
-    console.log('\nThis idempotent bundle can be safely reviewed or executed directly in the Supabase Dashboard SQL Editor.');
+    console.log('\n[NOTICE] This bundle is generated strictly for offline code review, security audits, and disaster-recovery analysis.');
+    console.log('[WARNING] Direct dashboard SQL execution bypasses the supabase_migrations ledger and is NOT equivalent to "supabase db push".');
     return;
   }
 
@@ -886,7 +1140,8 @@ export function runCli() {
   console.log('4. LOCAL MIGRATION INTEGRITY & SAFETY:');
   console.log(`   - Canonical Migrations: ${preflight.migrations.length}/${EXPECTED_MIGRATION_COUNT} verified in strict lexical order`);
   console.log(`   - Destructive SQL:      ${preflight.blockers.some(b => b.includes('DESTRUCTIVE_SQL')) ? 'WARNING' : 'NONE DETECTED (Safe)'}`);
-  console.log(`   - Checksum Status:      All ${preflight.migrations.length} SHA-256 digests validated\n`);
+  console.log(`   - Checksum Status:      All ${preflight.migrations.length} SHA-256 digests validated`);
+  console.log(`   - Checksum Manifest:    ${preflight.manifest.valid ? `VALID (${preflight.manifest.manifestSha256.slice(0, 16)}...)` : 'INVALID / UNRECORDED'}\n`);
 
   console.log('5. REMOTE PREFLIGHT & DRIFT STATUS:');
   console.log(`   - Preflight State:         ${preflight.state.state} (${preflight.state.statusCode})`);

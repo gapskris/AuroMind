@@ -1,8 +1,15 @@
 -- ==============================================================================
--- AuroMasti Consolidated Idempotent Migration Bundle
--- Generated: 2026-11-27T03:02:40.668Z
+-- AuroMasti Consolidated Idempotent Migration Bundle (OFFLINE CODE AUDIT PREVIEW)
+-- Generated: 2026-11-27T03:26:59.572Z
 -- Target Project: AuroMasti (rlqrtbjynaihdspbqtce)
--- Total Migrations: 10
+-- Total Canonical Migrations: 10
+-- ==============================================================================
+-- ARCHITECTURAL WARNING (B82-03):
+-- Direct execution of this bundle in the Supabase Dashboard SQL Editor
+-- DOES NOT update the Supabase CLI migration ledger (supabase_migrations.schema_migrations).
+-- It is strictly an offline code audit preview, NOT a drop-in alternative to 'supabase db push'.
+-- Any emergency manual disaster-recovery execution requires a separately approved
+-- operational procedure including post-execution 'supabase migration repair --status applied'.
 -- ==============================================================================
 
 
