@@ -9,11 +9,13 @@
     <script>
       (function() {
         try {
-          var isProduction = window.location.hostname.indexOf('github.io') !== -1;
+          var isProduction = window.location.hostname.indexOf('github.io') !== -1 ||
+                             window.location.hostname.indexOf('pages.dev') !== -1 ||
+                             window.location.hostname.indexOf('auromasti.com') !== -1;
           var isStandalone = window.self === window.top;
           var hasBypass = window.location.search.indexOf('standalone=true') !== -1;
           if (isProduction && isStandalone && !hasBypass) {
-            window.location.replace('https://gapskris.github.io/AuroMind/#play-auromatch');
+            window.location.replace(new URL('../../index.html#play-auromatch', window.location.href).href);
           }
         } catch (e) {}
       })();

@@ -548,6 +548,13 @@ export function verifyMigrationManifest(rootDir = REPO_ROOT) {
 /**
  * Invokes project-level Supabase CLI reliably through npx supabase.
  * Guarded against unauthorized direct mutating commands (B82-01).
+ *
+ * OPERATOR NOTICE & ARCHITECTURAL LIMITATION (B19.8.3):
+ * A Node.js wrapper cannot prevent an operator with terminal access from
+ * independently running 'npx supabase db push' directly in raw PowerShell.
+ * Direct CLI execution is a privileged bypass outside the canonical controlled
+ * workflow. Operators must follow the canonical authorization workflow and
+ * NEVER execute mutating CLI commands directly without prior authorization.
  */
 export function runSupabaseCli(args = [], { env = {}, rootDir = REPO_ROOT, _authorizedByGate = false } = {}) {
   const isWindows = process.platform === 'win32';
@@ -820,9 +827,42 @@ export function validateMigrationExecutionGate({
 }
 
 /**
- * Programmatic migration mutation execution path (B82-01).
+ * Records an attributable, sanitized audit trail of authorization decisions.
+ * Guarantees zero secret exposure (B19.8.3 Open Item 2).
+ */
+export function recordAuthorizationAudit({
+  decision = 'REJECTED',
+  reason = 'UNKNOWN',
+  approval = null,
+  manifestSha256 = null,
+  targetProjectRef = CANONICAL_PROJECT_REF,
+  rootDir = REPO_ROOT
+} = {}) {
+  const auditPath = path.join(rootDir, 'supabase', 'authorization_audit.log');
+  const entry = {
+    timestamp: new Date().toISOString(),
+    decision,
+    reason: typeof reason === 'string' ? reason.slice(0, 300) : 'N/A',
+    approvedBy: approval && typeof approval.approvedBy === 'string' ? approval.approvedBy : null,
+    approvalTimestamp: approval && approval.approvedAt ? approval.approvedAt : null,
+    targetProjectRef,
+    manifestSha256: manifestSha256 || (approval && approval.approvedManifestSha256) || null,
+    migrationCount: approval && approval.migrationSetCount ? approval.migrationSetCount : null,
+    sanitized: true
+  };
+  try {
+    fs.mkdirSync(path.dirname(auditPath), { recursive: true });
+    fs.appendFileSync(auditPath, JSON.stringify(entry) + '\n', 'utf8');
+  } catch (_e) {
+    // Non-blocking in case of read-only FS or tests
+  }
+  return entry;
+}
+
+/**
+ * Programmatic migration mutation execution path (B82-01 / B19.8.3).
  * Strictly enforces all 8 gates, fresh preflight evidence, matching manifest checksums,
- * and attributable Product Owner approval before invoking CLI migration commands.
+ * attributable Product Owner approval, and records sanitized audit decisions before CLI invocation.
  */
 export function executeRemoteMigrations({
   gateEvidence = null,
@@ -836,36 +876,48 @@ export function executeRemoteMigrations({
   const migrations = loadMigrationHistory(migrationsDir);
   const currentManifest = computeMigrationManifest(migrations);
 
+  const reject = (errMsg) => {
+    recordAuthorizationAudit({
+      decision: 'REJECTED',
+      reason: errMsg,
+      approval: productOwnerApproval,
+      manifestSha256: currentManifest ? currentManifest.manifestSha256 : null,
+      targetProjectRef: productOwnerApproval?.targetProjectRef || CANONICAL_PROJECT_REF,
+      rootDir
+    });
+    throw new Error(errMsg);
+  };
+
   if (migrations.length !== EXPECTED_MIGRATION_COUNT) {
-    throw new Error(`MIGRATION_EXECUTION_BLOCKED: Expected ${EXPECTED_MIGRATION_COUNT} canonical migrations, found ${migrations.length}.`);
+    reject(`MIGRATION_EXECUTION_BLOCKED: Expected ${EXPECTED_MIGRATION_COUNT} canonical migrations, found ${migrations.length}.`);
   }
 
   // Check destructive SQL
   for (const m of migrations) {
     if (m.destructive && m.destructive.length > 0) {
-      throw new Error(`MIGRATION_EXECUTION_BLOCKED: Destructive SQL detected in '${m.filename}': ${m.destructive.join(', ')}.`);
+      reject(`MIGRATION_EXECUTION_BLOCKED: Destructive SQL detected in '${m.filename}': ${m.destructive.join(', ')}.`);
     }
   }
 
   // 2. Gate evidence validation (fail-closed if missing, malformed, or stale)
   if (!gateEvidence || typeof gateEvidence !== 'object') {
-    throw new Error('MIGRATION_EXECUTION_BLOCKED: Missing or invalid gateEvidence object.');
+    reject('MIGRATION_EXECUTION_BLOCKED: Missing or invalid gateEvidence object.');
   }
 
   // Check preflight freshness: must have preflightManifestSha256 matching current manifest
   if (!gateEvidence.preflightManifestSha256 || gateEvidence.preflightManifestSha256 !== currentManifest.manifestSha256) {
-    throw new Error(`MIGRATION_EXECUTION_BLOCKED: Stale or mismatched preflight evidence. Preflight manifest (${gateEvidence.preflightManifestSha256 || 'none'}) does not match current migration manifest (${currentManifest.manifestSha256}).`);
+    reject(`MIGRATION_EXECUTION_BLOCKED: Stale or mismatched preflight evidence. Preflight manifest (${gateEvidence.preflightManifestSha256 || 'none'}) does not match current migration manifest (${currentManifest.manifestSha256}).`);
   }
 
   // Check timestamp staleness (max 30 minutes)
   const preflightAgeMs = Date.now() - new Date(gateEvidence.preflightTimestamp || 0).getTime();
   if (isNaN(preflightAgeMs) || preflightAgeMs < 0 || preflightAgeMs > 30 * 60 * 1000) {
-    throw new Error('MIGRATION_EXECUTION_BLOCKED: Stale preflight evidence. Preflight must be conducted within 30 minutes of execution.');
+    reject('MIGRATION_EXECUTION_BLOCKED: Stale preflight evidence. Preflight must be conducted within 30 minutes of execution.');
   }
 
   // 3. Product Owner approval validation (must be explicit, attributable, scoped to manifest and current execution)
   if (!productOwnerApproval || typeof productOwnerApproval !== 'object') {
-    throw new Error('MIGRATION_EXECUTION_BLOCKED: Missing or invalid productOwnerApproval object. Approval cannot be inferred or defaulted.');
+    reject('MIGRATION_EXECUTION_BLOCKED: Missing or invalid productOwnerApproval object. Approval cannot be inferred or defaulted.');
   }
 
   const {
@@ -878,28 +930,28 @@ export function executeRemoteMigrations({
   } = productOwnerApproval;
 
   if (!approvedBy || typeof approvedBy !== 'string' || approvedBy.trim().length === 0) {
-    throw new Error('MIGRATION_EXECUTION_BLOCKED: Product Owner approval must be explicitly attributable (missing approvedBy).');
+    reject('MIGRATION_EXECUTION_BLOCKED: Product Owner approval must be explicitly attributable (missing approvedBy).');
   }
 
   if (targetProjectRef !== CANONICAL_PROJECT_REF) {
-    throw new Error(`MIGRATION_EXECUTION_BLOCKED: Approval targets project '${targetProjectRef}', but canonical project is '${CANONICAL_PROJECT_REF}'.`);
+    reject(`MIGRATION_EXECUTION_BLOCKED: Approval targets project '${targetProjectRef}', but canonical project is '${CANONICAL_PROJECT_REF}'.`);
   }
 
   if (migrationSetCount !== EXPECTED_MIGRATION_COUNT) {
-    throw new Error(`MIGRATION_EXECUTION_BLOCKED: Approval scopes ${migrationSetCount} migrations, but repository requires exactly ${EXPECTED_MIGRATION_COUNT}.`);
+    reject(`MIGRATION_EXECUTION_BLOCKED: Approval scopes ${migrationSetCount} migrations, but repository requires exactly ${EXPECTED_MIGRATION_COUNT}.`);
   }
 
   if (approvedManifestSha256 !== currentManifest.manifestSha256) {
-    throw new Error(`MIGRATION_EXECUTION_BLOCKED: Approval manifest hash (${approvedManifestSha256}) does not match current migration manifest hash (${currentManifest.manifestSha256}). An approval for one migration set cannot authorize a modified migration set.`);
+    reject(`MIGRATION_EXECUTION_BLOCKED: Approval manifest hash (${approvedManifestSha256}) does not match current migration manifest hash (${currentManifest.manifestSha256}). An approval for one migration set cannot authorize a modified migration set.`);
   }
 
   const approvalAgeMs = Date.now() - new Date(approvedAt || 0).getTime();
   if (isNaN(approvalAgeMs) || approvalAgeMs < 0 || approvalAgeMs > 60 * 60 * 1000) {
-    throw new Error('MIGRATION_EXECUTION_BLOCKED: Stale Product Owner approval. Approval must be granted within 60 minutes of execution.');
+    reject('MIGRATION_EXECUTION_BLOCKED: Stale Product Owner approval. Approval must be granted within 60 minutes of execution.');
   }
 
   if (!explicitStatement || !explicitStatement.includes('I AUTHORIZE MIGRATION EXECUTION FOR AUROMASTI')) {
-    throw new Error('MIGRATION_EXECUTION_BLOCKED: Missing explicit authorization statement in Product Owner approval.');
+    reject('MIGRATION_EXECUTION_BLOCKED: Missing explicit authorization statement in Product Owner approval.');
   }
 
   // 4. Validate the 8 mandatory gates
@@ -915,8 +967,18 @@ export function executeRemoteMigrations({
   });
 
   if (!gateResult.authorized) {
-    throw new Error(`MIGRATION_EXECUTION_BLOCKED: ${gateResult.summary}`);
+    reject(`MIGRATION_EXECUTION_BLOCKED: ${gateResult.summary}`);
   }
+
+  // Record authorized execution decision in audit log
+  recordAuthorizationAudit({
+    decision: 'AUTHORIZED',
+    reason: 'All 8 migration gates, fresh preflight evidence, and attributable Product Owner approval satisfied.',
+    approval: productOwnerApproval,
+    manifestSha256: currentManifest.manifestSha256,
+    targetProjectRef: CANONICAL_PROJECT_REF,
+    rootDir
+  });
 
   // 5. Execute migration mutation via CLI runner with explicit authorization flag
   const cliEnv = env ? { ...env } : undefined;
@@ -928,12 +990,15 @@ export function executeRemoteMigrations({
 }
 
 /**
- * Runs the complete non-mutating preflight assessment.
+ * Runs the complete preflight assessment.
+ * Clearly separates Local Preflight (offline) from Read-Only Remote Preflight (B19.8.3 Open Item 1).
  */
 export function runPreflight({
   env: customEnv = null,
   rootDir = REPO_ROOT,
-  allowRemote = false
+  allowRemote = false,
+  remoteMode = false,
+  expectedProjectRef = CANONICAL_PROJECT_REF
 } = {}) {
   const loaded = loadEnvironment({ rootDir, injectProcessEnv: false });
   const activeEnv = customEnv || loaded.env;
@@ -946,6 +1011,11 @@ export function runPreflight({
   const blockers = [];
   if (!target.valid) blockers.push(...target.issues);
   if (creds.violations.length > 0) blockers.push(...creds.violations);
+
+  const isRemoteRequested = Boolean(remoteMode || allowRemote);
+  if (isRemoteRequested && expectedProjectRef !== CANONICAL_PROJECT_REF) {
+    blockers.push(`INVALID_TARGET_PROJECT_REF: Remote preflight requires target project '${CANONICAL_PROJECT_REF}', got '${expectedProjectRef}'.`);
+  }
 
   for (const m of migrations) {
     if (m.destructive.length > 0) {
@@ -960,7 +1030,7 @@ export function runPreflight({
     blockers.push(`INCOMPATIBLE_NODE_VERSION: Node.js ${process.version} is not supported. Required: >= 18.`);
   }
 
-  // Cryptographic manifest check (B82-02)
+  // Cryptographic manifest check (B82-02 / B19.8.3 Local Integrity Dimension A)
   const manifestVerification = verifyMigrationManifest(rootDir);
   if (!manifestVerification.valid) {
     blockers.push(...manifestVerification.issues);
@@ -975,9 +1045,10 @@ export function runPreflight({
     driftIssues: []
   };
   let remoteError = null;
+  let remoteFailureType = null;
 
-  // Only execute remote preflight if explicitly authorized (allowRemote = true)
-  if (allowRemote && tools.hasSupabaseCli && creds.hasCliAuth) {
+  // Only execute remote preflight if explicitly authorized (isRemoteRequested = true) and project ref matches
+  if (isRemoteRequested && tools.hasSupabaseCli && creds.hasCliAuth && expectedProjectRef === CANONICAL_PROJECT_REF) {
     try {
       const cliEnv = {
         ...process.env,
@@ -1007,8 +1078,21 @@ export function runPreflight({
         blockers.push(...drift.driftIssues);
       }
     } catch (err) {
-      remoteError = err.message;
-      blockers.push(`REMOTE_CLI_PREFLIGHT_FAILED: ${err.message}`);
+      remoteError = err.message || '';
+      if (remoteError.includes('ENOTFOUND') || remoteError.includes('getaddrinfo') || /DNS/i.test(remoteError)) {
+        remoteFailureType = 'DNS_RESOLUTION_FAILURE';
+      } else if (remoteError.includes('ETIMEDOUT') || /timed?\s*out/i.test(remoteError)) {
+        remoteFailureType = 'CONNECTION_TIMEOUT';
+      } else if (remoteError.includes('ENETUNREACH') || remoteError.includes('EHOSTUNREACH') || remoteError.includes('ECONNREFUSED')) {
+        remoteFailureType = 'NETWORK_UNREACHABLE';
+      } else if (remoteError.includes('401') || /unauthorized/i.test(remoteError) || /invalid.*token/i.test(remoteError)) {
+        remoteFailureType = 'AUTHENTICATION_FAILURE';
+      } else if (remoteError.includes('403') || /forbidden/i.test(remoteError) || /permission/i.test(remoteError) || /privilege/i.test(remoteError)) {
+        remoteFailureType = 'PERMISSION_FAILURE';
+      } else {
+        remoteFailureType = 'UNKNOWN_REMOTE_FAILURE';
+      }
+      blockers.push(`REMOTE_CLI_PREFLIGHT_FAILED [${remoteFailureType}]: ${remoteError}`);
     }
   }
 
@@ -1018,11 +1102,12 @@ export function runPreflight({
     remoteApplied: drift.remoteApplied,
     unexpectedRemote: drift.unexpectedRemote,
     remoteReachable: authenticatedPreflightRan,
-    networkError: remoteError || (allowRemote ? null : 'OFFLINE_MODE_ACTIVE (Remote mutation & execution prohibited)')
+    networkError: remoteError || (isRemoteRequested ? null : 'LOCAL_MODE_ACTIVE (Remote verification deferred; offline policy active)')
   });
 
   return {
     ok: blockers.length === 0,
+    mode: isRemoteRequested ? 'REMOTE_READ_ONLY' : 'LOCAL_OFFLINE',
     target,
     creds,
     tools,
@@ -1030,9 +1115,28 @@ export function runPreflight({
     isNodeCompatible,
     migrations,
     manifest: manifestVerification,
+    // Three separate integrity dimensions (B19.8.3 Open Item 3)
+    localIntegrity: {
+      verified: manifestVerification.valid,
+      manifestSha256: manifestVerification.manifestSha256,
+      migrationCount: manifestVerification.migrationCount,
+      issues: manifestVerification.issues
+    },
+    remoteHistory: {
+      verified: authenticatedPreflightRan,
+      remoteApplied: drift.remoteApplied,
+      pending: drift.pending,
+      unexpectedRemote: drift.unexpectedRemote || []
+    },
+    remoteSchema: {
+      verified: false,
+      status: 'PENDING_INSPECTION',
+      details: 'Remote schema object definition inspection has not been executed.'
+    },
     drift,
     state: preflightState,
     authenticatedPreflightRan,
+    remoteFailureType,
     remoteOutput: remoteOutput ? maskSecret(remoteOutput) : null,
     pendingMigrations: drift.pending,
     blockers,
@@ -1109,8 +1213,22 @@ export function runCli() {
     return;
   }
 
-  // Default: Execute comprehensive preflight
-  const preflight = runPreflight({ rootDir: REPO_ROOT });
+  // Preflight Execution Modes (B19.8.3 Open Item 1)
+  const isRemotePreflight = mode === '--preflight-remote';
+  if (isRemotePreflight) {
+    console.log('[MODE] EXPLICIT READ-ONLY REMOTE PREFLIGHT');
+    console.log(`Target: ${CANONICAL_PROJECT_REF} | Operations: Read-only inspection (migration list & db push --dry-run)\n`);
+  } else {
+    console.log('[MODE] LOCAL OFFLINE PREFLIGHT');
+    console.log('Operations: Local migration integrity, manifest validation, configuration checks (no remote access).\n');
+  }
+
+  const preflight = runPreflight({
+    rootDir: REPO_ROOT,
+    allowRemote: isRemotePreflight,
+    remoteMode: isRemotePreflight,
+    expectedProjectRef: CANONICAL_PROJECT_REF
+  });
 
   console.log('1. TARGET PROJECT SPECIFICATION:');
   console.log(`   - Expected Project Reference: ${CANONICAL_PROJECT_REF}`);
@@ -1137,13 +1255,13 @@ export function runCli() {
   console.log(`   - Node.js Runtime: ${preflight.nodeVersion} (${preflight.isNodeCompatible ? 'COMPATIBLE' : 'INCOMPATIBLE'})`);
   console.log(`   - PostgreSQL psql: ${preflight.tools.hasPsql ? `AVAILABLE (${preflight.tools.psqlPath})` : 'NOT_INSTALLED in PATH'}\n`);
 
-  console.log('4. LOCAL MIGRATION INTEGRITY & SAFETY:');
+  console.log('4. LOCAL MIGRATION INTEGRITY & SAFETY (Dimension A):');
   console.log(`   - Canonical Migrations: ${preflight.migrations.length}/${EXPECTED_MIGRATION_COUNT} verified in strict lexical order`);
   console.log(`   - Destructive SQL:      ${preflight.blockers.some(b => b.includes('DESTRUCTIVE_SQL')) ? 'WARNING' : 'NONE DETECTED (Safe)'}`);
   console.log(`   - Checksum Status:      All ${preflight.migrations.length} SHA-256 digests validated`);
   console.log(`   - Checksum Manifest:    ${preflight.manifest.valid ? `VALID (${preflight.manifest.manifestSha256.slice(0, 16)}...)` : 'INVALID / UNRECORDED'}\n`);
 
-  console.log('5. REMOTE PREFLIGHT & DRIFT STATUS:');
+  console.log('5. REMOTE PREFLIGHT & DRIFT STATUS (Dimension B & C):');
   console.log(`   - Preflight State:         ${preflight.state.state} (${preflight.state.statusCode})`);
   console.log(`   - State Description:       ${preflight.state.description}`);
   if (preflight.authenticatedPreflightRan) {
@@ -1152,12 +1270,13 @@ export function runCli() {
     console.log(`   - Pending Migrations:      ${preflight.drift.pending.length} migrations`);
     console.log(`   - Remote Drift:            ${preflight.drift.synced ? 'NONE DETECTED (Synchronized)' : 'DRIFT DETECTED'}`);
   } else {
-    console.log(`   - Authenticated Preflight: DEFERRED (Offline-first policy; remote operations prohibited)`);
+    console.log(`   - Remote History Check:    DEFERRED / UNVERIFIED (Local preflight mode; remote operations prohibited)`);
     console.log(`   - Pending Migrations:      All ${preflight.pendingMigrations.length} canonical migrations pending initial execution:`);
     preflight.pendingMigrations.forEach((m, idx) => {
       console.log(`     [${idx + 1}] ${m}`);
     });
   }
+  console.log(`   - Remote Schema Inspection: PENDING_INSPECTION (Separate affirmative verification required)`);
   console.log('');
 
   console.log('==============================================================================');
@@ -1183,7 +1302,8 @@ export function runCli() {
     console.log('   SUPABASE_ACCESS_TOKEN=sbp_...  (from https://supabase.com/dashboard/account/tokens)');
     console.log('   SUPABASE_DB_PASSWORD=...      (from Project Settings -> Database)');
     console.log('3. Re-run preflight:');
-    console.log('   node scripts/migration-workflow.mjs --preflight\n');
+    console.log('   npm run migrate:preflight         (local validation)');
+    console.log('   npm run migrate:preflight:remote  (read-only remote inspection)\n');
   }
 
   console.log('\x1b[32mPreflight Check Complete. Awaiting Product Owner Authorization.\x1b[0m');

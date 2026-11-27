@@ -15,9 +15,11 @@
     "validate:all": "node scripts/validate-env.mjs && node scripts/validate-supabase-config.mjs && node scripts/validate-cloudflare-config.mjs && node scripts/validate-secret-exposure.mjs",
     "migrate:workflow": "node scripts/migration-workflow.mjs",
     "migrate:preflight": "node scripts/migration-workflow.mjs --preflight",
+    "migrate:preflight:remote": "node scripts/migration-workflow.mjs --preflight-remote",
     "migrate:manifest": "node scripts/migration-workflow.mjs --manifest",
     "migrate:bundle": "node scripts/migration-workflow.mjs --bundle",
     "migrate:verify-sql": "node scripts/migration-workflow.mjs --verify-sql",
+    "diagnose:network": "node scripts/diagnose-network.mjs",
     "test": "node --test *.test.js",
     "test:b4": "node --test b4-platform-services.test.js"
   },

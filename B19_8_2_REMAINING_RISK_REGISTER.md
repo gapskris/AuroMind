@@ -51,10 +51,10 @@ The remaining risks pertain strictly to remote cloud interaction, network enviro
 - **Mitigation:**
   1. Emergency manual SQL execution is formally classified as a disaster-recovery fallback, not an alternative deployment path.
   2. Clear prominent warning banners are injected at the top of `supabase/consolidated_migration_preview.sql` and the CLI bundle output.
-  3. Mandatory step documented in the emergency runbook (`B19_8_2_REMOTE_ACTIVATION_CHECKLIST.md` Step 6.4): Operator must immediately execute:
+  3. Mandatory step documented in the emergency runbook (`B19_8_2_REMOTE_ACTIVATION_CHECKLIST.md` Step 6.4): Operator must independently inspect all remote public objects first, verify database backup, and only then sequentially execute:
      ```powershell
-     npx supabase migration repair --status applied 20261124000001
-     # ... through all 10 migration timestamps
+     npx supabase migration repair --status applied 20261120000001
+     # ... sequentially through all 10 canonical timestamps up to 20261123000002
      ```
   4. Integration tests in `test-b19-8-2-migration-safety.test.js` verify that the warning headers and CLI repair instructions are present in the generated SQL artifact.
 
@@ -82,7 +82,7 @@ The remaining risks pertain strictly to remote cloud interaction, network enviro
 - **Severity:** High (User perception) | **Likelihood:** Medium | **Residual Risk:** Medium
 - **Mitigation:**
   1. The UX displays prominent, unmissable warnings during passphrase setup explaining zero-knowledge architecture.
-  2. An optional offline recovery phrase (BIP-39 mnemonic / raw key backup) export is provided during setup.
+  2. Encrypted JSON backup export (`exportEncryptedBackup`) protected by PBKDF2 (210,000 iterations) with non-destructive merge import (`importEncryptedBackup`). BIP-39 mnemonic phrase backup is not implemented and must not be claimed.
   3. Only the reflection body is encrypted; user accounts, achievements, flora garden, and settings remain fully functional regardless of Sankalpa encryption status.
 
 ### RSK-06: Remote Supabase API Rate Throttling or Degraded Cloud Service
