@@ -355,4 +355,124 @@ describe('Supabase Migration Workflow & Preflight Guard Suite', () => {
     assert.equal(preflight.state.state, PREFLIGHT_STATES.UNVERIFIED);
   });
 
+  test('PREFLIGHT-13: Comprehensive failure & edge-case test matrix across all 10 operational scenarios', () => {
+    const migrations = loadMigrationHistory();
+    const localNames = migrations.map(m => m.filename);
+
+    // Case 1: Network unavailable
+    const case1 = classifyPreflightState({
+      localMigrations: migrations,
+      remoteReachable: false,
+      networkError: 'ENETUNREACH: Network is unreachable'
+    });
+    assert.equal(case1.state, PREFLIGHT_STATES.UNVERIFIED);
+    assert.equal(case1.readyForMigration, false);
+    assert.ok(case1.details.includes('ENETUNREACH'));
+
+    // Case 2: Connection timeout
+    const case2 = classifyPreflightState({
+      localMigrations: migrations,
+      remoteReachable: false,
+      networkError: 'ETIMEDOUT: Connection timed out after 10000ms'
+    });
+    assert.equal(case2.state, PREFLIGHT_STATES.UNVERIFIED);
+    assert.equal(case2.readyForMigration, false);
+    assert.ok(case2.details.includes('ETIMEDOUT'));
+
+    // Case 3: Authentication failure
+    const case3 = classifyPreflightState({
+      localMigrations: migrations,
+      remoteReachable: false,
+      networkError: 'HTTP 401 Unauthorized: Invalid access token'
+    });
+    assert.equal(case3.state, PREFLIGHT_STATES.UNVERIFIED);
+    assert.equal(case3.readyForMigration, false);
+    assert.ok(case3.details.includes('HTTP 401'));
+
+    // Case 4: Permission denied (missing scopes)
+    const case4 = classifyPreflightState({
+      localMigrations: migrations,
+      remoteReachable: false,
+      networkError: 'HTTP 403 Forbidden: Missing required permission(s): projects_read'
+    });
+    assert.equal(case4.state, PREFLIGHT_STATES.UNVERIFIED);
+    assert.equal(case4.readyForMigration, false);
+    assert.ok(case4.details.includes('HTTP 403'));
+
+    // Case 5: Incomplete migration history / schema inspection error
+    const case5 = classifyPreflightState({
+      localMigrations: migrations,
+      remoteReachable: true,
+      schemaError: 'Incomplete migration history record in supabase_migrations.schema_migrations'
+    });
+    assert.equal(case5.state, PREFLIGHT_STATES.UNVERIFIED);
+    assert.equal(case5.readyForMigration, false);
+    assert.ok(case5.details.includes('Incomplete migration history'));
+
+    // Case 6: Empty remote response without affirmative schema verification
+    const case6 = classifyPreflightState({
+      localMigrations: migrations,
+      remoteApplied: [],
+      unexpectedRemote: [],
+      remoteReachable: true,
+      schemaTables: null // Unverified schema
+    });
+    assert.equal(case6.state, PREFLIGHT_STATES.UNVERIFIED, 'Empty remote history without affirmative schema check must fail closed as UNVERIFIED');
+    assert.equal(case6.readyForMigration, false);
+
+    // Case 7: Remote history matching local history (fully synchronized)
+    const allExpectedTables = [
+      'user_profiles', 'guest_identity_links', 'game_saves', 'game_save_revisions',
+      'entitlements', 'entitlement_audit', 'purchase_receipts', 'telemetry_events',
+      'remote_config', 'owner_roles', 'telemetry_rate_limits', 'telemetry_rate_buckets',
+      'telemetry_daily_aggregates', 'user_private_settings', 'storage_deletion_queue'
+    ];
+    const case7 = classifyPreflightState({
+      localMigrations: migrations,
+      remoteApplied: [...localNames],
+      unexpectedRemote: [],
+      remoteReachable: true,
+      schemaTables: allExpectedTables
+    });
+    assert.equal(case7.state, 'SYNCHRONIZED');
+    assert.equal(case7.pendingMigrations.length, 0);
+    assert.equal(case7.readyForMigration, false); // No migrations to apply
+
+    // Case 8: Remote history being a proper subset (migrations pending)
+    const case8 = classifyPreflightState({
+      localMigrations: migrations,
+      remoteApplied: [localNames[0]],
+      unexpectedRemote: [],
+      remoteReachable: true,
+      schemaTables: migrations[0].tables.map(t => t.replace(/^public\./, ''))
+    });
+    assert.equal(case8.state, PREFLIGHT_STATES.MIGRATIONS_PENDING);
+    assert.equal(case8.appliedMigrations.length, 1);
+    assert.equal(case8.pendingMigrations.length, 9);
+    assert.equal(case8.readyForMigration, true);
+
+    // Case 9: Remote history containing unknown migrations (drift ahead)
+    const case9 = classifyPreflightState({
+      localMigrations: migrations,
+      remoteApplied: [localNames[0]],
+      unexpectedRemote: ['20269999999999_manual_db_patch.sql'],
+      remoteReachable: true
+    });
+    assert.equal(case9.state, PREFLIGHT_STATES.DRIFT_AHEAD);
+    assert.equal(case9.requiresIntervention, true);
+    assert.equal(case9.readyForMigration, false);
+
+    // Case 10: Existing database objects with missing migration history (collision)
+    const case10 = classifyPreflightState({
+      localMigrations: migrations,
+      remoteApplied: [],
+      unexpectedRemote: [],
+      remoteReachable: true,
+      schemaTables: ['user_profiles', 'game_saves', 'telemetry_events']
+    });
+    assert.equal(case10.state, PREFLIGHT_STATES.OBJECT_COLLISION_DETECTED);
+    assert.equal(case10.requiresIntervention, true);
+    assert.equal(case10.readyForMigration, false);
+  });
+
 });

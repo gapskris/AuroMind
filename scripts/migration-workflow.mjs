@@ -65,13 +65,14 @@ export function classifyPreflightState({
   schemaTables = null,
   schemaError = null
 } = {}) {
-  // State 1: Remote unavailable (network, IPv6 unreachable, timeout, or offline deferral)
-  if (!remoteReachable || networkError) {
+  // State 1: Remote unavailable (network, IPv6 unreachable, timeout, auth failure, schema error, or offline deferral)
+  if (!remoteReachable || networkError || schemaError) {
+    const errText = networkError || schemaError || 'Remote preflight deferred or unreachable.';
     return {
       state: PREFLIGHT_STATES.UNVERIFIED,
       statusCode: 'UNVERIFIED',
-      description: 'Remote migration history unavailable (network/IPv6 failure, connection timeout, or offline deferral).',
-      details: networkError ? String(networkError) : 'Remote preflight deferred or unreachable.',
+      description: 'Remote migration history unavailable (network/IPv6 failure, connection timeout, authentication failure, schema inspection failure, or offline deferral).',
+      details: String(errText),
       pendingMigrations: localMigrations.map(m => typeof m === 'string' ? m : m.filename),
       appliedMigrations: [],
       readyForMigration: false,
@@ -81,6 +82,21 @@ export function classifyPreflightState({
 
   const localNames = localMigrations.map(m => typeof m === 'string' ? m : m.filename);
   const pending = localNames.filter(name => !remoteApplied.includes(name));
+
+  // If remoteApplied is empty but schema was not affirmatively verified (schemaTables is null),
+  // fail closed as UNVERIFIED because clean state requires affirmative evidence.
+  if (remoteApplied.length === 0 && !Array.isArray(schemaTables)) {
+    return {
+      state: PREFLIGHT_STATES.UNVERIFIED,
+      statusCode: 'UNVERIFIED',
+      description: 'Remote migration history appears empty but schema was not affirmatively verified. Failing closed.',
+      details: 'Affirmative schema inspection required before classifying as clean initial state.',
+      pendingMigrations: localNames,
+      appliedMigrations: [],
+      readyForMigration: false,
+      requiresIntervention: false
+    };
+  }
 
   // State 4: Remote migrations ahead of local (untracked migrations exist on remote)
   if (unexpectedRemote && unexpectedRemote.length > 0) {
