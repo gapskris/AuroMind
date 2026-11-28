@@ -12,7 +12,10 @@ import { fileURLToPath } from 'node:url';
 import {
   validateMigrationExecutionGate,
   generatePostMigrationVerificationSql,
-  loadMigrationHistory
+  loadMigrationHistory,
+  executeRemoteMigrations,
+  CANONICAL_PROJECT_REF,
+  EXPECTED_MIGRATION_COUNT
 } from './scripts/migration-workflow.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -69,6 +72,146 @@ describe('B19.8.1 Governance & Migration Execution Gate', () => {
     assert.strictEqual(res.satisfiedCount, 8);
     assert.strictEqual(res.failedGates.length, 0);
     assert.ok(res.summary.includes('All 8 migration execution gates satisfied'));
+  });
+
+  test('validateMigrationExecutionGate unlocks when initialSchemaRiskAccepted is true and backupReadinessConfirmed is false', () => {
+    const res = validateMigrationExecutionGate({
+      remoteMigrationHistoryVerified: true,
+      remoteConnectivityConfirmed: true,
+      remoteSchemaInspected: true,
+      localMigrationsCompared: true,
+      migrationDivergenceResolved: true,
+      executionPreviewGenerated: true,
+      backupReadinessConfirmed: false,
+      initialSchemaRiskAccepted: true,
+      productOwnerApproved: true
+    });
+
+    assert.strictEqual(res.authorized, true);
+    assert.strictEqual(res.status, 'UNLOCKED');
+    assert.strictEqual(res.satisfiedCount, 8);
+    assert.strictEqual(res.failedGates.length, 0);
+    assert.strictEqual(res.backupReadinessConfirmed, false);
+    assert.strictEqual(res.initialSchemaRiskAccepted, true);
+  });
+
+  test('validateMigrationExecutionGate fails closed when both backupReadinessConfirmed and initialSchemaRiskAccepted are false', () => {
+    const res = validateMigrationExecutionGate({
+      remoteMigrationHistoryVerified: true,
+      remoteConnectivityConfirmed: true,
+      remoteSchemaInspected: true,
+      localMigrationsCompared: true,
+      migrationDivergenceResolved: true,
+      executionPreviewGenerated: true,
+      backupReadinessConfirmed: false,
+      initialSchemaRiskAccepted: false,
+      productOwnerApproved: true
+    });
+
+    assert.strictEqual(res.authorized, false);
+    assert.strictEqual(res.status, 'LOCKED');
+    assert.strictEqual(res.failedGates.length, 1);
+    assert.strictEqual(res.failedGates[0].id, 'GATE_7_BACKUP_READINESS');
+  });
+
+  test('executeRemoteMigrations rejects contradictory backup evidence', () => {
+    const gateEvidence = {
+      preflightTimestamp: new Date().toISOString(),
+      preflightManifestSha256: 'f55231159389f9d5549713ee83c783c1c7130dc7454058c8195140ae529899ea',
+      remoteMigrationHistoryVerified: true,
+      remoteConnectivityConfirmed: true,
+      remoteSchemaInspected: true,
+      localMigrationsCompared: true,
+      migrationDivergenceResolved: true,
+      executionPreviewGenerated: true,
+      backupReadinessConfirmed: true,
+      initialSchemaRiskAccepted: true
+    };
+    const productOwnerApproval = {
+      approvedBy: 'Gopal Krishna Panda, Product Owner',
+      approvedAt: new Date().toISOString(),
+      targetProjectRef: CANONICAL_PROJECT_REF,
+      migrationSetCount: EXPECTED_MIGRATION_COUNT,
+      approvedManifestSha256: 'f55231159389f9d5549713ee83c783c1c7130dc7454058c8195140ae529899ea',
+      explicitStatement: 'I AUTHORIZE MIGRATION EXECUTION FOR AUROMASTI'
+    };
+
+    assert.throws(
+      () => executeRemoteMigrations({ rootDir: REPO_ROOT, gateEvidence, productOwnerApproval }),
+      /MIGRATION_EXECUTION_BLOCKED: Contradictory evidence: backupReadinessConfirmed and initialSchemaRiskAccepted cannot both be asserted/
+    );
+  });
+
+  test('executeRemoteMigrations rejects disallowed extra CLI flags to prevent authorization scope expansion', () => {
+    const gateEvidence = {
+      preflightTimestamp: new Date().toISOString(),
+      preflightManifestSha256: 'f55231159389f9d5549713ee83c783c1c7130dc7454058c8195140ae529899ea',
+      remoteMigrationHistoryVerified: true,
+      remoteConnectivityConfirmed: true,
+      remoteSchemaInspected: true,
+      localMigrationsCompared: true,
+      migrationDivergenceResolved: true,
+      executionPreviewGenerated: true,
+      backupReadinessConfirmed: true
+    };
+    const productOwnerApproval = {
+      approvedBy: 'Gopal Krishna Panda, Product Owner',
+      approvedAt: new Date().toISOString(),
+      targetProjectRef: CANONICAL_PROJECT_REF,
+      migrationSetCount: EXPECTED_MIGRATION_COUNT,
+      approvedManifestSha256: 'f55231159389f9d5549713ee83c783c1c7130dc7454058c8195140ae529899ea',
+      explicitStatement: 'I AUTHORIZE MIGRATION EXECUTION FOR AUROMASTI'
+    };
+
+    assert.throws(
+      () => executeRemoteMigrations({
+        rootDir: REPO_ROOT,
+        gateEvidence,
+        productOwnerApproval,
+        extraArgs: ['--dangerous-flag', '--include-all']
+      }),
+      /MIGRATION_EXECUTION_BLOCKED: Disallowed extra CLI argument/
+    );
+  });
+
+  test('executeRemoteMigrations rejects gateEvidence with mismatched targetProjectRef or migrationCount', () => {
+    const baseGateEvidence = {
+      preflightTimestamp: new Date().toISOString(),
+      preflightManifestSha256: 'f55231159389f9d5549713ee83c783c1c7130dc7454058c8195140ae529899ea',
+      remoteMigrationHistoryVerified: true,
+      remoteConnectivityConfirmed: true,
+      remoteSchemaInspected: true,
+      localMigrationsCompared: true,
+      migrationDivergenceResolved: true,
+      executionPreviewGenerated: true,
+      backupReadinessConfirmed: true
+    };
+    const productOwnerApproval = {
+      approvedBy: 'Gopal Krishna Panda, Product Owner',
+      approvedAt: new Date().toISOString(),
+      targetProjectRef: CANONICAL_PROJECT_REF,
+      migrationSetCount: EXPECTED_MIGRATION_COUNT,
+      approvedManifestSha256: 'f55231159389f9d5549713ee83c783c1c7130dc7454058c8195140ae529899ea',
+      explicitStatement: 'I AUTHORIZE MIGRATION EXECUTION FOR AUROMASTI'
+    };
+
+    assert.throws(
+      () => executeRemoteMigrations({
+        rootDir: REPO_ROOT,
+        gateEvidence: { ...baseGateEvidence, targetProjectRef: 'wrong-project' },
+        productOwnerApproval
+      }),
+      /MIGRATION_EXECUTION_BLOCKED: Gate evidence targets project 'wrong-project'/
+    );
+
+    assert.throws(
+      () => executeRemoteMigrations({
+        rootDir: REPO_ROOT,
+        gateEvidence: { ...baseGateEvidence, migrationCount: 99 },
+        productOwnerApproval
+      }),
+      /MIGRATION_EXECUTION_BLOCKED: Gate evidence migration count \(99\) does not match expected/
+    );
   });
 });
 

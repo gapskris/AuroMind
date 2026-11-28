@@ -1044,8 +1044,10 @@ export function validateMigrationExecutionGate({
   migrationDivergenceResolved = false,
   executionPreviewGenerated = false,
   backupReadinessConfirmed = false,
+  initialSchemaRiskAccepted = false,
   productOwnerApproved = false
 } = {}) {
+  const isBackupOrRiskSatisfied = Boolean(backupReadinessConfirmed || initialSchemaRiskAccepted);
   const gates = [
     {
       id: 'GATE_1_REMOTE_HISTORY',
@@ -1085,9 +1087,17 @@ export function validateMigrationExecutionGate({
     },
     {
       id: 'GATE_7_BACKUP_READINESS',
-      name: 'Backup readiness confirmed',
-      satisfied: Boolean(backupReadinessConfirmed),
-      description: 'Pre-migration point-in-time backup or rollback posture validated'
+      name: backupReadinessConfirmed
+        ? 'Backup readiness confirmed'
+        : (initialSchemaRiskAccepted
+          ? 'Initial schema deployment risk accepted'
+          : 'Backup readiness confirmed'),
+      satisfied: isBackupOrRiskSatisfied,
+      description: backupReadinessConfirmed
+        ? 'Pre-migration point-in-time backup or recovery point validated'
+        : (initialSchemaRiskAccepted
+          ? 'Initial schema deployment risk accepted by Product Owner for verified clean database (no backup recovery points exist)'
+          : 'Pre-migration point-in-time backup or rollback posture validated')
     },
     {
       id: 'GATE_8_PRODUCT_OWNER_APPROVAL',
@@ -1107,6 +1117,8 @@ export function validateMigrationExecutionGate({
     satisfiedCount: gates.filter(g => g.satisfied).length,
     gates,
     failedGates,
+    backupReadinessConfirmed: Boolean(backupReadinessConfirmed),
+    initialSchemaRiskAccepted: Boolean(initialSchemaRiskAccepted),
     summary: authorized
       ? 'All 8 migration execution gates satisfied. Migration execution permitted.'
       : `MIGRATION_EXECUTION_GATE_BLOCKED: ${failedGates.length} of ${gates.length} conditions unsatisfied.`
@@ -1194,6 +1206,15 @@ export function executeRemoteMigrations({
     reject('MIGRATION_EXECUTION_BLOCKED: Missing or invalid gateEvidence object.');
   }
 
+  // Independent verification of target project and migration count in gate evidence
+  if (gateEvidence.targetProjectRef && gateEvidence.targetProjectRef !== CANONICAL_PROJECT_REF) {
+    reject(`MIGRATION_EXECUTION_BLOCKED: Gate evidence targets project '${gateEvidence.targetProjectRef}', but canonical project is '${CANONICAL_PROJECT_REF}'.`);
+  }
+
+  if (gateEvidence.migrationCount && gateEvidence.migrationCount !== EXPECTED_MIGRATION_COUNT) {
+    reject(`MIGRATION_EXECUTION_BLOCKED: Gate evidence migration count (${gateEvidence.migrationCount}) does not match expected (${EXPECTED_MIGRATION_COUNT}).`);
+  }
+
   // Check preflight freshness: must have preflightManifestSha256 matching current manifest
   if (!gateEvidence.preflightManifestSha256 || gateEvidence.preflightManifestSha256 !== currentManifest.manifestSha256) {
     reject(`MIGRATION_EXECUTION_BLOCKED: Stale or mismatched preflight evidence. Preflight manifest (${gateEvidence.preflightManifestSha256 || 'none'}) does not match current migration manifest (${currentManifest.manifestSha256}).`);
@@ -1203,6 +1224,14 @@ export function executeRemoteMigrations({
   const preflightAgeMs = Date.now() - new Date(gateEvidence.preflightTimestamp || 0).getTime();
   if (isNaN(preflightAgeMs) || preflightAgeMs < 0 || preflightAgeMs > 30 * 60 * 1000) {
     reject('MIGRATION_EXECUTION_BLOCKED: Stale preflight evidence. Preflight must be conducted within 30 minutes of execution.');
+  }
+
+  // Backup readiness vs Accepted Risk representation
+  const backupConfirmed = Boolean(gateEvidence.backupReadinessConfirmed);
+  const initialSchemaRiskAccepted = Boolean(gateEvidence.initialSchemaRiskAccepted);
+
+  if (backupConfirmed && initialSchemaRiskAccepted) {
+    reject('MIGRATION_EXECUTION_BLOCKED: Contradictory evidence: backupReadinessConfirmed and initialSchemaRiskAccepted cannot both be asserted.');
   }
 
   // 3. Product Owner approval validation (must be explicit, attributable, scoped to manifest and current execution)
@@ -1244,7 +1273,23 @@ export function executeRemoteMigrations({
     reject('MIGRATION_EXECUTION_BLOCKED: Missing explicit authorization statement in Product Owner approval.');
   }
 
-  // 4. Validate the 8 mandatory gates
+  // When initialSchemaRiskAccepted is true, PO approval must explicitly acknowledge the backup limitation
+  if (initialSchemaRiskAccepted) {
+    const poStatement = explicitStatement || '';
+    if (!poStatement.toLowerCase().includes('backup limitation') && !poStatement.toLowerCase().includes('backup')) {
+      reject('MIGRATION_EXECUTION_BLOCKED: Initial schema deployment with accepted backup risk requires explicit PO acknowledgement of backup limitation in explicitStatement.');
+    }
+  }
+
+  // 4. Validate CLI arguments safety (cannot expand authorization scope)
+  const allowedExtraArgs = new Set(['--yes']);
+  for (const arg of extraArgs) {
+    if (!allowedExtraArgs.has(arg)) {
+      reject(`MIGRATION_EXECUTION_BLOCKED: Disallowed extra CLI argument '${arg}'. CLI arguments cannot expand the scope of Product Owner authorization.`);
+    }
+  }
+
+  // 5. Validate the 8 mandatory gates
   const gateResult = validateMigrationExecutionGate({
     remoteMigrationHistoryVerified: Boolean(gateEvidence.remoteMigrationHistoryVerified),
     remoteConnectivityConfirmed: Boolean(gateEvidence.remoteConnectivityConfirmed),
@@ -1252,7 +1297,8 @@ export function executeRemoteMigrations({
     localMigrationsCompared: Boolean(gateEvidence.localMigrationsCompared),
     migrationDivergenceResolved: Boolean(gateEvidence.migrationDivergenceResolved),
     executionPreviewGenerated: Boolean(gateEvidence.executionPreviewGenerated),
-    backupReadinessConfirmed: Boolean(gateEvidence.backupReadinessConfirmed),
+    backupReadinessConfirmed: backupConfirmed,
+    initialSchemaRiskAccepted: initialSchemaRiskAccepted,
     productOwnerApproved: true // Validated rigorously above
   });
 
@@ -1270,7 +1316,7 @@ export function executeRemoteMigrations({
     rootDir
   });
 
-  // 5. Execute migration mutation via CLI runner with explicit authorization flag
+  // 6. Execute migration mutation via CLI runner with explicit authorization flag
   const cliEnv = env ? { ...env } : undefined;
   const pushArgs = targetPooler ? ['db', 'push', ...extraArgs] : ['db', 'push', '--project-ref', CANONICAL_PROJECT_REF, ...extraArgs];
   return _cliRunner(pushArgs, {
