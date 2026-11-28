@@ -231,6 +231,30 @@ test('B4.2 — AuroMandala Artwork Integration, Versioning & Sankalpa Isolation'
     assert.deepEqual(resultingCache.sankalpa, { encryptedVaultPayload: 'SECRET_VAULT_BYTES' }, 'Local Sankalpa untouched');
     assert.equal(resultingCache.maliciousOverwriteValue, undefined);
   });
+
+  await t.test('exportEnvelope strictly sanitizes and excludes Sankalpa vault from cloud envelope', async () => {
+    const adapter = createAuroMandalaGameAdapter();
+    const cacheWithSankalpa = {
+      highestStageCleared: 4,
+      savedArtworks: {},
+      sankalpa: { personalMantra: 'OM_SHANTI_SECRET' },
+      sankalpa_e2ee_vault: { rawKeyHex: 'deadbeef1234' },
+      sankalpa_reflections: [{ text: 'Deep contemplation' }]
+    };
+    mockStorage.setItem(MANDALA_CACHE_KEY, JSON.stringify(cacheWithSankalpa));
+    mockStorage.setItem(SANKALPA_VAULT_KEY, JSON.stringify({ keyData: 'NON_EXPORTABLE' }));
+
+    const envelope = await adapter.exportEnvelope('guest_test_sankalpa_exclusion');
+    assert.equal(envelope.gameId, 'auromandala');
+    assert.equal(envelope.payload.sankalpa, undefined, 'sankalpa must not exist in payload');
+    assert.equal(envelope.payload.sankalpa_e2ee_vault, undefined, 'sankalpa_e2ee_vault must not exist in payload');
+    assert.equal(envelope.payload.sankalpa_reflections, undefined, 'sankalpa_reflections must not exist in payload');
+
+    const envelopeSerialized = JSON.stringify(envelope);
+    assert.equal(envelopeSerialized.includes('OM_SHANTI_SECRET'), false, 'Private mantra must never appear in envelope');
+    assert.equal(envelopeSerialized.includes('NON_EXPORTABLE'), false, 'Vault keys must never appear in envelope');
+    assert.equal(envelopeSerialized.includes('deadbeef1234'), false, 'Raw key hex must never appear in envelope');
+  });
 });
 
 // ---------------------------------------------------------------------------
