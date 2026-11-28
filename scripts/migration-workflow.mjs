@@ -40,6 +40,11 @@ export const CANONICAL_PROJECT_REGION = 'ap-southeast-1';
 export const CANONICAL_REST_URL = `https://${CANONICAL_PROJECT_REF}.supabase.co`;
 export const EXPECTED_MIGRATION_COUNT = 10;
 
+export const DEFAULT_POOLER_HOST = 'aws-1-ap-southeast-1.pooler.supabase.com';
+export const DEFAULT_POOLER_PORT = 5432;
+export const DEFAULT_POOLER_DB = 'postgres';
+export const DEFAULT_CA_CERT_NAME = 'prod-ca-2021.crt';
+
 /**
  * Canonical Preflight State Classifications (BLK-01 / B19.7)
  */
@@ -546,8 +551,58 @@ export function verifyMigrationManifest(rootDir = REPO_ROOT) {
 }
 
 /**
+ * Constructs a secure Session Pooler PostgreSQL URL for Supabase CLI --remote targeting.
+ *
+ * CRITICAL CREDENTIAL SAFETY INVARIANT:
+ * By default, includePassword is FALSE. The database password MUST NOT be embedded in
+ * the connection URL because CLI command-line arguments are visible in operating system
+ * process tables (e.g. Get-CimInstance Win32_Process on Windows, /proc or ps aux on Linux)
+ * and command logging. Instead, the password must be passed via in-memory PGPASSWORD environment variable.
+ */
+export function buildSessionPoolerUrl({
+  host = DEFAULT_POOLER_HOST,
+  port = DEFAULT_POOLER_PORT,
+  projectRef = CANONICAL_PROJECT_REF,
+  database = DEFAULT_POOLER_DB,
+  password = null,
+  includePassword = false,
+  sslmode = 'verify-full',
+  caCertPath = null,
+  rootDir = REPO_ROOT
+} = {}) {
+  const username = `postgres.${projectRef}`;
+  let resolvedCaPath = caCertPath;
+  if (!resolvedCaPath) {
+    const defaultPath = path.join(rootDir, DEFAULT_CA_CERT_NAME);
+    if (fs.existsSync(defaultPath)) {
+      resolvedCaPath = defaultPath;
+    }
+  }
+
+  // Use forward slashes in path for URI and driver compatibility across platforms
+  const normalizedCaPath = resolvedCaPath ? resolvedCaPath.replace(/\\/g, '/') : null;
+
+  let authPart = encodeURIComponent(username);
+  if (includePassword && password) {
+    authPart += `:${encodeURIComponent(password)}`;
+  }
+
+  const queryParams = [];
+  if (sslmode) {
+    queryParams.push(`sslmode=${encodeURIComponent(sslmode)}`);
+  }
+  if (normalizedCaPath) {
+    queryParams.push(`sslrootcert=${normalizedCaPath}`);
+  }
+
+  const queryString = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
+  return `postgresql://${authPart}@${host}:${port}/${database}${queryString}`;
+}
+
+/**
  * Invokes project-level Supabase CLI reliably through npx supabase.
  * Guarded against unauthorized direct mutating commands (B82-01).
+ * Supports explicit Session Pooler URL targeting and credential protection (Nov 28).
  *
  * OPERATOR NOTICE & ARCHITECTURAL LIMITATION (B19.8.3):
  * A Node.js wrapper cannot prevent an operator with terminal access from
@@ -556,7 +611,13 @@ export function verifyMigrationManifest(rootDir = REPO_ROOT) {
  * workflow. Operators must follow the canonical authorization workflow and
  * NEVER execute mutating CLI commands directly without prior authorization.
  */
-export function runSupabaseCli(args = [], { env = {}, rootDir = REPO_ROOT, _authorizedByGate = false } = {}) {
+export function runSupabaseCli(args = [], {
+  env = {},
+  rootDir = REPO_ROOT,
+  _authorizedByGate = false,
+  targetPooler = false,
+  poolerConfig = {}
+} = {}) {
   const isWindows = process.platform === 'win32';
   const npxCmd = isWindows ? 'npx.cmd' : 'npx';
   const cliEnv = { ...process.env, ...env };
@@ -566,13 +627,63 @@ export function runSupabaseCli(args = [], { env = {}, rootDir = REPO_ROOT, _auth
     throw new Error('CRITICAL_SECURITY_VIOLATION: Direct invocation of "supabase db push" without passing validateMigrationExecutionGate is strictly prohibited.');
   }
 
-  return execFileSync(npxCmd, ['supabase', ...args], {
-    cwd: rootDir,
-    env: cliEnv,
-    encoding: 'utf8',
-    shell: isWindows,
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
+  let finalArgs = [...args];
+
+  if (targetPooler) {
+    // 1. Build secure session pooler URL without embedding password
+    const poolerUrl = buildSessionPoolerUrl({
+      rootDir,
+      ...poolerConfig,
+      includePassword: false // NEVER embed password in CLI arguments
+    });
+
+    // 2. Safely deliver database password via in-memory PGPASSWORD environment variable
+    const dbPassword = cliEnv.SUPABASE_DB_PASSWORD || process.env.SUPABASE_DB_PASSWORD;
+    if (dbPassword && !cliEnv.PGPASSWORD) {
+      cliEnv.PGPASSWORD = dbPassword;
+    }
+
+    // 3. Set defense-in-depth TLS CA environment variables
+    const caPath = poolerConfig.caCertPath || path.join(rootDir, DEFAULT_CA_CERT_NAME);
+    if (fs.existsSync(caPath)) {
+      if (!cliEnv.PGSSLROOTCERT) {
+        cliEnv.PGSSLROOTCERT = caPath;
+      }
+    }
+    if (!cliEnv.PGSSLMODE) {
+      cliEnv.PGSSLMODE = 'verify-full';
+    }
+
+    // 4. Inject or replace --remote parameter with secure pooler URL
+    let remoteFound = false;
+    finalArgs = finalArgs.map(arg => {
+      if (arg === '--remote' || arg.startsWith('--remote=')) {
+        remoteFound = true;
+        return `--remote=${poolerUrl}`;
+      }
+      return arg;
+    });
+
+    if (!remoteFound) {
+      finalArgs.push(`--remote=${poolerUrl}`);
+    }
+  }
+
+  try {
+    return execFileSync(npxCmd, ['supabase', ...finalArgs], {
+      cwd: rootDir,
+      env: cliEnv,
+      encoding: 'utf8',
+      shell: isWindows,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+  } catch (err) {
+    // Sanitize any error output to guarantee zero credential leakage
+    if (err.stdout) err.stdout = maskSecret(err.stdout);
+    if (err.stderr) err.stderr = maskSecret(err.stderr);
+    if (err.message) err.message = maskSecret(err.message);
+    throw err;
+  }
 }
 
 /**
@@ -990,6 +1101,8 @@ export function executeRemoteMigrations({
   productOwnerApproval = null,
   env = null,
   rootDir = REPO_ROOT,
+  targetPooler = false,
+  poolerConfig = {},
   _cliRunner = runSupabaseCli
 } = {}) {
   // 1. Verify local migration files and manifest integrity
@@ -1103,10 +1216,13 @@ export function executeRemoteMigrations({
 
   // 5. Execute migration mutation via CLI runner with explicit authorization flag
   const cliEnv = env ? { ...env } : undefined;
-  return _cliRunner(['db', 'push', '--project-ref', CANONICAL_PROJECT_REF], {
+  const pushArgs = targetPooler ? ['db', 'push'] : ['db', 'push', '--project-ref', CANONICAL_PROJECT_REF];
+  return _cliRunner(pushArgs, {
     rootDir,
     env: cliEnv,
-    _authorizedByGate: true
+    _authorizedByGate: true,
+    targetPooler,
+    poolerConfig
   });
 }
 
@@ -1119,7 +1235,9 @@ export function runPreflight({
   rootDir = REPO_ROOT,
   allowRemote = false,
   remoteMode = false,
-  expectedProjectRef = CANONICAL_PROJECT_REF
+  expectedProjectRef = CANONICAL_PROJECT_REF,
+  targetPooler = true,
+  poolerConfig = {}
 } = {}) {
   const loaded = loadEnvironment({ rootDir, injectProcessEnv: false });
   const activeEnv = customEnv || loaded.env;
@@ -1179,16 +1297,22 @@ export function runPreflight({
         cliEnv.SUPABASE_DB_PASSWORD = activeEnv.SUPABASE_DB_PASSWORD;
       }
 
-      // 1. Run supabase migration list --remote
-      const listOutput = runSupabaseCli(['migration', 'list', '--remote'], {
+      // 1. Run supabase migration list (targeting Session Pooler by default)
+      const listArgs = targetPooler ? ['migration', 'list'] : ['migration', 'list', '--remote'];
+      const listOutput = runSupabaseCli(listArgs, {
         rootDir,
-        env: cliEnv
+        env: cliEnv,
+        targetPooler,
+        poolerConfig
       });
 
       // 2. Run supabase db push --dry-run
-      const dryRunOutput = runSupabaseCli(['db', 'push', '--dry-run'], {
+      const dryRunArgs = ['db', 'push', '--dry-run'];
+      const dryRunOutput = runSupabaseCli(dryRunArgs, {
         rootDir,
-        env: cliEnv
+        env: cliEnv,
+        targetPooler,
+        poolerConfig
       });
 
       remoteOutput = `${listOutput}\n${dryRunOutput}`;
@@ -1334,11 +1458,12 @@ export function runCli() {
     return;
   }
 
-  // Preflight Execution Modes (B19.8.3 Open Item 1)
-  const isRemotePreflight = mode === '--preflight-remote';
+  // Preflight Execution Modes (B19.8.3 Open Item 1 / Nov 28 Session Pooler targeting)
+  const isRemotePreflight = mode === '--preflight-remote' || mode === '--preflight-pooler';
   if (isRemotePreflight) {
-    console.log('[MODE] EXPLICIT READ-ONLY REMOTE PREFLIGHT');
-    console.log(`Target: ${CANONICAL_PROJECT_REF} | Operations: Read-only inspection (migration list & db push --dry-run)\n`);
+    console.log('[MODE] EXPLICIT READ-ONLY REMOTE PREFLIGHT (SESSION POOLER TARGETING)');
+    console.log(`Target: ${CANONICAL_PROJECT_REF} via ${DEFAULT_POOLER_HOST}:${DEFAULT_POOLER_PORT}`);
+    console.log(`Operations: Read-only inspection (migration list & db push --dry-run with verified TLS CA)\n`);
   } else {
     console.log('[MODE] LOCAL OFFLINE PREFLIGHT');
     console.log('Operations: Local migration integrity, manifest validation, configuration checks (no remote access).\n');

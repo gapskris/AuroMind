@@ -16,7 +16,7 @@
 > [!IMPORTANT]
 > **OFFLINE ENGINEERING ACCEPTED — REMOTE ACTIVATION PENDING — PRODUCTION RELEASE NOT YET AUTHORIZED**
 
-Every locally implementable, verifiable, and testable engineering requirement across the 36 canonical specifications has been implemented, validated, and confirmed with 100% pass rates across 44 automated test suites (719 tests, including the B19.8.3.1 integration and recovery suite).
+Every locally implementable, verifiable, and testable engineering requirement across the 36 canonical specifications has been implemented, validated, and confirmed with 100% pass rates across 45 automated test suites (728 tests, including the B19.8.3.1 integration, recovery, and session pooler CLI test suites).
 
 Remote mutations (`supabase db push`, remote SQL execution, Edge Function deployment, Cloudflare Pages live production promotion, and DNS cutover) remain strictly prohibited until live network connectivity resumes and attributable Product Owner approval is formally registered.
 
@@ -55,6 +55,7 @@ In addition to the 36 baseline requirements, B19.8.3 introduces 4 foundational e
 | **B83-B** | **REQ-A1.1** | Audit & Governance | **Attributable Authorization Logging**: Records all migration execution attempts, parameter digests, and PO approval decisions to `supabase/authorization_audit.log` via `recordAuthorizationAudit()`. |
 | **B83-C** | **REQ-S1.1** | Cryptographic Privacy | **Sankalpa Recovery Truth**: Validates WebCrypto AES-256-GCM non-extractable keys with PBKDF2 (210,000 iterations) encrypted JSON backup envelope export/import; completely eradicates false claims of BIP-39 mnemonics. |
 | **B83-D** | **REQ-N1.1** | Network Infrastructure | **Safe Network Diagnostics**: Implements `scripts/diagnose-network.mjs` (`npm run diagnose:network`) validating DNS, direct TCP port 5432, session pooler port 6543, transaction pooler port 5432, and REST reachability with zero secret leakage. |
+| **B831-E** | **REQ-P1.2** | Session Pooler Targeting | **Zero-Exposure CLI & TLS CA Trust**: Implements `buildSessionPoolerUrl` targeting `aws-1-ap-southeast-1.pooler.supabase.com:5432` with `sslmode=verify-full&sslrootcert=prod-ca-2021.crt`. Delivers database password strictly in-memory via `PGPASSWORD`, preventing secret exposure in OS process tables. Confirms TLS 1.3 and CA verification (`Authorized: true`). |
 
 ---
 

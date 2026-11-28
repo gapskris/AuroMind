@@ -25,7 +25,7 @@ The remaining 6 risks pertain strictly to remote cloud interaction, IPv6 ISP rou
 
 | Risk ID | Title | Category | Severity | Likelihood | Residual Risk | Status |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- |
-| **RSK-01** | Mobile Hotspot IPv6 Direct DB Failure | Infrastructure | High | Medium | Medium | Partially Mitigated by Pooler TCP/TLS; Auth & CLI Pending |
+| **RSK-01** | Mobile Hotspot IPv6 Direct DB Failure | Infrastructure | High | Medium | Low-Medium | TLS 1.3 & CA Verified; Auth & CLI Lock Gates Pending |
 | **RSK-02** | Dashboard SQL Ledger Divergence | Database | High | Low | Low | Mitigated by Repair Runbook & 10 Canonical Timestamps |
 | **RSK-03** | Cloudflare Pages vs Custom Apex Routing | Deployment | Medium | Low | Medium | Config Validated Offline; Live Edge Verification Pending |
 | **RSK-04** | Service Worker Aggressive Asset Caching | Client PWA | Medium | Low | Low | Tested on Desktop Chromium/Edge; Mobile WebKit Untested |
@@ -39,14 +39,20 @@ The remaining 6 risks pertain strictly to remote cloud interaction, IPv6 ISP rou
 ### RSK-01: Mobile Hotspot IPv6 Direct DB Connectivity Failure
 - **Description:** Mobile hotspot or local ISP routing fails to resolve or route direct IPv6 TCP traffic to port 5432 on `db.rlqrtbjynaihdspbqtce.supabase.co`.
 - **Impact:** Direct `supabase db push` or psql connections timeout or fail during preflight and migration.
-- **Severity:** High | **Likelihood:** Medium | **Residual Risk:** Medium (Pending live authentication in B19.9)
+- **Severity:** High | **Likelihood:** Medium | **Residual Risk:** Low-Medium (TLS 1.3 and CA Trust Verified; Auth & Migration Gates Pending)
 - **Mitigation & B19.8.3.1 Layered Evidence:**
-  1. **Layer 1 (DNS)**: Direct host fails IPv4 resolution on cellular hotspots. AWS Pooler (`aws-0-ap-southeast-1.pooler.supabase.com`) resolves cleanly to IPv4 (`52.77.146.31`).
-  2. **Layer 2 (TCP)**: TCP sockets establish connection to pooler port 6543 (session pooler, 135ms latency) and port 5432 (transaction pooler).
-  3. **Layer 3 (PostgreSQL Protocol)**: Pooler accepts PostgreSQL SSLRequest packet (`80877103`), returning response byte `'S'` (STARTTLS supported).
-  4. **Layer 4 (TLS Handshake & Trust)**: TLS negotiation succeeds (`TLSv1.3`, `TLS_AES_256_GCM_SHA384`). The server certificate is issued by `CN: Supabase Intermediate 2021 CA`. Standard system root CAs report `self-signed certificate in certificate chain`, proving that client drivers require Supabase CA trust or `sslmode=require` configuration.
-  5. **Layers 5–8 (PostgreSQL Authentication, DB Selection, Permissions, CLI Compatibility)**: Strictly UNVERIFIED / NOT_TESTED in offline mode. TCP and TLS reachability do not imply database authentication or migration compatibility. Full verification will occur during the B19.9 remote activation window.
-  6. The preflight runner in `scripts/migration-workflow.mjs` provides explicit failure categorization (`DNS_RESOLUTION_FAILURE`, `CONNECTION_TIMEOUT`, `NETWORK_UNREACHABLE`) and fails safe immediately without modifying any tables.
+  1. **Layer 1 (DNS)**: Direct DB host fails IPv4 resolution on cellular hotspots. Primary Session Pooler (`aws-1-ap-southeast-1.pooler.supabase.com`) resolves cleanly to IPv4 (`54.179.210.0`), bypassing IPv6 routing barriers.
+  2. **Layer 2 (TCP)**: TCP socket connects successfully to primary Session Pooler on port `5432` with 73ms latency.
+  3. **Layer 3 (PostgreSQL Protocol)**: Primary Session Pooler accepts PostgreSQL STARTTLS SSLRequest packet (`80877103`), returning response byte `'S'` (SSL supported).
+  4. **Layer 4 (TLS Handshake & CA Trust)**: TLS 1.3 negotiated successfully with cipher `TLS_AES_256_GCM_SHA384`. Supabase Root CA `prod-ca-2021.crt` (`CN=Supabase Root 2021 CA`, valid to 2031) verified with `Authorized: true` and trust status `SUPABASE_CA_VERIFIED`.
+  5. **Session Pooler CLI Targeting & Zero-Exposure Credential Architecture**:
+     Supabase CLI 3.4.0 supports `--remote=<postgres-url>` targeting custom Postgres URLs. `buildSessionPoolerUrl` constructs `postgresql://postgres.rlqrtbjynaihdspbqtce@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=verify-full&sslrootcert=C:/AuroMindPortal/prod-ca-2021.crt` with password strictly omitted from CLI arguments. Password is delivered in-memory via `PGPASSWORD` environment variable, preventing password leakage in Windows process listings (`Get-CimInstance Win32_Process`), shell history, or logs.
+  6. **Remaining Verification Gates (Deferred to Live Broadband Activation in B19.9)**:
+     - **Gate 1: PostgreSQL Wire Authentication**: Challenge and verify `postgres.rlqrtbjynaihdspbqtce` role credentials over the pooler connection.
+     - **Gate 2: Database Selection**: Confirm access to target database `postgres`.
+     - **Gate 3: Schema Permissions**: Confirm DDL permissions, table creation, and read/write access to `supabase_migrations.schema_migrations`.
+     - **Gate 4: CLI Session Pooler Transaction / Lock Semantics**: Confirm Supabase CLI 3.4.0 migration locking and advisory lock compatibility over Supavisor session pooler.
+  7. The preflight runner in `scripts/migration-workflow.mjs` provides explicit failure categorization (`DNS_RESOLUTION_FAILURE`, `CONNECTION_TIMEOUT`, `NETWORK_UNREACHABLE`) and fails safe immediately without modifying any tables.
 
 ### RSK-02: Dashboard SQL Ledger Divergence
 - **Description:** If emergency disaster recovery requires applying `consolidated_migration_preview.sql` manually in the Supabase Dashboard SQL Editor, PostgreSQL DDL executes but the `supabase_migrations.schema_migrations` tracking table is bypassed. Subsequent CLI runs (`supabase db push`) would assume migrations are unapplied and attempt duplicate DDL execution, resulting in fatal schema collision errors.

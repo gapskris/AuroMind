@@ -16,14 +16,14 @@
 
 Following the resolution of the test runner TAP summary parsing defect and the authoring of the B19.8.3.1 integration suite, the full test regression suite was executed via `node scripts/run-all-tests.mjs`.
 
-- **Total Test Suites Executed:** **44**
-- **Total Test Cases Executed:** **719**
-- **Passed:** **719**
+- **Total Test Suites Executed:** **45**
+- **Total Test Cases Executed:** **728**
+- **Passed:** **728**
 - **Failed:** **0**
 - **Skipped:** **0**
 - **Flaky / Retries:** **0**
 - **Pass Rate:** **100.0%**
-- **Total Test Execution Duration:** ~210 seconds
+- **Total Test Execution Duration:** ~215 seconds
 
 ---
 
@@ -85,8 +85,9 @@ Following the resolution of the test runner TAP summary parsing defect and the a
 | 41 | `test-b19-8-1-governance.test.js` | 13 | 13 | 0 | 497.0 | **PASSED** | 3 sacred SHA-256 invariants, 15 tables with RLS |
 | 42 | `test-b19-8-2-migration-safety.test.js` | 22 | 22 | 0 | 3,917.9 | **PASSED** | 8-gate integration guard, manifest tamper detection |
 | 43 | `test-b19-8-3-1-integration-and-recovery.test.js` | 11 | 11 | 0 | 6,938.8 | **PASSED** | 3-game Edge integration, 14-step Sankalpa recovery |
-| 44 | `test-b19-8-3-remediation.test.js` | 20 | 20 | 0 | 6,592.6 | **PASSED** | Preflight separation, attributable audit logging |
-| **Total** | **44 Suites** | **719** | **719** | **0** | **~210,000 ms** | **100% PASS** | **Complete Project Coverage** |
+| 44 | `test-b19-8-3-1-session-pooler-cli.test.js` | 9 | 9 | 0 | 4,097.8 | **PASSED** | Session pooler CLI targeting, in-memory PGPASSWORD, TLS CA |
+| 45 | `test-b19-8-3-remediation.test.js` | 20 | 20 | 0 | 6,592.6 | **PASSED** | Preflight separation, attributable audit logging |
+| **Total** | **45 Suites** | **728** | **728** | **0** | **~215,000 ms** | **100% PASS** | **Complete Project Coverage** |
 
 ---
 
@@ -117,6 +118,16 @@ Following the resolution of the test runner TAP summary parsing defect and the a
 - Tested negative paths: invalid passphrase throws `DECRYPTION_FAILED`, corrupted ciphertext throws `DECRYPTION_FAILED`, corrupted salt throws `MALFORMED_BACKUP_ENVELOPE`.
 - Tested network interception: Global `fetch` monkey-patching proved zero transmission of reflection plaintext, passphrases, or CryptoKeys during telemetry or sync.
 
+### Workstream H: Session Pooler CLI Targeting & Zero-Exposure Credential Execution
+- Verified `buildSessionPoolerUrl` generates `postgresql://postgres.rlqrtbjynaihdspbqtce@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=verify-full&sslrootcert=C:/AuroMindPortal/prod-ca-2021.crt`.
+- Verified password strictly omitted from CLI argument URL, delivered via in-memory `PGPASSWORD` process environment variable.
+- Verified Windows path normalization enforcing forward slashes for `sslrootcert`.
+- Verified `prod-ca-2021.crt` integrity (X.509 CA, `CN=Supabase Root 2021 CA`, valid to 2031, SHA-256 fingerprint verified).
+- Verified CLI driver fails closed if `sslrootcert` points to non-existent file.
+- Verified with local mock PostgreSQL server that CLI consumes `PGPASSWORD` and targets custom Postgres without touching Supabase Management API.
+- Verified Layer 4 diagnostic reports `SUPABASE_CA_VERIFIED` with `Authorized: true`.
+- Verified `maskSecret` sanitizes CLI error outputs.
+
 ---
 
 ## 5. Verification Commands for Independent Reproduction
@@ -124,19 +135,22 @@ Following the resolution of the test runner TAP summary parsing defect and the a
 ```powershell
 Set-Location C:\AuroMindPortal
 
-# 1. Run full 44-suite regression test harness:
+# 1. Run full 45-suite regression test harness:
 node scripts/run-all-tests.mjs
 
 # 2. Run new B19.8.3.1 integration and recovery suite:
 node --test test-b19-8-3-1-integration-and-recovery.test.js
 
-# 3. Run safe 8-layer network diagnostics:
+# 3. Run new B19.8.3.1 session pooler CLI targeting suite:
+node --test test-b19-8-3-1-session-pooler-cli.test.js
+
+# 4. Run safe 8-layer network diagnostics:
 node scripts/diagnose-network.mjs
 
-# 4. Run local offline preflight:
+# 5. Run local offline preflight:
 npm run migrate:preflight
 
-# 5. Verify sacred invariants and health check:
+# 6. Verify sacred invariants and health check:
 node scripts/health-check.mjs
 node scripts/validate-secret-exposure.mjs
 node scripts/validate-env.mjs

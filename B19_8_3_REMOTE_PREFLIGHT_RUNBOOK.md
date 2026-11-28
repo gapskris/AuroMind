@@ -33,7 +33,7 @@
 
 ### Step 1: Pre-Activation Diagnostics & Network Verification
 
-Run the safe, non-leaking network diagnostic tool to inspect connectivity paths:
+Run the safe, non-leaking network diagnostic tool to inspect connectivity paths and verify TLS Root CA:
 
 ```powershell
 Set-Location C:\AuroMindPortal
@@ -41,12 +41,18 @@ npm run diagnose:network
 ```
 
 **Evaluation Criteria:**
-- **DNS Resolution**: Checks IPv4 and IPv6 records for `db.rlqrtbjynaihdspbqtce.supabase.co` and `aws-0-ap-southeast-1.pooler.supabase.com`.
-  - *If direct DB host fails IPv4 resolution (e.g. mobile hotspot)*: Verify that the AWS pooler host resolves IPv4 (e.g. `52.77.146.31`).
+- **DNS Resolution**: Checks IPv4 and IPv6 records for `db.rlqrtbjynaihdspbqtce.supabase.co`, `aws-1-ap-southeast-1.pooler.supabase.com` (Primary Pooler), and `aws-0-ap-southeast-1.pooler.supabase.com`.
+  - *If direct DB host fails IPv4 resolution (e.g. mobile hotspot)*: Verify that the primary AWS pooler host resolves IPv4 (e.g. `54.179.210.0`).
 - **TCP Reachability**:
-  - Pooler session port `6543`: Must establish TCP connection (typical latency < 150ms).
-  - Pooler transaction port `5432`: Must establish TCP connection.
+  - Primary Session Pooler port `5432` (`aws-1-ap-southeast-1.pooler.supabase.com`): Must establish TCP connection (typical latency < 100ms; Nov 28 confirmed 73ms).
+  - Legacy Pooler session port `6543`: Must establish TCP connection.
   - Direct DB port `5432`: May timeout on IPv6-only cellular networks.
+- **PostgreSQL STARTTLS Protocol (Layer 3)**:
+  - SSLRequest packet (code 80877103) accepted by Session Pooler port `5432` with byte `'S'`.
+- **TLS Handshake & Root CA Verification (Layer 4)**:
+  - Negotiates TLS 1.3 with cipher `TLS_AES_256_GCM_SHA384`.
+  - Supabase Root CA `prod-ca-2021.crt` loaded from repository root (`CN=Supabase Root 2021 CA`, valid to 2031).
+  - Certificate authorization: `Authorized: true`, Trust status: `SUPABASE_CA_VERIFIED`.
 - **REST API Reachability**:
   - Probes `https://rlqrtbjynaihdspbqtce.supabase.co/rest/v1/`.
   - Status `401 Unauthorized` is **NORMAL and EXPECTED** (proves reachability and origin identity without sending credentials).
@@ -54,7 +60,7 @@ npm run diagnose:network
 
 ---
 
-### Step 2: Read-Only Remote Preflight Inspection
+### Step 2: Read-Only Remote Preflight Inspection (Session Pooler Targeting)
 
 Execute the read-only remote preflight script:
 
@@ -62,9 +68,25 @@ Execute the read-only remote preflight script:
 npm run migrate:preflight:remote
 ```
 
+**Zero-Exposure Credential Architecture:**
+The preflight runner automatically targets the Session Pooler URL without exposing database passwords in command-line arguments, process tables (`Get-CimInstance Win32_Process`, `Get-Process`), shell history, or console logs.
+
+If running manually via raw Supabase CLI, operators MUST pass the password via `PGPASSWORD` and NEVER embed it into `--remote`:
+
+```powershell
+# Set database password strictly in current PowerShell in-memory environment block:
+$env:PGPASSWORD = $env:SUPABASE_DB_PASSWORD
+
+# Target Session Pooler with verified TLS and Root CA (Password OMITTED from CLI arguments):
+npx supabase migration list --remote="postgresql://postgres.rlqrtbjynaihdspbqtce@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=verify-full&sslrootcert=C:/AuroMindPortal/prod-ca-2021.crt"
+
+# Non-mutating dry-run push:
+npx supabase db push --dry-run --remote="postgresql://postgres.rlqrtbjynaihdspbqtce@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=verify-full&sslrootcert=C:/AuroMindPortal/prod-ca-2021.crt"
+```
+
 **Validation Checks Performed:**
 1. Verifies local 10-migration sequence against manifest `f55231159389f9d5...`.
-2. Inspects remote `schema_migrations` ledger via Supabase CLI (`npx supabase migration list --remote`).
+2. Inspects remote `schema_migrations` ledger via Supabase CLI (`npx supabase migration list --remote=<pooler-url>`).
 3. Classifies remote state into one of the 6 canonical states:
    - `CLEAN_INITIAL_STATE`: 0 migrations applied remotely; ready for initial deployment.
    - `MIGRATIONS_PENDING`: Partial sequential subset applied; unapplied migrations ready to push.
@@ -97,12 +119,12 @@ Prior to executing remote migrations, the Product Owner must formally sign an au
 
 ---
 
-### Step 4: Programmatic Migration Execution
+### Step 4: Programmatic Migration Execution (Session Pooler Targeting)
 
 Execute the migrations through the audited workflow runner:
 
 ```powershell
-# Execute through the audited wrapper
+# Execute through the audited wrapper (targets Session Pooler port 5432 with verified TLS CA and in-memory PGPASSWORD)
 node scripts/migration-workflow.mjs --execute
 ```
 
@@ -112,8 +134,9 @@ node scripts/migration-workflow.mjs --execute
   ```json
   {"timestamp":"2026-11-28T09:15:00.000Z","event":"MIGRATION_EXECUTION_ATTEMPT","status":"AUTHORIZED","approvedBy":"...","manifestSha256":"f55231159389..."}
   ```
-- Executes `npx supabase db push --project-ref rlqrtbjynaihdspbqtce`.
-- Redacts all secrets from subprocess output streams.
+- Executes `npx supabase db push --remote=<pooler-url>` with database password passed strictly via in-memory `PGPASSWORD` environment variable.
+- Uses `sslmode=verify-full&sslrootcert=C:/AuroMindPortal/prod-ca-2021.crt` ensuring strict TLS 1.3 encryption and CA certificate validation.
+- Redacts all secrets from subprocess output streams (`maskSecret`).
 
 ---
 

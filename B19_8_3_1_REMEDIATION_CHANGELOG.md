@@ -89,3 +89,33 @@ Milestone B19.8.3.1 resolves evidence integrity issues, test harness TAP output 
 11. **`B19_8_3_1_EVIDENCE_INTEGRITY_CLOSURE_REPORT.md`** (New File)
 12. **`B19_8_3_1_REMEDIATION_CHANGELOG.md`** (New File)
 13. **`B19_8_3_1_TEST_EVIDENCE.md`** (New File)
+
+---
+
+## 3. Nov 28 Extension — Session Pooler CLI Targeting & TLS CA Verification
+
+14. **`scripts/migration-workflow.mjs`**
+    - **Change:**
+      - Added `DEFAULT_POOLER_HOST = 'aws-1-ap-southeast-1.pooler.supabase.com'`, `DEFAULT_POOLER_PORT = 5432`, `DEFAULT_POOLER_DB = 'postgres'`, `DEFAULT_CA_CERT_NAME = 'prod-ca-2021.crt'`.
+      - Exported `buildSessionPoolerUrl()` to construct compliant PostgreSQL URLs targeting Session Pooler with forward slashes for `sslrootcert`.
+      - Enforced zero-exposure credential architecture: omitted password from CLI URL and delivered via in-memory `PGPASSWORD` process environment variable.
+      - Enhanced `runSupabaseCli`, `executeRemoteMigrations`, and `runPreflight` with `targetPooler` option.
+      - Added secret masking (`maskSecret`) on all subprocess error streams.
+
+15. **`scripts/diagnose-network.mjs`**
+    - **Change:**
+      - Added `POOLER_HOST_PRIMARY`, `POOLER_PORT_SESSION = 5432`, `DEFAULT_CA_CERT_NAME = 'prod-ca-2021.crt'`.
+      - Enhanced `probeTlsHandshake` with `caCertPath` option to load Root CA.
+      - Set `caTrustStatus = 'SUPABASE_CA_VERIFIED'` and `Authorized: true` when verified with `prod-ca-2021.crt`.
+      - Updated Layer 4 status to `PASS` when TLS and CA chain are verified.
+
+16. **`test-b19-8-3-1-session-pooler-cli.test.js`**
+    - **Change:**
+      - Authored 9 automated tests covering Session Pooler targeting, credential protection, Root CA certificate integrity, local mock PostgreSQL server, and 8-layer diagnostic integration.
+      - All 9 tests passing cleanly.
+
+17. **Registers & Documentation Updates**
+    - **`B19_8_3_MASTER_ISSUE_REGISTER.md`**: Added `B831-06` (`CLOSED_LOCALLY`); updated total to 45 tracked issues (33 Closed Locally, 7 Policy Verified, 5 Deferred Remote).
+    - **`B19_8_3_ACCEPTANCE_MATRIX.md`**: Added `B831-E` (`REQ-P1.2`); updated test total to 45 suites / 728 tests.
+    - **`B19_8_3_REMOTE_PREFLIGHT_RUNBOOK.md`**: Updated Step 1, Step 2, and Step 4 with Session Pooler URL targeting and in-memory `PGPASSWORD` delivery.
+    - **`B19_8_3_REMAINING_RISK_REGISTER.md`**: Updated RSK-01 with TLS 1.3 verification evidence and itemized 4 remaining cloud activation gates.
