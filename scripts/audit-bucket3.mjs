@@ -13,7 +13,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..');
 
-const loaded = loadEnvironment({ injectProcessEnv: false });
+const loaded = loadEnvironment({ rootDir: REPO_ROOT, injectProcessEnv: false });
 const env = loaded.env;
 
 async function main() {
