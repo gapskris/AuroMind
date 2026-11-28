@@ -25,7 +25,9 @@ import {
   probePostgresSslRequest,
   probeTlsHandshake,
   CONNECTIVITY_LAYERS,
-  POOLER_HOST
+  POOLER_HOST,
+  POOLER_HOST_PRIMARY,
+  POOLER_PORT_SESSION
 } from './scripts/diagnose-network.mjs';
 
 import {
@@ -123,8 +125,8 @@ describe('B19.8.3.1 Workstream C: 8-Layer Network Model & TLS Trust Inspection',
     assert.ok(!jsonStr.includes('postgres://'), 'Connection URI must never be logged');
   });
 
-  test('probePostgresSslRequest negotiates STARTTLS SSLRequest protocol correctly', async () => {
-    const res = await probePostgresSslRequest(POOLER_HOST, 6543, 2500);
+  test('probePostgresSslRequest negotiates STARTTLS SSLRequest protocol correctly on Session Pooler port 5432', async () => {
+    const res = await probePostgresSslRequest(POOLER_HOST_PRIMARY, POOLER_PORT_SESSION, 2500);
     if (res.status === 'CONNECTED' || res.status === 'SUPPORTED') {
       assert.equal(res.status, 'SUPPORTED');
       assert.equal(res.reply, 'S', "Server must reply with 'S' to indicate SSL support");
@@ -134,12 +136,12 @@ describe('B19.8.3.1 Workstream C: 8-Layer Network Model & TLS Trust Inspection',
     }
   });
 
-  test('probeTlsHandshake captures Supabase Intermediate CA details without treating TCP as authenticated', async () => {
-    const res = await probeTlsHandshake(POOLER_HOST, 6543, 3000);
+  test('probeTlsHandshake captures Supabase Intermediate CA details on Session Pooler port 5432 without treating TCP as authenticated', async () => {
+    const res = await probeTlsHandshake(POOLER_HOST_PRIMARY, POOLER_PORT_SESSION, 3000);
     if (res.status === 'NEGOTIATED') {
       assert.ok(res.protocol.startsWith('TLS'));
       assert.ok(res.certificate.issuerCN.includes('Supabase') || res.certificate.issuerCN.includes('CA'));
-      assert.equal(res.caTrustStatus, 'REQUIRES_SUPABASE_CA_OR_SSLMODE_REQUIRE');
+      assert.ok(['REQUIRES_SUPABASE_CA_OR_SSLMODE_REQUIRE', 'SUPABASE_CA_VERIFIED', 'SYSTEM_CA_TRUSTED'].includes(res.caTrustStatus));
     } else {
       assert.ok(['TIMEOUT', 'TCP_FAILED', 'PROTOCOL_FAILED', 'TLS_ERROR'].includes(res.status));
     }

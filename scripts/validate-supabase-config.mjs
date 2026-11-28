@@ -29,8 +29,11 @@ export const CANONICAL_SUPABASE_PROJECT = Object.freeze({
   restUrl: 'https://rlqrtbjynaihdspbqtce.supabase.co',
   dbHost: 'db.rlqrtbjynaihdspbqtce.supabase.co',
   directPort: 5432,
-  poolerPort: 6543,
-  poolerHost: 'aws-0-ap-southeast-1.pooler.supabase.com'
+  sessionPoolerPort: 5432,
+  transactionPoolerPort: 6543,
+  poolerPort: 6543, // Transaction pooler port (legacy alias)
+  poolerHost: 'aws-0-ap-southeast-1.pooler.supabase.com',
+  poolerHostPrimary: 'aws-1-ap-southeast-1.pooler.supabase.com'
 });
 
 export const EXPECTED_MIGRATIONS = Object.freeze([

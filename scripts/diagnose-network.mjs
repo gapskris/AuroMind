@@ -33,7 +33,8 @@ export const DIRECT_DB_HOST = `db.${CANONICAL_PROJECT_REF}.supabase.co`;
 export const POOLER_HOST = `aws-0-${CANONICAL_REGION}.pooler.supabase.com`;
 export const POOLER_HOST_PRIMARY = `aws-1-${CANONICAL_REGION}.pooler.supabase.com`;
 export const POOLER_PORT_SESSION = 5432;
-export const POOLER_PORT_LEGACY_SESSION = 6543;
+export const POOLER_PORT_TRANSACTION = 6543;
+export const POOLER_PORT_LEGACY_SESSION = 6543; // Backward-compatibility alias
 export const DEFAULT_CA_CERT_NAME = 'prod-ca-2021.crt';
 export const REST_ENDPOINT = `https://${CANONICAL_PROJECT_REF}.supabase.co/rest/v1/`;
 
@@ -315,12 +316,13 @@ export async function runDiagnostic({ rootDir = process.cwd(), timeoutMs = 2500 
 
   // Layer 2: TCP
   const tcpDirect = await probeTcpPort(DIRECT_DB_HOST, 5432, timeoutMs);
-  const tcpPoolerSession = await probeTcpPort(POOLER_HOST, POOLER_PORT_LEGACY_SESSION, timeoutMs);
-  const tcpPoolerTransaction = await probeTcpPort(POOLER_HOST, 5432, timeoutMs);
   const tcpPrimarySession = await probeTcpPort(POOLER_HOST_PRIMARY, POOLER_PORT_SESSION, timeoutMs);
+  const tcpPrimaryTransaction = await probeTcpPort(POOLER_HOST_PRIMARY, POOLER_PORT_TRANSACTION, timeoutMs);
+  const tcpPoolerSession = await probeTcpPort(POOLER_HOST, POOLER_PORT_SESSION, timeoutMs);
+  const tcpPoolerTransaction = await probeTcpPort(POOLER_HOST, POOLER_PORT_TRANSACTION, timeoutMs);
 
   // Layer 3: PostgreSQL Protocol (STARTTLS)
-  // Probe primary session pooler on 5432 first, fallback to legacy session pooler on 6543
+  // Probe primary session pooler on 5432 first, fallback to secondary session pooler on 5432
   let pgProtocolPooler = { status: 'SKIPPED', error: 'TCP not connected' };
   let activePoolerHost = POOLER_HOST_PRIMARY;
   let activePoolerPort = POOLER_PORT_SESSION;
@@ -331,7 +333,7 @@ export async function runDiagnostic({ rootDir = process.cwd(), timeoutMs = 2500 
     pgProtocolPooler = await probePostgresSslRequest(activePoolerHost, activePoolerPort, timeoutMs);
   } else if (tcpPoolerSession.status === 'CONNECTED') {
     activePoolerHost = POOLER_HOST;
-    activePoolerPort = POOLER_PORT_LEGACY_SESSION;
+    activePoolerPort = POOLER_PORT_SESSION;
     pgProtocolPooler = await probePostgresSslRequest(activePoolerHost, activePoolerPort, timeoutMs);
   }
 
@@ -369,7 +371,7 @@ export async function runDiagnostic({ rootDir = process.cwd(), timeoutMs = 2500 
       name: 'TCP Socket Connectivity',
       category: CONNECTIVITY_LAYERS.LAYER_2_TCP,
       status: (tcpPrimarySession.status === 'CONNECTED' || tcpPoolerSession.status === 'CONNECTED') ? 'PASS' : 'FAIL',
-      details: `Primary Session :5432 ${tcpPrimarySession.status} (${tcpPrimarySession.latencyMs}ms) | Legacy :6543 ${tcpPoolerSession.status} | Direct :5432 ${tcpDirect.status}`
+      details: `Primary Session :5432 ${tcpPrimarySession.status} (${tcpPrimarySession.latencyMs}ms) | Primary Transaction :6543 ${tcpPrimaryTransaction.status} | Direct :5432 ${tcpDirect.status}`
     },
     {
       layer: 3,
@@ -423,6 +425,7 @@ export async function runDiagnostic({ rootDir = process.cwd(), timeoutMs = 2500 
     region: CANONICAL_REGION,
     poolerPrimary: POOLER_HOST_PRIMARY,
     poolerPortSession: POOLER_PORT_SESSION,
+    poolerPortTransaction: POOLER_PORT_TRANSACTION,
     caCertPath: caCertExists ? caCertPath : null,
     caCertVerified: tlsPooler.caTrustStatus === 'SUPABASE_CA_VERIFIED',
     credentials: {
@@ -438,8 +441,12 @@ export async function runDiagnostic({ rootDir = process.cwd(), timeoutMs = 2500 
     tcp: {
       directPort5432: tcpDirect,
       primarySessionPort5432: tcpPrimarySession,
-      poolerSessionPort6543: tcpPoolerSession,
-      poolerTransactionPort5432: tcpPoolerTransaction
+      primaryTransactionPort6543: tcpPrimaryTransaction,
+      poolerSessionPort5432: tcpPoolerSession,
+      poolerTransactionPort6543: tcpPoolerTransaction,
+      // Backward-compatibility aliases
+      poolerSessionPort6543: tcpPrimaryTransaction,
+      poolerTransactionPort5432: tcpPoolerSession
     },
     pgProtocol: {
       activeHost: activePoolerHost,
@@ -457,12 +464,17 @@ export async function runDiagnostic({ rootDir = process.cwd(), timeoutMs = 2500 
       sessionPooler: {
         port: POOLER_PORT_SESSION,
         host: POOLER_HOST_PRIMARY,
-        role: 'Primary Supavisor Session Pooler (aws-1). Verified IPv4 endpoint for CLI migrations, supporting verified TLS and prod-ca-2021.crt.'
+        role: 'Primary Supavisor Session Pooler (aws-1 port 5432). Verified IPv4 endpoint for CLI migrations, supporting verified TLS and prod-ca-2021.crt.'
       },
       sessionPoolerPrimary: {
         port: POOLER_PORT_SESSION,
         host: POOLER_HOST_PRIMARY,
-        role: 'Primary Supavisor Session Pooler (aws-1). Verified IPv4 endpoint for CLI migrations, supporting verified TLS and prod-ca-2021.crt.'
+        role: 'Primary Supavisor Session Pooler (aws-1 port 5432). Verified IPv4 endpoint for CLI migrations, supporting verified TLS and prod-ca-2021.crt.'
+      },
+      transactionPooler: {
+        port: POOLER_PORT_TRANSACTION,
+        host: POOLER_HOST_PRIMARY,
+        role: 'Supavisor Transaction Pooler (port 6543). High-concurrency stateless pooling (not suitable for CLI migrations requiring advisory locks).'
       },
       directPostgres: {
         port: 5432,
@@ -470,14 +482,9 @@ export async function runDiagnostic({ rootDir = process.cwd(), timeoutMs = 2500 
         role: 'Direct PostgreSQL wire protocol. Required for standard DDL migrations. Requires IPv6 or direct IPv4 route.'
       },
       legacySessionPooler: {
-        port: POOLER_PORT_LEGACY_SESSION,
+        port: POOLER_PORT_TRANSACTION,
         host: POOLER_HOST,
-        role: 'Supavisor Session Pooler (aws-0 port 6543). Secondary fallback.'
-      },
-      transactionPooler: {
-        port: 5432,
-        host: POOLER_HOST,
-        role: 'Supavisor Transaction Pooler. High-concurrency stateless pooling.'
+        role: 'Secondary Transaction Pooler (aws-0 port 6543).'
       },
       managementApi: {
         url: 'https://api.supabase.com/v1',

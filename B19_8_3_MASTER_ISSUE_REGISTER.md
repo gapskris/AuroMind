@@ -18,12 +18,12 @@ This Master Issue Register establishes an exhaustive, mathematically reconciled 
 ### Arithmetic Reconciliation & Parity Proof
 Every tracked issue across the lifecycle has a stable, unique identifier and belongs to exactly one terminal classification:
 
-- **Total Tracked Issues:** **45**
-- **Closed Locally (`CLOSED_LOCALLY`):** **33** (73.3%)
-- **Policy-Verified Invariants (`POLICY_VERIFIED`):** **7** (15.6%)
-- **Deferred to Remote Activation (`DEFERRED_REMOTE_ACTIVATION`):** **5** (11.1%)
+- **Total Tracked Issues:** **46**
+- **Closed Locally (`CLOSED_LOCALLY`):** **34** (73.9%)
+- **Policy-Verified Invariants (`POLICY_VERIFIED`):** **7** (15.2%)
+- **Deferred to Remote Activation (`DEFERRED_REMOTE_ACTIVATION`):** **5** (10.9%)
 - **Mathematical Parity Verification:**
-  $$33 \text{ (Closed Locally)} + 7 \text{ (Policy Verified)} + 5 \text{ (Deferred Activation)} = 45 \text{ (Total Issues)}$$
+  $$34 \text{ (Closed Locally)} + 7 \text{ (Policy Verified)} + 5 \text{ (Deferred Activation)} = 46 \text{ (Total Issues)}$$
 - **Parity Status:** **EXACT MATCH (ZERO DISCREPANCY)**
 
 ---
@@ -40,7 +40,8 @@ Every tracked issue across the lifecycle has a stable, unique identifier and bel
 | **DevOps, CI/CD & Hosting Governance** | 2 | 0 | 4 | **6** |
 | **B19.8.3 Direct Engineering Remediations** | 5 | 0 | 0 | **5** |
 | **B19.8.3.1 Evidence Integrity & Residual Defect Remediations** | 6 | 0 | 0 | **6** |
-| **Total** | **33** | **7** | **5** | **45** |
+| **B19.8.3.2 Independent Session Pooler CLI Verification** | 1 | 0 | 0 | **1** |
+| **Total** | **34** | **7** | **5** | **46** |
 
 ---
 
@@ -88,6 +89,7 @@ Every tracked issue across the lifecycle has a stable, unique identifier and bel
 | **B831-04** | Cryptography / Privacy | High | B19.8.3.1 | Sankalpa 14-Step Recovery & Zero-Knowledge Network Privacy Proof | `CLOSED_LOCALLY` | Security Architect | None | Executed 14-step synthetic recovery lifecycle test covering export, import, bad passphrases, corrupted ciphertext/salt rejection, anti-downgrade rejection, non-destructive merge; proved zero network transmission of reflection plaintext, passphrases, or CryptoKeys via global fetch interception. |
 | **B831-05** | Governance / Acceptance | Medium | B19.8.3.1 | Acceptance Matrix B4 Dimension Splitting & Evidence Reconciliation | `CLOSED_LOCALLY` | Release Manager | None | Reconciled 36 canonical requirements; split B4 into B4.a (Local SQL search_path hardening: `VERIFIED_OFFLINE`) and B4.b (Remote function search_path verification: `PENDING_REMOTE_VALIDATION`), eliminating status-dependency contradiction. |
 | **B831-06** | Database / CLI Security | High | B19.8.3.1 | Session Pooler CLI Targeting & Zero-Exposure Credential Execution | `CLOSED_LOCALLY` | Release Engineer / Security Lead | None | Investigated Supabase CLI 3.4.0 `--remote` support. Implemented `buildSessionPoolerUrl` targeting `aws-1-ap-southeast-1.pooler.supabase.com:5432` with `sslmode=verify-full&sslrootcert=prod-ca-2021.crt`. Enforced zero-exposure credential architecture by passing database password strictly in-memory via `PGPASSWORD`, preventing password leakage in process listings (`Get-CimInstance Win32_Process`, Task Manager) and CLI command logs. Verified TLS 1.3, cipher `TLS_AES_256_GCM_SHA384`, and X.509 Root CA trust (`Authorized: true`). Authored automated test suite `test-b19-8-3-1-session-pooler-cli.test.js` with 9 passing tests. |
+| **B832-01** | Database / CLI Verification | High | B19.8.3.2 | Independent Session Pooler CLI Verification & Correct Port Mapping | `CLOSED_LOCALLY` | Principal Architect / Security Engineer | None | Proven Supabase CLI 3.4.0 (`supabase.exe`) consumes in-memory `PGPASSWORD` under `--remote`, enforces strict hostname and CA verification under `sslmode=verify-full`, and corrected reversed pooler port mapping (Session: 5432, Transaction: 6543) across diagnostics and test suites. Added 19 comprehensive automated tests. |
 | **NET-01** | Network / Connectivity | High | B19.8.3 | Supabase IPv4 Remote Preflight Drift Verification | `DEFERRED_REMOTE_ACTIVATION` | DBA / Backend Lead | IPv4 Connectivity | Blocked by IPv6 mobile hotspot routing; pooler fallback verified via `npm run diagnose:network`. |
 | **REM-01** | Database / Storage | High | B19.8.3 | Supabase Storage Bucket Creation & Remote RLS Activation | `DEFERRED_REMOTE_ACTIVATION` | Cloud DBA | IPv4 Connectivity | Migration 10 (`storage_buckets_and_rls.sql`) ready; executes during remote migration window. |
 | **ACT-01** | Deployment / Edge | High | B19.8.2 | Cloudflare Pages Staging Deployment Execution | `DEFERRED_REMOTE_ACTIVATION` | Release Manager | Git Push to dev | Cloudflare Pages staging build triggered via Git push; verify staging URL on Nov 28. |
@@ -99,6 +101,6 @@ Every tracked issue across the lifecycle has a stable, unique identifier and bel
 ## 4. Operational Signoff & Activation Status
 
 - **Offline Engineering Status:** **100% COMPLETE & ACCEPTED**
-- **Automated Test Coverage:** **45 Suites / 728 Tests / 100% Passing Rate**
+- **Automated Test Coverage:** **45 Suites / 738 Tests / 100% Passing Rate**
 - **Pending Actions:** **5 Remote Activation Tasks (Nov 28+ Execution Window)**
 - **Production Status:** **STRICTLY LOCKED PENDING REMOTE VALIDATION & PRODUCT OWNER SIGNOFF**

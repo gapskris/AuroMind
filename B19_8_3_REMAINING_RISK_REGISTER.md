@@ -15,7 +15,7 @@
 
 This register catalogs the active operational, architectural, and deployment risks prior to the scheduled remote cloud activation sprint on November 28, 2026.
 
-All connectivity-independent risks have been permanently closed through local code remediation, deterministic manifest generation, attributable audit logging, and automated testing (44 suites, 719 tests, 100% passing).
+All connectivity-independent risks have been permanently closed through local code remediation, deterministic manifest generation, attributable audit logging, and automated testing (45 suites, 738 tests, 100% passing).
 
 The remaining 6 risks pertain strictly to remote cloud interaction, IPv6 ISP routing, ledger synchronization under disaster recovery fallbacks, client-side zero-knowledge key management, and live edge cache lifecycles.
 
@@ -40,14 +40,18 @@ The remaining 6 risks pertain strictly to remote cloud interaction, IPv6 ISP rou
 - **Description:** Mobile hotspot or local ISP routing fails to resolve or route direct IPv6 TCP traffic to port 5432 on `db.rlqrtbjynaihdspbqtce.supabase.co`.
 - **Impact:** Direct `supabase db push` or psql connections timeout or fail during preflight and migration.
 - **Severity:** High | **Likelihood:** Medium | **Residual Risk:** Low-Medium (TLS 1.3 and CA Trust Verified; Auth & Migration Gates Pending)
-- **Mitigation & B19.8.3.1 Layered Evidence:**
-  1. **Layer 1 (DNS)**: Direct DB host fails IPv4 resolution on cellular hotspots. Primary Session Pooler (`aws-1-ap-southeast-1.pooler.supabase.com`) resolves cleanly to IPv4 (`54.179.210.0`), bypassing IPv6 routing barriers.
-  2. **Layer 2 (TCP)**: TCP socket connects successfully to primary Session Pooler on port `5432` with 73ms latency.
-  3. **Layer 3 (PostgreSQL Protocol)**: Primary Session Pooler accepts PostgreSQL STARTTLS SSLRequest packet (`80877103`), returning response byte `'S'` (SSL supported).
-  4. **Layer 4 (TLS Handshake & CA Trust)**: TLS 1.3 negotiated successfully with cipher `TLS_AES_256_GCM_SHA384`. Supabase Root CA `prod-ca-2021.crt` (`CN=Supabase Root 2021 CA`, valid to 2031) verified with `Authorized: true` and trust status `SUPABASE_CA_VERIFIED`.
-  5. **Session Pooler CLI Targeting & Zero-Exposure Credential Architecture**:
-     Supabase CLI 3.4.0 supports `--remote=<postgres-url>` targeting custom Postgres URLs. `buildSessionPoolerUrl` constructs `postgresql://postgres.rlqrtbjynaihdspbqtce@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=verify-full&sslrootcert=C:/AuroMindPortal/prod-ca-2021.crt` with password strictly omitted from CLI arguments. Password is delivered in-memory via `PGPASSWORD` environment variable, preventing password leakage in Windows process listings (`Get-CimInstance Win32_Process`), shell history, or logs.
-  6. **Remaining Verification Gates (Deferred to Live Broadband Activation in B19.9)**:
+- **Mitigation & B19.8.3.1 / B19.8.3.2 Layered Evidence:**
+  1. **Layer 1 (DNS)**: Direct DB host fails IPv4 resolution on cellular hotspots. Primary Session Pooler (`aws-1-ap-southeast-1.pooler.supabase.com`) resolves cleanly to IPv4 (`13.213.241.248`), bypassing IPv6 routing barriers.
+  2. **Layer 2 (TCP)**: TCP socket connects successfully to primary Session Pooler on port `5432` with 64ms latency. Transaction Pooler on port `6543` also connects.
+  3. **Layer 3 (PostgreSQL Protocol)**: Primary Session Pooler on port `5432` accepts PostgreSQL STARTTLS SSLRequest packet (`80877103`), returning response byte `'S'` (SSL supported).
+  4. **Layer 4 (TLS Handshake & CA Trust)**: TLS 1.3 negotiated successfully with cipher `TLS_AES_256_GCM_SHA384`. Supabase Root CA `prod-ca-2021.crt` (`CN=Supabase Root 2021 CA`, valid to 2031) verified with `Authorized: true` and trust status `SUPABASE_CA_VERIFIED`. Independent provenance verified against official Supabase Root CA SHA-256 fingerprint (`80:70:25:AD:50:D4:ED:21:9D:2C:9C:7D:29:9C:00:4F:82:4E:B0:0C:F7:F6:5A:FE:F6:07:D0:7B:72:E6:CA:FA`).
+  5. **B19.8.3.2 Independent CLI Credential & Driver Verification**:
+     - Supabase CLI 3.4.0 (`@effect/sql-pg` / `supabase.exe`) consumes `PGPASSWORD` directly from memory when provided a custom `--remote` URL without password.
+     - Confirmed that URL credentials override `PGPASSWORD`, making the zero-exposure URL structure (`includePassword: false`) mandatory to prevent argument leakage.
+     - Confirmed that URL parameters `sslmode` and `sslrootcert` override environment `PGSSL*` variables.
+     - Empirically proven strict verification under `sslmode=verify-full`: mismatched hostnames fail closed with altnames error, and untrusted CAs fail closed with `unable to verify the first certificate`.
+     - Zero password or PAT exposure verified in process listings (`Get-CimInstance Win32_Process`), command arguments, stdout, stderr, and sanitized exceptions.
+  6. **Four Remaining Remote Verification Gates (Deferred to Live Activation in B19.9)**:
      - **Gate 1: PostgreSQL Wire Authentication**: Challenge and verify `postgres.rlqrtbjynaihdspbqtce` role credentials over the pooler connection.
      - **Gate 2: Database Selection**: Confirm access to target database `postgres`.
      - **Gate 3: Schema Permissions**: Confirm DDL permissions, table creation, and read/write access to `supabase_migrations.schema_migrations`.

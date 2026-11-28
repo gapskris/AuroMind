@@ -44,8 +44,8 @@ npm run diagnose:network
 - **DNS Resolution**: Checks IPv4 and IPv6 records for `db.rlqrtbjynaihdspbqtce.supabase.co`, `aws-1-ap-southeast-1.pooler.supabase.com` (Primary Pooler), and `aws-0-ap-southeast-1.pooler.supabase.com`.
   - *If direct DB host fails IPv4 resolution (e.g. mobile hotspot)*: Verify that the primary AWS pooler host resolves IPv4 (e.g. `54.179.210.0`).
 - **TCP Reachability**:
-  - Primary Session Pooler port `5432` (`aws-1-ap-southeast-1.pooler.supabase.com`): Must establish TCP connection (typical latency < 100ms; Nov 28 confirmed 73ms).
-  - Legacy Pooler session port `6543`: Must establish TCP connection.
+  - Primary Session Pooler port `5432` (`aws-1-ap-southeast-1.pooler.supabase.com`): Must establish TCP connection (typical latency < 100ms; Nov 28 confirmed 64ms).
+  - Transaction Pooler port `6543`: Must establish TCP connection.
   - Direct DB port `5432`: May timeout on IPv6-only cellular networks.
 - **PostgreSQL STARTTLS Protocol (Layer 3)**:
   - SSLRequest packet (code 80877103) accepted by Session Pooler port `5432` with byte `'S'`.
