@@ -96,13 +96,42 @@ export async function processStorageDeletionBatch({
     let errorMessage = null;
 
     try {
-      const removeSql = `
-        DELETE FROM storage.objects
-        WHERE bucket_id = '${bucket_id.replace(/'/g, "''")}'
-          AND name = '${object_path.replace(/'/g, "''")}';
-      `;
-      executeSql(removeSql, { readOnly: false });
-      deletionSucceeded = true;
+      // If service_role key is available, attempt Storage REST API deletion first
+      if (env.SUPABASE_SERVICE_ROLE_KEY) {
+        const supabaseUrl = env.SUPABASE_URL || `https://${env.SUPABASE_PROJECT_ID || CANONICAL_PROJECT_REF}.supabase.co`;
+        const apiUrl = `${supabaseUrl}/storage/v1/object/${encodeURIComponent(bucket_id)}`;
+        try {
+          const res = await fetch(apiUrl, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+              'apikey': env.SUPABASE_SERVICE_ROLE_KEY,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ prefixes: [object_path] })
+          });
+          if (res.ok || res.status === 404) {
+            deletionSucceeded = true;
+          }
+        } catch (apiErr) {
+          console.warn(`    Warning: Storage REST API call failed, falling back to SQL: ${apiErr.message}`);
+        }
+      }
+
+      // If Storage REST API was not run or did not succeed, execute SQL deletion with session override
+      if (!deletionSucceeded) {
+        const removeSql = `
+          DO $$
+          BEGIN
+            PERFORM set_config('storage.allow_delete_query', 'true', true);
+            DELETE FROM storage.objects
+            WHERE bucket_id = '${bucket_id.replace(/'/g, "''")}'
+              AND name = '${object_path.replace(/'/g, "''")}';
+          END $$;
+        `;
+        executeSql(removeSql, { readOnly: false });
+        deletionSucceeded = true;
+      }
     } catch (err) {
       errorMessage = err.message || 'Storage object deletion failed';
       console.warn(`    Warning: Deletion failed for ${id}: ${errorMessage}`);

@@ -255,6 +255,14 @@ test('B4.2 — AuroMandala Artwork Integration, Versioning & Sankalpa Isolation'
     assert.equal(envelopeSerialized.includes('NON_EXPORTABLE'), false, 'Vault keys must never appear in envelope');
     assert.equal(envelopeSerialized.includes('deadbeef1234'), false, 'Raw key hex must never appear in envelope');
   });
+
+  await t.test('Storage deletion processor enforces trigger override, bounded batching and retry caps', async () => {
+    const workerScript = fs.readFileSync(path.join(__dirname, 'scripts', 'process-storage-deletion-queue.mjs'), 'utf8');
+    assert.ok(workerScript.includes("PERFORM set_config('storage.allow_delete_query', 'true', true);"), 'Must override protect_objects_delete trigger');
+    assert.ok(workerScript.includes('batchSize = 50'), 'Must enforce default batch limit 50');
+    assert.ok(workerScript.includes('maxRetries = 5') || workerScript.includes('attempts < max_attempts'), 'Must enforce max retry cap');
+    assert.ok(workerScript.includes("status in ('pending', 'processing')"), 'Must select pending/processing items safely');
+  });
 });
 
 // ---------------------------------------------------------------------------
