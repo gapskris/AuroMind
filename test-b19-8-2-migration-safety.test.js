@@ -261,6 +261,48 @@ describe('B19.8.2 Programmatic Migration Execution & 8-Gate Integration Guard', 
     );
   });
 
+  test('executeRemoteMigrations blocks execution when approvedBy is missing, empty, or non-attributable', () => {
+    const { validEvidence, validApproval } = getValidSetup();
+    
+    // 1. Missing approvedBy
+    assert.throws(
+      () => {
+        executeRemoteMigrations({
+          gateEvidence: validEvidence,
+          productOwnerApproval: { ...validApproval, approvedBy: '' },
+          rootDir: REPO_ROOT
+        });
+      },
+      /Product Owner approval must be explicitly attributable \(missing approvedBy\)/
+    );
+
+    // 2. Whitespace-only approvedBy
+    assert.throws(
+      () => {
+        executeRemoteMigrations({
+          gateEvidence: validEvidence,
+          productOwnerApproval: { ...validApproval, approvedBy: '   ' },
+          rootDir: REPO_ROOT
+        });
+      },
+      /Product Owner approval must be explicitly attributable \(missing approvedBy\)/
+    );
+  });
+
+  test('executeRemoteMigrations blocks execution when migrationSetCount does not match EXPECTED_MIGRATION_COUNT', () => {
+    const { validEvidence, validApproval } = getValidSetup();
+    assert.throws(
+      () => {
+        executeRemoteMigrations({
+          gateEvidence: validEvidence,
+          productOwnerApproval: { ...validApproval, migrationSetCount: 9 },
+          rootDir: REPO_ROOT
+        });
+      },
+      /Approval scopes 9 migrations, but repository requires exactly 10/
+    );
+  });
+
   // Individual failure conditions for each of the 7 other gates
   const gateTestMatrix = [
     { key: 'remoteMigrationHistoryVerified', name: 'Gate 1 (Remote History)' },
