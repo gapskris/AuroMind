@@ -6,24 +6,24 @@
 **Workspace:** `C:\AuroMindPortal`  
 **Branch:** `dev/studio-integration`  
 **Baseline Commit:** `51905465f3ac1e1e7ba2b8a78a855e90162a8b7f`  
-**Evaluation Date:** November 27, 2026  
+**Evaluation Date:** November 28, 2026 (Reconciled in B19.8.3.1)  
 **Commercial Gate:** `COMMERCIAL_GATE_ENABLED=false` (Strictly Enforced)
 
 ---
 
 ## 1. Executive Summary & Mathematical Parity Reconciliation
 
-This Master Issue Register establishes an exhaustive, mathematically reconciled accounting of every technical finding, security gap, migration risk, architectural ambiguity, and operational task across the AuroMasti project from baseline batches B17 through B19.8.3.
+This Master Issue Register establishes an exhaustive, mathematically reconciled accounting of every technical finding, security gap, migration risk, architectural ambiguity, and operational task across the AuroMasti project from baseline batches B17 through B19.8.3.1.
 
 ### Arithmetic Reconciliation & Parity Proof
 Every tracked issue across the lifecycle has a stable, unique identifier and belongs to exactly one terminal classification:
 
-- **Total Tracked Issues:** **39**
-- **Closed Locally (`CLOSED_LOCALLY`):** **27** (69.2%)
-- **Policy-Verified Invariants (`POLICY_VERIFIED`):** **7** (17.9%)
-- **Deferred to Remote Activation (`DEFERRED_REMOTE_ACTIVATION`):** **5** (12.8%)
+- **Total Tracked Issues:** **44**
+- **Closed Locally (`CLOSED_LOCALLY`):** **32** (72.7%)
+- **Policy-Verified Invariants (`POLICY_VERIFIED`):** **7** (15.9%)
+- **Deferred to Remote Activation (`DEFERRED_REMOTE_ACTIVATION`):** **5** (11.4%)
 - **Mathematical Parity Verification:**
-  $$27 \text{ (Closed Locally)} + 7 \text{ (Policy Verified)} + 5 \text{ (Deferred Activation)} = 39 \text{ (Total Issues)}$$
+  $$32 \text{ (Closed Locally)} + 7 \text{ (Policy Verified)} + 5 \text{ (Deferred Activation)} = 44 \text{ (Total Issues)}$$
 - **Parity Status:** **EXACT MATCH (ZERO DISCREPANCY)**
 
 ---
@@ -39,11 +39,12 @@ Every tracked issue across the lifecycle has a stable, unique identifier and bel
 | **PWA, Service Worker & Offline Delivery** | 3 | 0 | 0 | **3** |
 | **DevOps, CI/CD & Hosting Governance** | 2 | 0 | 4 | **6** |
 | **B19.8.3 Direct Engineering Remediations** | 5 | 0 | 0 | **5** |
-| **Total** | **27** | **7** | **5** | **39** |
+| **B19.8.3.1 Evidence Integrity & Residual Defect Remediations** | 5 | 0 | 0 | **5** |
+| **Total** | **32** | **7** | **5** | **44** |
 
 ---
 
-## 3. Master Issue Matrix (All 39 Issues)
+## 3. Master Issue Matrix (All 44 Issues)
 
 | Issue ID | Domain / Category | Severity | Origin | Title / Description | Status | Responsible Role | Dependencies | Resolution & Verification Evidence |
 |:---|:---|:---:|:---:|:---|:---:|:---|:---|:---|
@@ -81,6 +82,11 @@ Every tracked issue across the lifecycle has a stable, unique identifier and bel
 | **B83-03** | Database / Integrity | High | B19.8.3 | Canonical Migration Timestamps & DR Repair Guidance | `CLOSED_LOCALLY` | Database Architect | None | Eradicated invalid timestamp `20261124000001` across repo; verified 10 canonical timestamps (`20261120000001`..`20261123000002`). |
 | **B83-04** | Game / Integration | High | B19.8.3 | Three Launch Games Theater Exit & Delivery | `CLOSED_LOCALLY` | Fullstack Lead | None | Replaced hardcoded `gapskris.github.io` in `auromatch` with relative URL; verified `AUROMIND_CLOSE_THEATER` postMessage for all 3 games. |
 | **B83-05** | Cryptography / Privacy | High | B19.8.3 | Sankalpa PBKDF2 Recovery Truth Enforcement | `CLOSED_LOCALLY` | Security Architect | None | Confirmed WebCrypto PBKDF2 (210,000 iterations) AES-256-GCM JSON backup envelope. Completely purged false claims of BIP-39 mnemonics. |
+| **B831-01** | Database / Operations | High | B19.8.3.1 | Unsafe Blanket Migration Repair Replacement | `CLOSED_LOCALLY` | Database Reliability Lead | None | Replaced blanket repair loop with controlled 5-stage reconciliation procedure (`MIGRATION_RECOVERY_SPECIFICATION`) requiring affirmative catalog verification before any version marking. |
+| **B831-02** | Network / Security | High | B19.8.3.1 | Layered Network Diagnostic & TLS CA Trust Identification | `CLOSED_LOCALLY` | Security / Infrastructure Lead | None | Rewrote network diagnostic into 8 discrete layers; negotiated PostgreSQL STARTTLS SSLRequest; detected pooler certificate issued by private `CN: Supabase Intermediate 2021 CA`, clarifying CA trust requirements. |
+| **B831-03** | Game / Integration | High | B19.8.3.1 | Three-Game Real Browser Integration & Iframe PostMessage Contract Proof | `CLOSED_LOCALLY` | QA / Fullstack Lead | None | Authored Playwright/Edge integration tests proving independent launching, guest identity persistence, storage isolation, and strict `AUROMIND_CLOSE_THEATER` postMessage protocol for AuroMandala, MaaMATCH, and MaaBLOCK. |
+| **B831-04** | Cryptography / Privacy | High | B19.8.3.1 | Sankalpa 14-Step Recovery & Zero-Knowledge Network Privacy Proof | `CLOSED_LOCALLY` | Security Architect | None | Executed 14-step synthetic recovery lifecycle test covering export, import, bad passphrases, corrupted ciphertext/salt rejection, anti-downgrade rejection, non-destructive merge; proved zero network transmission of reflection plaintext, passphrases, or CryptoKeys via global fetch interception. |
+| **B831-05** | Governance / Acceptance | Medium | B19.8.3.1 | Acceptance Matrix B4 Dimension Splitting & Evidence Reconciliation | `CLOSED_LOCALLY` | Release Manager | None | Reconciled 36 canonical requirements; split B4 into B4.a (Local SQL search_path hardening: `VERIFIED_OFFLINE`) and B4.b (Remote function search_path verification: `PENDING_REMOTE_VALIDATION`), eliminating status-dependency contradiction. |
 | **NET-01** | Network / Connectivity | High | B19.8.3 | Supabase IPv4 Remote Preflight Drift Verification | `DEFERRED_REMOTE_ACTIVATION` | DBA / Backend Lead | IPv4 Connectivity | Blocked by IPv6 mobile hotspot routing; pooler fallback verified via `npm run diagnose:network`. |
 | **REM-01** | Database / Storage | High | B19.8.3 | Supabase Storage Bucket Creation & Remote RLS Activation | `DEFERRED_REMOTE_ACTIVATION` | Cloud DBA | IPv4 Connectivity | Migration 10 (`storage_buckets_and_rls.sql`) ready; executes during remote migration window. |
 | **ACT-01** | Deployment / Edge | High | B19.8.2 | Cloudflare Pages Staging Deployment Execution | `DEFERRED_REMOTE_ACTIVATION` | Release Manager | Git Push to dev | Cloudflare Pages staging build triggered via Git push; verify staging URL on Nov 28. |
@@ -92,6 +98,6 @@ Every tracked issue across the lifecycle has a stable, unique identifier and bel
 ## 4. Operational Signoff & Activation Status
 
 - **Offline Engineering Status:** **100% COMPLETE & ACCEPTED**
-- **Automated Test Coverage:** **43 Suites / 708 Tests / 100% Passing Rate**
+- **Automated Test Coverage:** **44 Suites / 719 Tests / 100% Passing Rate**
 - **Pending Actions:** **5 Remote Activation Tasks (Nov 28+ Execution Window)**
 - **Production Status:** **STRICTLY LOCKED PENDING REMOTE VALIDATION & PRODUCT OWNER SIGNOFF**

@@ -225,9 +225,9 @@ describe('B19.8.3 Suite 3: Migration Integrity Dimensions & Canonical Timestamps
 
   test('Disaster recovery SQL preview contains prominent ledger bypass warning and repair instructions', () => {
     const preview = fs.readFileSync(path.join(REPO_ROOT, 'supabase', 'consolidated_migration_preview.sql'), 'utf8');
-    assert.ok(preview.includes('ARCHITECTURAL WARNING (B82-03)'), 'Preview must have architectural warning banner');
+    assert.ok(preview.includes('ARCHITECTURAL WARNING (B82-03'), 'Preview must have architectural warning banner');
     assert.ok(preview.includes('supabase_migrations.schema_migrations'), 'Must cite ledger bypass');
-    assert.ok(preview.includes('supabase migration repair --status applied'), 'Must cite repair command');
+    assert.ok(preview.includes("CRITICAL RECOVERY SAFEGUARD: DO NOT execute a blanket 'supabase migration repair' loop"), 'Must prohibit blanket repair');
   });
 });
 

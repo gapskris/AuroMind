@@ -136,46 +136,57 @@ Get-Content supabase/verify_remote_schema.sql
 
 ---
 
-### Step 6: Emergency Disaster-Recovery Ledger Repair (Fallback Only)
+### Step 6: Emergency Controlled Disaster-Recovery & Ledger Reconciliation (Fallback Only)
 
 > [!CAUTION]
-> **USE ONLY IF PROGRAMMATIC CLI EXECUTION FAILS IRRECOVERABLY**  
-> If emergency deployment was performed by pasting `supabase/consolidated_migration_preview.sql` directly into the Supabase Dashboard SQL Editor, PostgreSQL created the tables but the `supabase_migrations.schema_migrations` tracking table was **BYPASSED**.  
-> You MUST sequentially repair the ledger using the exact 10 canonical timestamps below:
+> **CRITICAL RECOVERY GOVERNANCE — DO NOT EXECUTE A BLANKET REPAIR LOOP**  
+> Running `supabase migration repair --status applied <version>` merely alters migration-history bookkeeping. It DOES NOT prove that the SQL executed correctly, that objects exist, or that the schema matches the canonical implementation.  
+> Marking a migration as applied solely because SQL was submitted to the Dashboard SQL Editor is STRICTLY PROHIBITED.
 
+If programmatic CLI execution is permanently blocked by an irrecoverable network gateway defect and emergency manual execution was authorized by the Product Owner:
+
+#### 6.1 Pre-Recovery Safeguards & Inspection
+1. **Target Project Identity Check**: Verify connected project reference is exactly `rlqrtbjynaihdspbqtce`.
+2. **Pre-Execution Backup**: Trigger a manual snapshot or pg_dump backup in the Supabase Dashboard (`Database -> Backups`).
+3. **Read-Only Baseline Inspection**: Inspect current `schema_migrations` and `information_schema.tables` before touching any objects.
+4. **Attributable Emergency PO Authorization**: Obtain written Product Owner signoff specifically authorizing manual SQL execution.
+
+#### 6.2 Controlled Execution & Per-Migration Verification
+Execute individual migration scripts sequentially inside explicit transaction blocks (`BEGIN; ... COMMIT;`), verifying catalog objects before proceeding to the next migration.
+
+| Version | Migration File | Expected Objects | Verification SQL Query | Precondition for `migration repair` |
+| :--- | :--- | :--- | :--- | :--- |
+| **`20261120000001`** | `b5_core_schema.sql` | 12 tables (`profiles`, `user_roles`, `user_game_saves`, etc.), 3 functions (`handle_new_user`, etc.) | `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('profiles', 'user_roles', 'user_game_saves', 'user_achievements', 'user_artwork', 'artwork_likes', 'shared_mandala_gallery', 'sankalpa_entries', 'user_preferences', 'feedback_submissions', 'guest_conversions', 'cloud_sync_ledger');` | Affirmative query result = 12, RLS enabled on all 12. |
+| **`20261120000002`** | `b8_rate_limiting.sql` | Table `auromind_telemetry`, functions `record_telemetry_event`, `enforce_telemetry_rate_limit` | `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='auromind_telemetry';` | Affirmative query result = 1, functions exist. `20261120000001` reconciled. |
+| **`20261120000003`** | `b13a_telemetry_rls_hardening.sql` | Policy `telemetry_insert_only` on `auromind_telemetry` | `SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='auromind_telemetry' AND policyname='telemetry_insert_only';` | Affirmative query result = 1. `20261120000002` reconciled. |
+| **`20261120000004`** | `b13b_telemetry_retention.sql` | Function `purge_expired_telemetry_events()` | `SELECT count(*) FROM information_schema.routines WHERE routine_schema='public' AND routine_name='purge_expired_telemetry_events';` | Affirmative query result = 1. `20261120000003` reconciled. |
+| **`20261122000001`** | `b18c_profile_rls_separation.sql` | Policies `profiles_read_public`, `profiles_update_owner` on `profiles` | `SELECT count(*) FROM pg_policies WHERE schemaname='public' AND tablename='profiles' AND policyname IN ('profiles_read_public', 'profiles_update_owner');` | Affirmative query result = 2. `20261120000004` reconciled. |
+| **`20261122000002`** | `b18c_telemetry_token_bucket.sql` | Unlogged table `telemetry_rate_buckets` (`relpersistence='u'`), function `consume_token_bucket_slot` | `SELECT relpersistence FROM pg_class WHERE relname='telemetry_rate_buckets';` | Table exists with `relpersistence='u'` (unlogged). `20261122000001` reconciled. |
+| **`20261122000003`** | `b18c_telemetry_search_path_hardening.sql` | `search_path = pg_catalog, public` on `consume_token_bucket_slot` and `purge_expired_telemetry_events` | `SELECT count(*) FROM pg_proc WHERE proname IN ('consume_token_bucket_slot', 'purge_expired_telemetry_events') AND proconfig::text LIKE '%search_path=pg_catalog, public%';` | Affirmative query result = 2. `20261122000002` reconciled. |
+| **`20261122000004`** | `b18d_telemetry_token_bucket_input_validation.sql` | Parameter checks in `consume_token_bucket_slot` body | `SELECT prosrc FROM pg_proc WHERE proname='consume_token_bucket_slot' AND pronamespace='public'::regnamespace;` | Function body contains parameter validation checks. `20261122000003` reconciled. |
+| **`20261123000001`** | `b19_5_05_db_integrity_and_rls_hardening.sql` | FK constraints, cascade rules, 100% RLS across all 15 public tables | `SELECT count(*) FROM pg_tables WHERE schemaname='public' AND rowsecurity=true;` | Affirmative query result = 15. `20261122000004` reconciled. |
+| **`20261123000002`** | `b19_5_06_storage_buckets_and_rls.sql` | Table `storage_deletion_queue`, buckets `avatars` & `user-artwork` | `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='storage_deletion_queue'; SELECT count(*) FROM storage.buckets WHERE id IN ('avatars', 'user-artwork');` | Table exists and both buckets exist. `20261123000001` reconciled. |
+
+#### 6.3 Conditional Ledger Reconciliation (Per-Migration Command)
+Only AFTER the verification SQL query for migration $V_i$ returns the affirmative result, execute:
 ```powershell
-# 1. 20261120000001: Core Schema
-npx supabase migration repair --status applied 20261120000001
-
-# 2. 20261120000002: Rate Limiting
-npx supabase migration repair --status applied 20261120000002
-
-# 3. 20261120000003: Telemetry RLS Hardening
-npx supabase migration repair --status applied 20261120000003
-
-# 4. 20261120000004: Telemetry Retention
-npx supabase migration repair --status applied 20261120000004
-
-# 5. 20261122000001: Profile RLS Separation
-npx supabase migration repair --status applied 20261122000001
-
-# 6. 20261122000002: Telemetry Token Bucket
-npx supabase migration repair --status applied 20261122000002
-
-# 7. 20261122000003: Telemetry Search Path Hardening
-npx supabase migration repair --status applied 20261122000003
-
-# 8. 20261122000004: Telemetry Token Bucket Input Validation
-npx supabase migration repair --status applied 20261122000004
-
-# 9. 20261123000001: DB Integrity & RLS Hardening
-npx supabase migration repair --status applied 20261123000001
-
-# 10. 20261123000002: Storage Buckets & RLS
-npx supabase migration repair --status applied 20261123000002
+# Reconcile ONLY the verified migration version:
+npx supabase migration repair --status applied <verified_version>
 ```
 
-After repair, re-run `npm run migrate:preflight:remote` to confirm ledger status matches local repository.
+#### 6.4 Handling Partial Failure
+If any migration $V_k$ fails execution or verification:
+1. **HALT IMMEDIATELY**.
+2. **DO NOT run `migration repair`** for version $V_k$ or any subsequent migration.
+3. The ledger will accurately record that migrations through $V_{k-1}$ are applied and $V_k$ is unapplied.
+4. Diagnose and resolve the error on version $V_k$ before attempting further operations.
+
+#### 6.5 Post-Recovery Validation
+Once all verified versions are reconciled, run:
+```powershell
+npm run migrate:preflight:remote
+```
+Confirm that the preflight classifies the database state as fully synchronized with zero drift.
 
 ---
 

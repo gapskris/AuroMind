@@ -28,6 +28,8 @@ let overallSkip = 0;
 let overallFlaky = 0;
 let overallTotal = 0;
 
+const nodeBinary = process.env.NODE_CMD || 'node';
+
 for (const file of files) {
   process.stdout.write(`Executing ${file}... `);
   const startTime = Date.now();
@@ -36,7 +38,7 @@ for (const file of files) {
   let failureReason = null;
 
   try {
-    stdout = execSync(`agy-node --test ${file}`, {
+    stdout = execSync(`${nodeBinary} --test ${file}`, {
       cwd: rootDir,
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -50,12 +52,12 @@ for (const file of files) {
 
   const elapsed = Date.now() - startTime;
 
-  // Parse node:test summary lines
-  const testsMatch = stdout.match(/ℹ tests\s+(\d+)/);
-  const passMatch = stdout.match(/ℹ pass\s+(\d+)/);
-  const failMatch = stdout.match(/ℹ fail\s+(\d+)/);
-  const skipMatch = stdout.match(/ℹ skipped\s+(\d+)/);
-  const durationMatch = stdout.match(/ℹ duration_ms\s+([\d.]+)/);
+  // Parse node:test summary lines (supports both '#' TAP summary and 'ℹ' spec summary)
+  const testsMatch = stdout.match(/[#ℹ]\s*tests\s+(\d+)/);
+  const passMatch = stdout.match(/[#ℹ]\s*pass\s+(\d+)/);
+  const failMatch = stdout.match(/[#ℹ]\s*fail\s+(\d+)/);
+  const skipMatch = stdout.match(/[#ℹ]\s*skipped\s+(\d+)/);
+  const durationMatch = stdout.match(/[#ℹ]\s*duration_ms\s+([\d.]+)/);
 
   // Strict validation: Require parseable test summary
   const hasSummary = Boolean(testsMatch && passMatch);

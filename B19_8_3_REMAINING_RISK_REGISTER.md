@@ -6,7 +6,7 @@
 **Workspace:** `C:\AuroMindPortal`  
 **Branch:** `dev/studio-integration`  
 **Baseline Commit:** `51905465f3ac1e1e7ba2b8a78a855e90162a8b7f`  
-**Report Date:** November 27, 2026  
+**Report Date:** November 28, 2026 (Reconciled in B19.8.3.1)  
 **Commercial Gate:** `COMMERCIAL_GATE_ENABLED=false` (Strictly Preserved)
 
 ---
@@ -15,7 +15,7 @@
 
 This register catalogs the active operational, architectural, and deployment risks prior to the scheduled remote cloud activation sprint on November 28, 2026.
 
-All connectivity-independent risks have been permanently closed through local code remediation, deterministic manifest generation, attributable audit logging, and automated testing (43 suites, 708 tests, 100% passing).
+All connectivity-independent risks have been permanently closed through local code remediation, deterministic manifest generation, attributable audit logging, and automated testing (44 suites, 719 tests, 100% passing).
 
 The remaining 6 risks pertain strictly to remote cloud interaction, IPv6 ISP routing, ledger synchronization under disaster recovery fallbacks, client-side zero-knowledge key management, and live edge cache lifecycles.
 
@@ -25,12 +25,12 @@ The remaining 6 risks pertain strictly to remote cloud interaction, IPv6 ISP rou
 
 | Risk ID | Title | Category | Severity | Likelihood | Residual Risk | Status |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- |
-| **RSK-01** | Mobile Hotspot IPv6 Direct DB Failure | Infrastructure | High | Medium | Low | Mitigated by Pooler Fallback & `diagnose:network` |
+| **RSK-01** | Mobile Hotspot IPv6 Direct DB Failure | Infrastructure | High | Medium | Medium | Partially Mitigated by Pooler TCP/TLS; Auth & CLI Pending |
 | **RSK-02** | Dashboard SQL Ledger Divergence | Database | High | Low | Low | Mitigated by Repair Runbook & 10 Canonical Timestamps |
-| **RSK-03** | Cloudflare Pages vs Custom Apex Routing | Deployment | Medium | Low | Low | Mitigated by `_routes.json` & `_headers` Guard |
-| **RSK-04** | Service Worker Aggressive Asset Caching | Client PWA | Medium | Low | Low | Mitigated by Cache-First SDK & `no-cache` SW Headers |
-| **RSK-05** | Sankalpa Zero-Knowledge Passphrase Loss | Privacy / UX | High | Medium | Medium | Mitigated by PBKDF2 Encrypted JSON Backup (No Mnemonics) |
-| **RSK-06** | Remote Supabase API Rate Throttling | Availability | Medium | Low | Low | Mitigated by Offline Outbox & Token Bucket Limiter |
+| **RSK-03** | Cloudflare Pages vs Custom Apex Routing | Deployment | Medium | Low | Medium | Config Validated Offline; Live Edge Verification Pending |
+| **RSK-04** | Service Worker Aggressive Asset Caching | Client PWA | Medium | Low | Low | Tested on Desktop Chromium/Edge; Mobile WebKit Untested |
+| **RSK-05** | Sankalpa Zero-Knowledge Passphrase Loss | Privacy / UX | High | Medium | Medium | Mitigated by PBKDF2 Backup; Inherent ZK Key Loss Risk Retained |
+| **RSK-06** | Remote Supabase API Rate Throttling | Availability | Medium | Low | Low | Local Outbox & Limiter Verified; Live Cloud Throttling Pending |
 
 ---
 
@@ -39,70 +39,65 @@ The remaining 6 risks pertain strictly to remote cloud interaction, IPv6 ISP rou
 ### RSK-01: Mobile Hotspot IPv6 Direct DB Connectivity Failure
 - **Description:** Mobile hotspot or local ISP routing fails to resolve or route direct IPv6 TCP traffic to port 5432 on `db.rlqrtbjynaihdspbqtce.supabase.co`.
 - **Impact:** Direct `supabase db push` or psql connections timeout or fail during preflight and migration.
-- **Severity:** High | **Likelihood:** Medium | **Residual Risk:** Low
-- **Mitigation & B19.8.3 Evidence:**
-  1. The new standalone diagnostic script `scripts/diagnose-network.mjs` (`npm run diagnose:network`) was executed and proved that while direct IPv6 fails, the AWS pooler `aws-0-ap-southeast-1.pooler.supabase.com` resolves cleanly to IPv4 (`52.77.146.31`) and establishes TCP handshakes on port 6543 (96ms) and port 5432 (84ms).
-  2. The preflight runner in `scripts/migration-workflow.mjs` provides explicit failure categorization (`DNS_RESOLUTION_FAILURE`, `CONNECTION_TIMEOUT`, `NETWORK_UNREACHABLE`).
-  3. Preflight fails safe immediately without modifying any tables.
+- **Severity:** High | **Likelihood:** Medium | **Residual Risk:** Medium (Pending live authentication in B19.9)
+- **Mitigation & B19.8.3.1 Layered Evidence:**
+  1. **Layer 1 (DNS)**: Direct host fails IPv4 resolution on cellular hotspots. AWS Pooler (`aws-0-ap-southeast-1.pooler.supabase.com`) resolves cleanly to IPv4 (`52.77.146.31`).
+  2. **Layer 2 (TCP)**: TCP sockets establish connection to pooler port 6543 (session pooler, 135ms latency) and port 5432 (transaction pooler).
+  3. **Layer 3 (PostgreSQL Protocol)**: Pooler accepts PostgreSQL SSLRequest packet (`80877103`), returning response byte `'S'` (STARTTLS supported).
+  4. **Layer 4 (TLS Handshake & Trust)**: TLS negotiation succeeds (`TLSv1.3`, `TLS_AES_256_GCM_SHA384`). The server certificate is issued by `CN: Supabase Intermediate 2021 CA`. Standard system root CAs report `self-signed certificate in certificate chain`, proving that client drivers require Supabase CA trust or `sslmode=require` configuration.
+  5. **Layers 5–8 (PostgreSQL Authentication, DB Selection, Permissions, CLI Compatibility)**: Strictly UNVERIFIED / NOT_TESTED in offline mode. TCP and TLS reachability do not imply database authentication or migration compatibility. Full verification will occur during the B19.9 remote activation window.
+  6. The preflight runner in `scripts/migration-workflow.mjs` provides explicit failure categorization (`DNS_RESOLUTION_FAILURE`, `CONNECTION_TIMEOUT`, `NETWORK_UNREACHABLE`) and fails safe immediately without modifying any tables.
 
 ### RSK-02: Dashboard SQL Ledger Divergence
 - **Description:** If emergency disaster recovery requires applying `consolidated_migration_preview.sql` manually in the Supabase Dashboard SQL Editor, PostgreSQL DDL executes but the `supabase_migrations.schema_migrations` tracking table is bypassed. Subsequent CLI runs (`supabase db push`) would assume migrations are unapplied and attempt duplicate DDL execution, resulting in fatal schema collision errors.
 - **Impact:** CLI migration tracking becomes desynchronized from the actual database state.
 - **Severity:** High | **Likelihood:** Low | **Residual Risk:** Low
-- **Mitigation & B19.8.3 Evidence:**
+- **Mitigation & B19.8.3.1 Evidence:**
   1. Emergency manual SQL execution is formally classified as a disaster-recovery fallback, not an alternative deployment path.
-  2. Prominent warning banners (`ARCHITECTURAL WARNING (B82-03)`) are injected at the top of `supabase/consolidated_migration_preview.sql` and the CLI bundle output.
-  3. Eradicated invalid timestamp `20261124000001` across the repository. The disaster recovery runbook strictly prescribes sequential execution across the exact 10 canonical timestamps:
-     ```powershell
-     # Execute sequentially for each canonical migration applied via SQL editor:
-     npx supabase migration repair --status applied 20261120000001
-     npx supabase migration repair --status applied 20261121000001
-     npx supabase migration repair --status applied 20261121000002
-     npx supabase migration repair --status applied 20261121000003
-     npx supabase migration repair --status applied 20261122000001
-     npx supabase migration repair --status applied 20261122000002
-     npx supabase migration repair --status applied 20261122000003
-     npx supabase migration repair --status applied 20261123000001
-     npx supabase migration repair --status applied 20261123000002
-     ```
-  4. Integration tests in `test-b19-8-3-remediation.test.js` verify warning presence and exact 10-timestamp consistency.
+  2. Prominent warning banners (`ARCHITECTURAL WARNING (B82-03 / B19.8.3.1)`) are injected at the top of `supabase/consolidated_migration_preview.sql` and the CLI bundle generator.
+  3. **Strict Prohibition of Blanket Repair**: Blanket `migration repair` loops without affirmative verification are strictly prohibited. Ledger reconciliation is allowed ONLY on a strict per-migration basis after catalog inspection confirms all expected objects (tables, functions, policies) exist on the remote database.
+  4. The controlled recovery procedure is documented in `B19_8_3_REMOTE_PREFLIGHT_RUNBOOK.md` Step 6 and exported programmatically in `MIGRATION_RECOVERY_SPECIFICATION` in `scripts/migration-workflow.mjs`.
+  5. Integration tests verify warning presence, per-migration recovery specifications, and exact 10-timestamp consistency.
 
 ### RSK-03: Cloudflare Pages Routing vs Custom Apex Domain Routing
 - **Description:** Differences between Cloudflare Pages default deployment (`*.pages.dev`) and custom domain edge routing (`auromasti.com`) could introduce CSP header mismatches or SPA fallback routing errors.
 - **Impact:** Sub-game iframes or deep links could receive 404s or CSP blocking.
-- **Severity:** Medium | **Likelihood:** Low | **Residual Risk:** Low
-- **Mitigation & B19.8.3 Evidence:**
-  1. `_headers` and `_routes.json` files are tested and validated in test suites `b18-b5-csp.test.js` and `f3-f5-deployment-lifecycle.test.js`.
-  2. Preflight validator `scripts/validate-cloudflare-config.mjs` verifies header formatting and origin whitelisting.
-  3. GitHub Pages deployment has been restricted to manual `workflow_dispatch` only (`.github/workflows/pages.yml`), eliminating split-brain hosting.
+- **Severity:** Medium | **Likelihood:** Low | **Residual Risk:** Medium (Pending live staging deployment)
+- **Mitigation & B19.8.3.1 Evidence:**
+  1. Static configuration files `_headers` and `_routes.json` are validated offline by `scripts/validate-cloudflare-config.mjs` and tested in `b18-b5-csp.test.js`.
+  2. Local verification confirms syntax and origin definitions, but DOES NOT prove live Cloudflare edge response behavior.
+  3. Live edge header and routing verification is classified as `PENDING_REMOTE_VALIDATION` to be executed on `staging.auromasti.pages.dev` in B19.9.
 
 ### RSK-04: Service Worker Aggressive Asset Caching on Mobile Devices
 - **Description:** Mobile browsers (especially iOS WebKit and Android Chrome) aggressively cache Service Worker scripts and cached PWA assets, potentially preventing clients from fetching updated game bundles or migration contracts.
 - **Impact:** Users might run stale game code or obsolete API payloads.
 - **Severity:** Medium | **Likelihood:** Low | **Residual Risk:** Low
-- **Mitigation & B19.8.3 Evidence:**
-  1. Real browser E2E test suites `auroblocks-sw-security.test.js` and `f2-cache-lifecycle-safeguards.test.js` verify that new SW versions install, activate, claim clients, and isolate cache namespaces (`auroblocks-v*`, `auromind-portal-v*`).
-  2. Cache-Control headers on `sw.js` and `service-worker.js` are strictly set to `no-cache, no-store, must-revalidate` in Cloudflare `_headers`.
-  3. Root `sw.js` delivers `assets/sdk/*` via Cache-First strategy to child game iframes while allowing sub-game service workers complete autonomy over `/games/*`.
+- **Mitigation & B19.8.3.1 Evidence:**
+  1. Real browser E2E test suites `auroblocks-sw-security.test.js` and `f2-cache-lifecycle-safeguards.test.js` verify that new SW versions install, activate, claim clients, and isolate cache namespaces (`auroblocks-v*`, `auromind-portal-v*`) on Chromium / Microsoft Edge on desktop.
+  2. **Test Scope Limitation**: Testing is confirmed on Chromium desktop engine; mobile WebKit (iOS Safari) and mobile Chrome lifecycle must be smoke-tested on physical devices during staging validation.
+  3. Cache-Control headers on `sw.js` and `service-worker.js` are strictly set to `no-cache, no-store, must-revalidate` in Cloudflare `_headers`.
+  4. Root `sw.js` delivers `assets/sdk/*` via Cache-First strategy to child game iframes while allowing sub-game service workers complete autonomy over `/games/*`.
 
 ### RSK-05: Sankalpa Zero-Knowledge Passphrase Loss
 - **Description:** Sankalpa reflections are encrypted client-side using WebCrypto AES-GCM-256 derived via PBKDF2 from a user-supplied passphrase. If a user forgets their passphrase, the server cannot recover the data.
 - **Impact:** Permanent loss of encrypted reflection text for that individual user.
-- **Severity:** High (User perception) | **Likelihood:** Medium | **Residual Risk:** Medium
-- **Mitigation & B19.8.3 Evidence:**
+- **Severity:** High (User perception) | **Likelihood:** Medium | **Residual Risk:** Medium (Inherent zero-knowledge architectural risk)
+- **Mitigation & B19.8.3.1 Evidence:**
   1. The UX displays prominent warnings during passphrase setup explaining zero-knowledge architecture.
   2. Encrypted JSON backup export (`exportEncryptedBackup`) protected by PBKDF2 (210,000 iterations) with non-destructive merge import (`importEncryptedBackup`).
   3. **Truth in Documentation**: Purged all false claims suggesting BIP-39 mnemonic phrase backup exists. The system relies strictly on PBKDF2 encrypted JSON envelopes.
-  4. Only reflection body content is encrypted; user accounts, achievements, flora garden, and settings remain fully functional regardless of Sankalpa encryption status.
+  4. Full 14-step recovery test suite (`test-b19-8-3-1-integration-and-recovery.test.js`) verifies successful backup export, clean vault import, corrupted backup rejection, and wrong passphrase rejection.
+  5. Only reflection body content is encrypted; user accounts, achievements, flora garden, and settings remain fully functional regardless of Sankalpa encryption status.
 
 ### RSK-06: Remote Supabase API Rate Throttling or Degraded Cloud Service
 - **Description:** Burst traffic during launch or temporary Cloudflare/Supabase outage could cause transient 429 (Too Many Requests) or 503 errors.
 - **Impact:** Telemetry, artwork sync, or auth profile updates temporarily fail to reach cloud storage.
 - **Severity:** Medium | **Likelihood:** Low | **Residual Risk:** Low
-- **Mitigation & B19.8.3 Evidence:**
+- **Mitigation & B19.8.3.1 Evidence:**
   1. Offline-First Architecture: Portal and games operate 100% locally using IndexedDB (`localforage`).
   2. Persistent Outbox Queue: All mutations are staged in an offline queue with exponential backoff and jitter (`b19-5-07a-outbox-isolation.test.js`).
   3. Token Bucket Rate Limiting: Client-side token bucket throttling (`b18-d-token-bucket-validation.test.js`) prevents the client from flooding Supabase endpoints.
+  4. **Distinction**: Local simulation validates that the client throttles requests and queues mutations, but actual remote cloud 429/503 behavior remains pending live traffic observation.
 
 ---
 

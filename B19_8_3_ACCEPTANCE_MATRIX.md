@@ -6,7 +6,7 @@
 **Workspace:** `C:\AuroMindPortal`  
 **Branch:** `dev/studio-integration`  
 **Baseline Commit:** `51905465f3ac1e1e7ba2b8a78a855e90162a8b7f`  
-**Evaluation Date:** November 27, 2026  
+**Evaluation Date:** November 28, 2026 (Reconciled in B19.8.3.1)  
 **Commercial Gate:** `COMMERCIAL_GATE_ENABLED=false` (Strictly Enforced)
 
 ---
@@ -16,7 +16,7 @@
 > [!IMPORTANT]
 > **OFFLINE ENGINEERING ACCEPTED — REMOTE ACTIVATION PENDING — PRODUCTION RELEASE NOT YET AUTHORIZED**
 
-Every locally implementable, verifiable, and testable engineering requirement across the 36 canonical specifications has been implemented, validated, and confirmed with 100% pass rates across 43 automated test suites (708 tests).
+Every locally implementable, verifiable, and testable engineering requirement across the 36 canonical specifications has been implemented, validated, and confirmed with 100% pass rates across 44 automated test suites (719 tests, including the B19.8.3.1 integration and recovery suite).
 
 Remote mutations (`supabase db push`, remote SQL execution, Edge Function deployment, Cloudflare Pages live production promotion, and DNS cutover) remain strictly prohibited until live network connectivity resumes and attributable Product Owner approval is formally registered.
 
@@ -24,24 +24,24 @@ Remote mutations (`supabase db push`, remote SQL execution, Edge Function deploy
 
 ## 2. Granular 8-State Classification Model
 
-To maintain complete transparency and avoid misleading claims of "cloud readiness" without active remote validation, requirements are evaluated under the 8-state governance model:
+To maintain complete transparency and avoid misleading claims of "cloud readiness" without active remote validation, requirements are evaluated under the 8-state governance model. Requirement B4 is split into its offline static SQL analysis (`B4.a`) and remote catalog verification (`B4.b`), preserving the 36 canonical baseline requirements while providing granular sub-requirement accounting (37 itemized rows):
 
-1. **`VERIFIED_OFFLINE` (11 requirements, 30.6%)**: Cryptographic hashes, SQL syntax/invariants, structural manifests, secret quarantines, and security policies verified offline against raw code and AST scanners.
-2. **`VERIFIED_BROWSER_LOCAL` (14 requirements, 38.9%)**: Functional UX, audio restoration, PWA offline resilience, multi-device touch UI, and postMessage iframe theater contracts verified in real browser runtimes (Playwright / Chromium).
-3. **`PENDING_REMOTE_VALIDATION` (8 requirements, 22.2%)**: Complete local implementations, migration files, and preflight scripts; requires active network connectivity to verify against live Supabase or Cloudflare APIs.
-4. **`PENDING_LIVE_DEPLOYMENT` (1 requirement, 2.8%)**: Live Cloudflare Pages production custom apex domain cutover (`auromasti.com`).
-5. **`BLOCKED_APPROVAL` (2 requirements, 5.6%)**: Technologically prepared and guarded; requires formal, attributable Product Owner signoff (`B6` and `F6`).
+1. **`VERIFIED_OFFLINE` (11 requirements, 29.7% of itemized)**: Cryptographic hashes, SQL syntax/invariants (`B4.a`), structural manifests, secret quarantines, and security policies verified offline against raw code and AST scanners.
+2. **`VERIFIED_BROWSER_LOCAL` (14 requirements, 37.8% of itemized)**: Functional UX, audio restoration, PWA offline resilience, multi-device touch UI, and postMessage iframe theater contracts verified in real browser runtimes (Playwright / Chromium).
+3. **`PENDING_REMOTE_VALIDATION` (9 requirements, 24.3% of itemized)**: Complete local implementations, migration files (`B4.b`), and preflight scripts; requires active network connectivity to verify against live Supabase or Cloudflare APIs.
+4. **`PENDING_LIVE_DEPLOYMENT` (1 requirement, 2.7% of itemized)**: Live Cloudflare Pages production custom apex domain cutover (`auromasti.com`).
+5. **`BLOCKED_APPROVAL` (2 requirements, 5.4% of itemized)**: Technologically prepared and guarded; requires formal, attributable Product Owner signoff (`B6` and `F6`).
 
 ### Category Distribution Summary
 
-| Granular Status | Count | Percentage | Verification Basis |
-| :--- | :---: | :---: | :--- |
-| **`VERIFIED_OFFLINE`** | 11 | 30.6% | AST scanners, SHA-256 invariants, static validators |
-| **`VERIFIED_BROWSER_LOCAL`** | 14 | 38.9% | Native Node test runner, headless Chromium, WebCrypto |
-| **`PENDING_REMOTE_VALIDATION`** | 8 | 22.2% | Blocked on IPv4/IPv6 remote cloud connectivity (Nov 28) |
-| **`PENDING_LIVE_DEPLOYMENT`** | 1 | 2.8% | Blocked on production DNS apex cutover |
-| **`BLOCKED_APPROVAL`** | 2 | 5.6% | Blocked on formal Product Owner digital authorization |
-| **Total Canonical Requirements** | **36** | **100.0%** | **All 36 Requirements Formally Accounted For** |
+| Granular Status | Canonical Baseline | Itemized Sub-Reqs | Percentage (Itemized) | Verification Basis |
+| :--- | :---: | :---: | :---: | :--- |
+| **`VERIFIED_OFFLINE`** | 11 | 11 | 29.7% | AST scanners, SHA-256 invariants, static validators |
+| **`VERIFIED_BROWSER_LOCAL`** | 14 | 14 | 37.8% | Native Node test runner, headless Chromium, WebCrypto |
+| **`PENDING_REMOTE_VALIDATION`** | 8 | 9 | 24.3% | Blocked on IPv4/IPv6 remote cloud connectivity (Nov 28) |
+| **`PENDING_LIVE_DEPLOYMENT`** | 1 | 1 | 2.7% | Blocked on production DNS apex cutover |
+| **`BLOCKED_APPROVAL`** | 2 | 2 | 5.4% | Blocked on formal Product Owner digital authorization |
+| **Total** | **36** | **37** | **100.0%** | **All 36 Requirements Formally Accounted For** |
 
 ---
 
@@ -80,7 +80,8 @@ In addition to the 36 baseline requirements, B19.8.3 introduces 4 foundational e
 | **B1** | Canonical 10-Migration Sequence | Exactly 10 migration files in strict lexical timestamp order | Verified in `test-b19-8-3-remediation.test.js` & manifest | `VERIFIED_OFFLINE` | No | 10 canonical files match `migrations_manifest.json` (`f55231159389...`) | None |
 | **B2** | 15 Public Tables with Unlogged Table | Schema defines 14 logged + 1 unlogged (`telemetry_rate_buckets`) | Regex & schema script verified in `test-b19-8-1-governance.test.js` | `PENDING_REMOTE_VALIDATION` | Yes | All 15 public tables exist on live PostgreSQL instance | Supabase remote push on Nov 28 |
 | **B3** | 100% Row Level Security (RLS) Coverage | Every public table must have RLS explicitly enabled | Verified in `verify_remote_schema.sql` & `b5-supabase.test.js` | `PENDING_REMOTE_VALIDATION` | Yes | Zero public tables without RLS on remote instance | Supabase remote push on Nov 28 |
-| **B4** | SECURITY DEFINER Search Path Hardening | `SET search_path = pg_catalog, public` on all sec-definer funcs | Verified in migration SQL audit & verification scripts | `VERIFIED_OFFLINE` | Yes | Zero sec-definer functions without hardened search_path on remote | Supabase remote push on Nov 28 |
+| **B4.a** | SECURITY DEFINER Search Path Hardening (Local SQL) | `SET search_path = pg_catalog, public` on all sec-definer funcs in migration SQL | Verified in migration SQL AST scan & `test-b19-8-3-remediation.test.js` | `VERIFIED_OFFLINE` | No | Zero sec-definer functions without hardened search_path in migration files | None |
+| **B4.b** | SECURITY DEFINER Search Path Verification (Remote Catalog) | Verify runtime `proconfig` contains `search_path` on live PostgreSQL functions | Defined in `scripts/verify_remote_schema.sql` (Check 4) | `PENDING_REMOTE_VALIDATION` | Yes | Zero sec-definer functions without hardened search_path in remote `pg_proc` | Supabase remote push on Nov 28 |
 | **B5** | Zero Destructive SQL Operations | No `DROP TABLE`, `DROP COLUMN`, or `TRUNCATE` statements | Verified by AST scanner in `scripts/migration-workflow.mjs` | `VERIFIED_OFFLINE` | No | Zero destructive SQL in any migration file | None |
 | **B6** | Automated 8-Gate Execution Guard | Fail-closed guard requiring 8 conditions for remote push | Implemented & verified in `test-b19-8-3-remediation.test.js` | `BLOCKED_APPROVAL` | Yes | Formal PO approval signed; all 8 gates verified prior to push | Attributable PO signature on Nov 28 |
 
@@ -142,9 +143,9 @@ In addition to the 36 baseline requirements, B19.8.3 introduces 4 foundational e
 
 | Dimension | Posture | Decision |
 | :--- | :---: | :--- |
-| **Offline Engineering Quality** | **100% COMPLETE** | **GO** — 708/708 tests passing; 0 regressions; sacred invariants verified |
+| **Offline Engineering Quality** | **100% COMPLETE** | **GO** — 719/719 tests passing across 44 suites; 0 regressions; sacred invariants verified |
 | **Local Preflight Validation** | **100% COMPLETE** | **GO** — `npm run migrate:preflight` confirms local manifest & AST integrity |
-| **Network & Pooler Diagnostic** | **100% READY** | **GO** — `npm run diagnose:network` confirms pooler connectivity & port readiness |
+| **Network & Pooler Diagnostic** | **100% READY** | **GO** — `npm run diagnose:network` confirms 8-layer network diagnostics and pooler STARTTLS readiness |
 | **Remote Database Preflight** | **DEFERRED** | **HOLD** — Awaiting IPv4 network window (Nov 28) to run `migrate:preflight:remote` |
 | **Cloudflare Staging Deploy** | **DEFERRED** | **HOLD** — Awaiting network window (Nov 28) |
 | **Production Migration Execution** | **LOCKED** | **NO-GO** — Strict gate enforcement until PO approval and preflight pass |

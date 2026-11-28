@@ -626,8 +626,126 @@ export function detectRemoteDrift(localMigrations, remoteOutput = '') {
 }
 
 /**
+ * Comprehensive recovery specification for each canonical migration.
+ * Enforces per-migration verification before any ledger reconciliation.
+ * Blanket repair without affirmative schema inspection is strictly prohibited.
+ */
+export const MIGRATION_RECOVERY_SPECIFICATION = [
+  {
+    version: '20261120000001',
+    file: '20261120000001_b5_core_schema.sql',
+    description: 'Core application schema (profiles, roles, saves, achievements, artwork, likes, gallery, sankalpa, prefs, feedback, guests, sync ledger)',
+    expectedTables: [
+      'public.profiles',
+      'public.user_roles',
+      'public.user_game_saves',
+      'public.user_achievements',
+      'public.user_artwork',
+      'public.artwork_likes',
+      'public.shared_mandala_gallery',
+      'public.sankalpa_entries',
+      'public.user_preferences',
+      'public.feedback_submissions',
+      'public.guest_conversions',
+      'public.cloud_sync_ledger'
+    ],
+    expectedFunctions: [
+      'public.handle_new_user',
+      'public.sync_artwork_likes_count',
+      'public.enforce_max_pinned_achievements'
+    ],
+    verificationQuery: "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('profiles', 'user_roles', 'user_game_saves', 'user_achievements', 'user_artwork', 'artwork_likes', 'shared_mandala_gallery', 'sankalpa_entries', 'user_preferences', 'feedback_submissions', 'guest_conversions', 'cloud_sync_ledger');",
+    expectedCount: 12,
+    reconciliationPrecondition: 'AFFIRMATIVE_INSPECTION_PASSED: All 12 tables and 3 functions exist with RLS enabled.'
+  },
+  {
+    version: '20261120000002',
+    file: '20261120000002_b8_rate_limiting.sql',
+    description: 'Rate limiting and telemetry capture table and functions',
+    expectedTables: ['public.auromind_telemetry'],
+    expectedFunctions: ['public.record_telemetry_event', 'public.enforce_telemetry_rate_limit'],
+    verificationQuery: "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'auromind_telemetry';",
+    expectedCount: 1,
+    reconciliationPrecondition: 'AFFIRMATIVE_INSPECTION_PASSED: Table exists and 20261120000001 is reconciled.'
+  },
+  {
+    version: '20261120000003',
+    file: '20261120000003_b13a_telemetry_rls_hardening.sql',
+    description: 'Telemetry RLS insert-only policy hardening',
+    expectedPolicies: ['telemetry_insert_only'],
+    verificationQuery: "SELECT policyname FROM pg_policies WHERE schemaname = 'public' AND tablename = 'auromind_telemetry' AND policyname = 'telemetry_insert_only';",
+    expectedCount: 1,
+    reconciliationPrecondition: 'AFFIRMATIVE_INSPECTION_PASSED: Policy exists and 20261120000002 is reconciled.'
+  },
+  {
+    version: '20261120000004',
+    file: '20261120000004_b13b_telemetry_retention.sql',
+    description: 'Telemetry retention purge function (60-day expiry)',
+    expectedFunctions: ['public.purge_expired_telemetry_events'],
+    verificationQuery: "SELECT routine_name FROM information_schema.routines WHERE routine_schema = 'public' AND routine_name = 'purge_expired_telemetry_events';",
+    expectedCount: 1,
+    reconciliationPrecondition: 'AFFIRMATIVE_INSPECTION_PASSED: Function exists and 20261120000003 is reconciled.'
+  },
+  {
+    version: '20261122000001',
+    file: '20261122000001_b18c_profile_rls_separation.sql',
+    description: 'Profile RLS separation (public read-only profiles, authenticated user modification)',
+    expectedPolicies: ['profiles_read_public', 'profiles_update_owner'],
+    verificationQuery: "SELECT policyname FROM pg_policies WHERE schemaname = 'public' AND tablename = 'profiles';",
+    expectedCount: 2,
+    reconciliationPrecondition: 'AFFIRMATIVE_INSPECTION_PASSED: Policies exist and 20261120000004 is reconciled.'
+  },
+  {
+    version: '20261122000002',
+    file: '20261122000002_b18c_telemetry_token_bucket.sql',
+    description: 'Unlogged token bucket rate limiter table and slot consumption function',
+    expectedTables: ['public.telemetry_rate_buckets'],
+    expectedFunctions: ['public.consume_token_bucket_slot'],
+    verificationQuery: "SELECT relname, relpersistence FROM pg_class WHERE relname = 'telemetry_rate_buckets';",
+    expectedCount: 1,
+    reconciliationPrecondition: 'AFFIRMATIVE_INSPECTION_PASSED: Table is unlogged (u) and 20261122000001 is reconciled.'
+  },
+  {
+    version: '20261122000003',
+    file: '20261122000003_b18c_telemetry_search_path_hardening.sql',
+    description: 'SECURITY DEFINER search_path hardening on telemetry functions',
+    expectedFunctions: ['public.consume_token_bucket_slot', 'public.purge_expired_telemetry_events'],
+    verificationQuery: "SELECT proname, proconfig FROM pg_proc WHERE proname IN ('consume_token_bucket_slot', 'purge_expired_telemetry_events') AND pronamespace = 'public'::regnamespace;",
+    expectedCount: 2,
+    reconciliationPrecondition: 'AFFIRMATIVE_INSPECTION_PASSED: Functions have hardened search_path and 20261122000002 is reconciled.'
+  },
+  {
+    version: '20261122000004',
+    file: '20261122000004_b18d_telemetry_token_bucket_input_validation.sql',
+    description: 'Input validation and parameter constraint hardening on token bucket function',
+    expectedFunctions: ['public.consume_token_bucket_slot'],
+    verificationQuery: "SELECT prosrc FROM pg_proc WHERE proname = 'consume_token_bucket_slot' AND pronamespace = 'public'::regnamespace;",
+    expectedCount: 1,
+    reconciliationPrecondition: 'AFFIRMATIVE_INSPECTION_PASSED: Function definition validated and 20261122000003 is reconciled.'
+  },
+  {
+    version: '20261123000001',
+    file: '20261123000001_b19_5_05_db_integrity_and_rls_hardening.sql',
+    description: 'Foreign key constraints, cascade rules, check constraints, and 100% RLS enforcement',
+    expectedTables: ['15 public tables with RLS enabled'],
+    verificationQuery: "SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname = 'public';",
+    expectedCount: 15,
+    reconciliationPrecondition: 'AFFIRMATIVE_INSPECTION_PASSED: 100% RLS coverage confirmed and 20261122000004 is reconciled.'
+  },
+  {
+    version: '20261123000002',
+    file: '20261123000002_b19_5_06_storage_buckets_and_rls.sql',
+    description: 'Storage buckets (avatars, user-artwork), storage deletion queue, and storage RLS policies',
+    expectedTables: ['public.storage_deletion_queue'],
+    verificationQuery: "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'storage_deletion_queue';",
+    expectedCount: 1,
+    reconciliationPrecondition: 'AFFIRMATIVE_INSPECTION_PASSED: Storage table and buckets confirmed and 20261123000001 is reconciled.'
+  }
+];
+
+/**
  * Generates an idempotent migration bundle SQL for dry-run code audit and offline review only.
- * ARCHITECTURAL WARNING (B82-03): Direct manual execution in Supabase Dashboard SQL Editor
+ * ARCHITECTURAL WARNING (B82-03 / B19.8.3.1): Direct manual execution in Supabase Dashboard SQL Editor
  * bypasses supabase_migrations.schema_migrations and is NOT equivalent to supabase db push.
  */
 export function generateMigrationBundle(migrations) {
@@ -637,12 +755,15 @@ export function generateMigrationBundle(migrations) {
   bundle += `-- Target Project: AuroMasti (${CANONICAL_PROJECT_REF})\n`;
   bundle += `-- Total Canonical Migrations: ${migrations.length}\n`;
   bundle += `-- ==============================================================================\n`;
-  bundle += `-- ARCHITECTURAL WARNING (B82-03):\n`;
+  bundle += `-- ARCHITECTURAL WARNING (B82-03) / B19.8.3.1 CONTROLLED RECOVERY:\n`;
   bundle += `-- Direct execution of this bundle in the Supabase Dashboard SQL Editor\n`;
   bundle += `-- DOES NOT update the Supabase CLI migration ledger (supabase_migrations.schema_migrations).\n`;
   bundle += `-- It is strictly an offline code audit preview, NOT a drop-in alternative to 'supabase db push'.\n`;
-  bundle += `-- Any emergency manual disaster-recovery execution requires a separately approved\n`;
-  bundle += `-- operational procedure including post-execution 'supabase migration repair --status applied'.\n`;
+  bundle += `-- CRITICAL RECOVERY SAFEGUARD: DO NOT execute a blanket 'supabase migration repair' loop.\n`;
+  bundle += `-- Every migration must be independently validated against live database catalog state\n`;
+  bundle += `-- (verifying expected tables, columns, functions, and RLS policies) before that specific\n`;
+  bundle += `-- version is reconciled via 'supabase migration repair --status applied <version>' in supabase_migrations.schema_migrations.\n`;
+  bundle += `-- Refer to B19_8_3_REMOTE_PREFLIGHT_RUNBOOK.md for the controlled per-migration procedure.\n`;
   bundle += `-- ==============================================================================\n\n`;
 
   for (let i = 0; i < migrations.length; i++) {

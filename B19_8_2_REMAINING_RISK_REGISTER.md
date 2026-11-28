@@ -51,11 +51,7 @@ The remaining risks pertain strictly to remote cloud interaction, network enviro
 - **Mitigation:**
   1. Emergency manual SQL execution is formally classified as a disaster-recovery fallback, not an alternative deployment path.
   2. Clear prominent warning banners are injected at the top of `supabase/consolidated_migration_preview.sql` and the CLI bundle output.
-  3. Mandatory step documented in the emergency runbook (`B19_8_2_REMOTE_ACTIVATION_CHECKLIST.md` Step 6.4): Operator must independently inspect all remote public objects first, verify database backup, and only then sequentially execute:
-     ```powershell
-     npx supabase migration repair --status applied 20261120000001
-     # ... sequentially through all 10 canonical timestamps up to 20261123000002
-     ```
+  3. Mandatory step documented in the emergency runbook: Operator must independently inspect remote public objects first via catalog queries (`information_schema`, `pg_proc`), verify database backup, and only then conditionally reconcile verified versions individually. Blanket `migration repair` loops without affirmative catalog verification are strictly prohibited.
   4. Integration tests in `test-b19-8-2-migration-safety.test.js` verify that the warning headers and CLI repair instructions are present in the generated SQL artifact.
 
 ### RSK-03: Cloudflare Pages Routing vs Custom Domain Subdomain Routing
