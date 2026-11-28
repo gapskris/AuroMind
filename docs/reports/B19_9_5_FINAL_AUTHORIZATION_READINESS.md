@@ -7,17 +7,18 @@
 **Supabase Project Ref:** `rlqrtbjynaihdspbqtce` (`ap-southeast-1`)  
 **Target Endpoint:** Session Pooler `aws-1-ap-southeast-1.pooler.supabase.com:5432`  
 **Root CA File:** `prod-ca-2021.crt`  
-**Execution Status:** **`LOCKED — AWAITING PRODUCT OWNER AUTHORIZATION`**
+**Execution Status:** **`EXECUTED (9/10 Migrations Applied; Migration 10 Rolled Back on SQLSTATE 42501)`**
 
 ---
 
 ## 1. Executive Summary & Readiness Posture
 
-All reconciliation, verification, security hardening, and test suites for Bucket 2 are complete. The database inventory has been definitively reconciled:
+All reconciliation, verification, security hardening, and test suites for Bucket 2 are complete. The database inventory has been definitively reconciled and executed under attributable Product Owner authorization:
 - Exactly **10 canonical SQL migration files** in `supabase/migrations/`.
 - Recomputed aggregate manifest SHA-256: `f55231159389f9d5549713ee83c783c1c7130dc7454058c8195140ae529899ea`.
-- Zero live mutations executed. The remote database remains verified in `CLEAN_INITIAL_STATE` (0 public tables, 0 applied migrations, 0 player records).
-- Operational risk for initial schema push is accepted; backup/PITR upgrade is mandatory before live player traffic.
+- Migrations 1–9 successfully deployed: **15 public tables live with RLS enabled**.
+- Migration 10 cleanly rolled back due to PostgreSQL `SQLSTATE 42501` (`storage.objects` table ownership constraint).
+- Operational risk for initial schema push accepted; backup/PITR upgrade is mandatory before live player traffic.
 
 ---
 

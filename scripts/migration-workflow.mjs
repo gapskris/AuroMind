@@ -128,7 +128,8 @@ export function classifyPreflightState({
           expectedTables.push(...m.tables);
         }
       }
-      const missingTables = expectedTables.filter(t => !schemaTables.includes(t.replace(/^public\./, '')));
+      const normalizedSchema = new Set(schemaTables.map(s => s.replace(/^public\./, '')));
+      const missingTables = expectedTables.filter(t => !normalizedSchema.has(t.replace(/^public\./, '')));
       if (missingTables.length > 0) {
         return {
           state: PREFLIGHT_STATES.SCHEMA_HISTORY_DIVERGENCE,
@@ -1157,6 +1158,7 @@ export function executeRemoteMigrations({
   rootDir = REPO_ROOT,
   targetPooler = false,
   poolerConfig = {},
+  extraArgs = [],
   _cliRunner = runSupabaseCli
 } = {}) {
   // 1. Verify local migration files and manifest integrity
@@ -1270,7 +1272,7 @@ export function executeRemoteMigrations({
 
   // 5. Execute migration mutation via CLI runner with explicit authorization flag
   const cliEnv = env ? { ...env } : undefined;
-  const pushArgs = targetPooler ? ['db', 'push'] : ['db', 'push', '--project-ref', CANONICAL_PROJECT_REF];
+  const pushArgs = targetPooler ? ['db', 'push', ...extraArgs] : ['db', 'push', '--project-ref', CANONICAL_PROJECT_REF, ...extraArgs];
   return _cliRunner(pushArgs, {
     rootDir,
     env: cliEnv,
@@ -1379,11 +1381,18 @@ export function runPreflight({
           targetPooler,
           poolerConfig
         });
-        const tableLines = tableStatsOutput.split(/\r?\n/);
-        for (const line of tableLines) {
-          const parts = line.split('|').map(s => s.trim());
-          if (parts.length >= 2 && parts[0] && parts[0] !== 'Name' && !parts[0].startsWith('-')) {
-            schemaTables.push(parts[0]);
+        try {
+          const parsedStats = JSON.parse(tableStatsOutput.trim());
+          if (parsedStats && Array.isArray(parsedStats.rows)) {
+            schemaTables = parsedStats.rows.map(r => r.name);
+          }
+        } catch (_jsonErr) {
+          const tableLines = tableStatsOutput.split(/\r?\n/);
+          for (const line of tableLines) {
+            const parts = line.split('|').map(s => s.trim());
+            if (parts.length >= 2 && parts[0] && parts[0] !== 'Name' && !parts[0].startsWith('-')) {
+              schemaTables.push(parts[0]);
+            }
           }
         }
       } catch (_e) {
